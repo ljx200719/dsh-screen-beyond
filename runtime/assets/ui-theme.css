@@ -1,0 +1,151 @@
+/* 屏幕彼端 · 全页面配色层
+ * 只改颜色，不改布局；所有页面在 </head> 前加载。
+ */
+
+html[data-theme="warm"] {
+  color-scheme: light;
+  --t-bg: #f7f2eb; --t-bg2: #fffaf5; --t-header: rgba(255,252,247,.88);
+  --t-surface: rgba(255,255,255,.86); --t-input: rgba(255,255,255,.92);
+  --t-text: #3d4a5c; --t-muted: #65788c; --t-line: rgba(160,132,105,.20);
+  --t-accent: #5b8fce; --t-accent2: #74a9df; --t-bubble: rgba(255,255,255,.92);
+}
+html[data-theme="mint"] {
+  color-scheme: light;
+  --t-bg: #f0faf5; --t-bg2: #f7fffb; --t-header: rgba(245,255,250,.90);
+  --t-surface: rgba(255,255,255,.88); --t-input: rgba(255,255,255,.94);
+  --t-text: #334b41; --t-muted: #5f8070; --t-line: rgba(80,150,125,.20);
+  --t-accent: #4f9f8a; --t-accent2: #6fc7a6; --t-bubble: rgba(255,255,255,.93);
+}
+html[data-theme="sakura"] {
+  color-scheme: light;
+  --t-bg: #fff7f9; --t-bg2: #fffafb; --t-header: rgba(255,248,251,.90);
+  --t-surface: rgba(255,255,255,.88); --t-input: rgba(255,255,255,.94);
+  --t-text: #4a3c44; --t-muted: #7d6470; --t-line: rgba(190,120,145,.18);
+  --t-accent: #c97191; --t-accent2: #e9a0b8; --t-bubble: rgba(255,255,255,.93);
+}
+html[data-theme="ocean"] {
+  color-scheme: light;
+  --t-bg: #f1f9ff; --t-bg2: #f8fcff; --t-header: rgba(245,251,255,.90);
+  --t-surface: rgba(255,255,255,.88); --t-input: rgba(255,255,255,.94);
+  --t-text: #334a5c; --t-muted: #5f7f95; --t-line: rgba(90,140,180,.18);
+  --t-accent: #4b8fc7; --t-accent2: #74b6df; --t-bubble: rgba(255,255,255,.93);
+}
+html[data-theme="lavender"] {
+  color-scheme: light;
+  --t-bg: #f7f4ff; --t-bg2: #fbf9ff; --t-header: rgba(250,247,255,.90);
+  --t-surface: rgba(255,255,255,.88); --t-input: rgba(255,255,255,.94);
+  --t-text: #413c52; --t-muted: #746b90; --t-line: rgba(130,110,180,.18);
+  --t-accent: #8877c9; --t-accent2: #a995e4; --t-bubble: rgba(255,255,255,.93);
+}
+html[data-theme="midnight"] {
+  color-scheme: dark;
+  --t-bg: #0f1724; --t-bg2: #111c2c; --t-header: rgba(16,28,43,.92);
+  --t-surface: rgba(19,31,47,.94); --t-input: #0b1420;
+  --t-text: #d9e5f2; --t-muted: #8fa4ba; --t-line: rgba(120,160,210,.20);
+  --t-accent: #6fa8dc; --t-accent2: #8b7bff; --t-bubble: rgba(21,35,52,.96);
+}
+html[data-theme="forest"] {
+  color-scheme: dark;
+  --t-bg: #111a16; --t-bg2: #15211b; --t-header: rgba(17,28,23,.94);
+  --t-surface: rgba(22,36,29,.94); --t-input: #0d1712;
+  --t-text: #dce9df; --t-muted: #90a697; --t-line: rgba(120,180,140,.20);
+  --t-accent: #72b08d; --t-accent2: #4f9f8a; --t-bubble: rgba(25,42,33,.96);
+}
+html[data-theme="sepia"] {
+  color-scheme: dark;
+  --t-bg: #1c1712; --t-bg2: #241d16; --t-header: rgba(30,24,18,.94);
+  --t-surface: rgba(39,31,23,.94); --t-input: #17120e;
+  --t-text: #eadfce; --t-muted: #b8a68e; --t-line: rgba(200,165,120,.20);
+  --t-accent: #c49a62; --t-accent2: #a77a4a; --t-bubble: rgba(43,34,25,.96);
+}
+
+/* 通用：页面 / 卡片 / 文字 */
+html[data-theme] body { background: var(--t-bg) !important; color: var(--t-text) !important; }
+html[data-theme] header, html[data-theme] .top, html[data-theme] #bar, html[data-theme] .bar {
+  background: var(--t-header) !important;
+  border-color: var(--t-line) !important;
+  color: var(--t-text) !important;
+}
+html[data-theme] .card, html[data-theme] .fact, html[data-theme] .stat .s,
+html[data-theme] .box, html[data-theme] .panel, html[data-theme] .settings-card,
+html[data-theme] #bigTravel .box, html[data-theme] #hud {
+  background: var(--t-surface) !important;
+  border-color: var(--t-line) !important;
+  color: var(--t-text) !important;
+}
+html[data-theme] .card h2, html[data-theme] .fact .t, html[data-theme] .stat .s .n,
+html[data-theme] .name, html[data-theme] .nm { color: var(--t-text) !important; }
+html[data-theme] .hint, html[data-theme] .small, html[data-theme] .sub,
+html[data-theme] .meta, html[data-theme] .sidefoot, html[data-theme] .time,
+html[data-theme] .who, html[data-theme] .sidefoot a { color: var(--t-muted) !important; }
+html[data-theme] a { color: var(--t-accent); }
+html[data-theme] input, html[data-theme] textarea, html[data-theme] select {
+  background: var(--t-input) !important;
+  border-color: var(--t-line) !important;
+  color: var(--t-text) !important;
+}
+html[data-theme] input::placeholder, html[data-theme] textarea::placeholder { color: var(--t-muted) !important; }
+html[data-theme] .btn, html[data-theme] button {
+  border-color: var(--t-line) !important;
+  color: var(--t-text);
+}
+html[data-theme] .btn { background: var(--t-surface) !important; }
+html[data-theme] .btn.primary, html[data-theme] #send,
+html[data-theme] .btn.on {
+  background: linear-gradient(135deg, var(--t-accent2), var(--t-accent)) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+}
+html[data-theme] .btn.danger { background: rgba(185,90,81,.14) !important; color: #d98276 !important; }
+html[data-theme] .btn.ghost { background: transparent !important; }
+html[data-theme] .chip, html[data-theme] .pill {
+  background: var(--t-surface) !important; border-color: var(--t-line) !important; color: var(--t-muted) !important;
+}
+html[data-theme] .chip.on, html[data-theme] .pill.core {
+  background: color-mix(in srgb, var(--t-accent) 16%, transparent) !important;
+  border-color: var(--t-accent) !important; color: var(--t-accent) !important;
+}
+html[data-theme] .nav a { color: var(--t-muted) !important; }
+html[data-theme] .nav a:hover { background: var(--t-surface) !important; color: var(--t-text) !important; }
+html[data-theme] .nav a.on { color: var(--t-accent) !important; background: var(--t-surface) !important; }
+html[data-theme] .side { background: var(--t-header) !important; border-color: var(--t-line) !important; }
+html[data-theme] .mode-banner { background: var(--t-surface) !important; border-color: var(--t-line) !important; }
+html[data-theme] #toast { background: var(--t-accent) !important; }
+html[data-theme] .example { background: var(--t-surface) !important; color: var(--t-muted) !important; border-left-color: var(--t-accent) !important; }
+
+/* 聊天气泡 */
+html[data-theme] .msg.her .bubble {
+  background: var(--t-bubble) !important;
+  color: var(--t-text) !important;
+  border-color: var(--t-line) !important;
+}
+html[data-theme] .msg.user .bubble {
+  background: linear-gradient(135deg, var(--t-accent2), var(--t-accent)) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+}
+html[data-theme] .msg.system { background: var(--t-surface) !important; color: var(--t-muted) !important; border-color: var(--t-line) !important; }
+html[data-theme] #chatBg::after { background: linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,0)); }
+html[data-theme="midnight"] #chatBg::after,
+html[data-theme="forest"] #chatBg::after,
+html[data-theme="sepia"] #chatBg::after { background: rgba(8,14,20,.48) !important; }
+
+/* 地图 / 舞台 / 屏幕 */
+html[data-theme] #mapWrap, html[data-theme] #stage, html[data-theme] #view {
+  background: var(--t-bg2) !important;
+  border-color: var(--t-line) !important;
+}
+html[data-theme] #scaleBar, html[data-theme] #roadBar, html[data-theme] #status,
+html[data-theme] #docs, html[data-theme] .pin .label {
+  background: var(--t-surface) !important;
+  border-color: var(--t-line) !important;
+  color: var(--t-text) !important;
+}
+html[data-theme] #hint, html[data-theme] #typing, html[data-theme] .now { color: var(--t-muted) !important; }
+html[data-theme] #bigTravel .prog, html[data-theme] .bar { background: var(--t-line) !important; }
+html[data-theme] #bigTravel .prog i, html[data-theme] .bar i { background: linear-gradient(90deg, var(--t-accent), var(--t-accent2)) !important; }
+
+/* 深色主题的滚动条 */
+html[data-theme="midnight"] ::-webkit-scrollbar-thumb,
+html[data-theme="forest"] ::-webkit-scrollbar-thumb,
+html[data-theme="sepia"] ::-webkit-scrollbar-thumb { background: rgba(180,200,220,.20) !important; }

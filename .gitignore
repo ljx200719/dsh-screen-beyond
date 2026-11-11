@@ -1,0 +1,10 @@
+node_modules/
+backups/
+dist/
+media/preview*/
+*.log
+*.tmp
+config.json
+.dsh-companion.json
+__pycache__/
+*.pyc

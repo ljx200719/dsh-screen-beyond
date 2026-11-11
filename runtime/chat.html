@@ -35,8 +35,326 @@ textarea:focus{border-color:#2563eb}
 button{background:#2563eb;color:#fff;border:0;border-radius:10px;padding:10px 18px;font:inherit;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
 #toast{position:fixed;right:16px;bottom:76px;background:#1f6feb;color:#fff;padding:8px 14px;border-radius:8px;opacity:0;transition:.2s;font-size:12px}
+
+/* 0.6 UI polish：柔和的深色海面 + 更圆的卡片/按钮 */
+body {
+  background-image:
+    radial-gradient(1000px 520px at 18% -8%, rgba(70, 130, 210, 0.16), transparent 62%),
+    radial-gradient(900px 480px at 88% 108%, rgba(38, 170, 150, 0.10), transparent 58%);
+  background-attachment: fixed;
+}
+.card, .stat, .fact, .box, .panel, .msg .bubble, .bubble {
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+}
+button, .btn { border-radius: 10px; transition: transform .12s ease, background .18s ease, border-color .18s ease; }
+button:hover, .btn:hover { transform: translateY(-1px); }
+input, textarea, select { border-radius: 9px; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: #2b3a4c; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #3b5068; }
+
+
+#bgBtn{cursor:pointer;font:inherit}
+#bgPanel{
+  position:fixed;z-index:80;top:68px;right:18px;width:300px;display:none;
+  padding:12px;border-radius:16px;
+  background:rgba(255,252,247,.96);
+  border:1px solid rgba(126,151,181,.28);
+  box-shadow:0 18px 50px rgba(60,90,130,.22);
+}
+#bgPanel h3{margin:2px 2px 10px;font-size:12px;color:#65788f;font-weight:600;letter-spacing:.5px}
+#bgPanel .bgGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#bgPanel .bgOpt{cursor:pointer;border:2px solid transparent;border-radius:11px;overflow:hidden;background:#fff;text-align:left;padding:0}
+#bgPanel .bgOpt.on{border-color:#5b8fce;box-shadow:0 0 0 3px rgba(91,143,206,.15)}
+#bgPanel .bgThumb{height:58px;background-size:cover;background-position:center}
+#bgPanel .bgName{font-size:12px;color:#4d6078;padding:5px 8px 6px}
+
+#bgPanel .bgUpload{
+  width:100%;margin-top:9px;cursor:pointer;font:inherit;font-size:12px;
+  color:#4f6f94;background:rgba(239,246,255,.9);
+  border:1px dashed rgba(91,143,206,.55);border-radius:10px;padding:8px 10px;
+}
+#bgPanel .bgUpload:hover{background:#fff;border-color:#5b8fce}
+#bgPanel{max-height:calc(100vh - 90px);overflow:auto}
+#bgPanel .bgFoot{font-size:11px;color:#8b9aad;margin-top:9px;line-height:1.5}
+
 </style>
-<link rel="stylesheet" href="/theme.css"></head><body>
+<link rel="stylesheet" href="/theme.css"><style>
+
+/* 0.6.1 聊天页细化：只做视觉，不加动画 */
+body{
+  background:#08111d;
+  background-image:
+    radial-gradient(900px 500px at 12% -10%, rgba(61,126,214,.22), transparent 60%),
+    radial-gradient(800px 460px at 94% 108%, rgba(28,160,148,.12), transparent 58%),
+    linear-gradient(180deg,#08111d 0%,#0a1420 46%,#07101a 100%);
+  background-attachment:fixed;
+}
+header{
+  padding:12px 20px;
+  border-bottom:1px solid rgba(116,160,222,.14);
+  background:linear-gradient(180deg,rgba(15,26,41,.98),rgba(9,17,28,.96));
+  box-shadow:0 10px 30px rgba(0,0,0,.20);
+  flex-wrap:wrap;
+  row-gap:8px;
+}
+header .ava{
+  width:38px;height:38px;
+  border:2px solid rgba(144,192,255,.55);
+  box-shadow:0 0 0 3px rgba(80,140,255,.10),0 6px 16px rgba(0,0,0,.25);
+  font-size:17px;
+}
+header .name{font-size:16px;letter-spacing:.2px;color:#eef4ff}
+header .meta{font-size:11.5px;color:#8ba0b8}
+header .chip{
+  background:rgba(24,38,56,.62);
+  border-color:rgba(116,160,222,.20);
+  color:#a9bdd4;
+  padding:3px 10px;
+  border-radius:999px;
+}
+header a{
+  background:rgba(20,32,48,.55);
+  border-color:rgba(116,160,222,.18);
+  padding:6px 12px;
+  border-radius:999px;
+  color:#a9bdd4;
+}
+header a:hover{background:rgba(37,99,235,.20);border-color:rgba(96,165,250,.55);color:#eaf3ff}
+#list{
+  width:100%;
+  max-width:1120px;
+  margin:0 auto;
+  padding:24px 22px 12px;
+  gap:14px;
+}
+.msg{max-width:min(80%,820px);gap:10px}
+.msg .bubble{
+  padding:11px 15px;
+  border-radius:16px 16px 16px 6px;
+  background:linear-gradient(180deg,rgba(22,33,49,.94),rgba(17,26,40,.94));
+  border:1px solid rgba(116,160,222,.16);
+  box-shadow:0 8px 24px rgba(0,0,0,.20);
+  font-size:14px;
+}
+.msg.her .bubble{border-top-left-radius:6px}
+.msg.user .bubble{
+  background:linear-gradient(135deg,#2f6bd8,#214cc4);
+  border-color:rgba(130,180,255,.28);
+  border-radius:16px 16px 6px 16px;
+  box-shadow:0 8px 22px rgba(24,74,180,.28);
+}
+.msg .who{font-size:10.5px;letter-spacing:.3px;color:#6f849b;margin-bottom:3px}
+.msg.user .who{color:#87a5cc}
+.msg .bubble img{max-width:100%;border-radius:10px}
+.msg.system{
+  background:rgba(14,22,34,.72);
+  border-color:rgba(116,160,222,.18);
+  color:#71879f;
+}
+#typing{
+  max-width:1120px;
+  width:100%;
+  margin:0 auto;
+  padding:2px 24px 10px;
+  color:#7890a8;
+}
+#bar{
+  border-top:1px solid rgba(116,160,222,.14);
+  background:linear-gradient(180deg,rgba(8,15,24,.72),rgba(7,13,21,.97));
+  padding:12px 18px 16px;
+}
+#bar .hint{
+  width:100%;
+  max-width:1120px;
+  margin:0 auto;
+  padding-left:2px;
+  color:#5f748d;
+}
+#row{width:100%;max-width:1120px;margin:0 auto;gap:9px}
+textarea{
+  min-height:46px;
+  padding:12px 14px;
+  border-radius:14px;
+  border-color:rgba(116,160,222,.20);
+  background:rgba(9,17,28,.92);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+textarea:focus{
+  border-color:rgba(96,165,250,.72);
+  box-shadow:0 0 0 3px rgba(59,130,246,.12);
+}
+#row button{
+  height:46px;
+  border-radius:14px;
+  padding:0 20px;
+  background:linear-gradient(135deg,#3b82f6,#2563eb);
+  box-shadow:0 6px 18px rgba(37,99,235,.28);
+}
+#attach{
+  width:46px;
+  padding:0 !important;
+  background:rgba(20,33,50,.92) !important;
+  color:#b8cee8 !important;
+  border:1px solid rgba(116,160,222,.20) !important;
+}
+#send{font-weight:600;letter-spacing:.5px}
+#list:empty::before{
+  content:'今天想聊点什么？';
+  display:block;
+  margin:18vh auto 0;
+  color:#516985;
+  font-size:14px;
+  letter-spacing:1px;
+}
+
+</style>
+<style>
+/* 0.6.2 聊天页暖光主题：适合陪伴，不是黑漆漆的终端 */
+:root{color-scheme:light}
+body{
+  color:#3d4a5c;
+  background:transparent;
+}
+header{
+  background:rgba(255,252,247,.76);
+  border-bottom:1px solid rgba(126,151,181,.22);
+  box-shadow:0 8px 24px rgba(70,100,140,.08);
+}
+header .name{color:#2f3c4f}
+header .meta{color:#7b8ca2}
+header .chip{
+  background:rgba(255,255,255,.66);
+  border-color:rgba(126,151,181,.25);
+  color:#5b6e86;
+}
+header a{
+  background:rgba(255,255,255,.62);
+  border-color:rgba(126,151,181,.24);
+  color:#5b6e86;
+}
+header a:hover{background:#fff;border-color:rgba(91,147,214,.55);color:#2f5f96}
+header .ava{
+  border-color:#fff;
+  box-shadow:0 0 0 3px rgba(120,170,230,.20),0 6px 16px rgba(70,100,140,.15);
+}
+#list{background:transparent}
+.msg .bubble{
+  color:#354256;
+  background:rgba(255,255,255,.86);
+  border-color:rgba(126,151,181,.22);
+  box-shadow:0 8px 22px rgba(70,100,140,.10);
+}
+.msg.user .bubble{
+  color:#fff;
+  background:linear-gradient(135deg,#79afe4,#5b90d0);
+  border-color:rgba(255,255,255,.55);
+  box-shadow:0 8px 20px rgba(65,110,170,.20);
+}
+.msg.her .bubble{
+  background:rgba(255,255,255,.90) !important;
+  color:#344154 !important;
+  border-color:rgba(126,151,181,.25) !important;
+}
+.msg.user .bubble{
+  background:linear-gradient(135deg,#6fa6dc,#4f86c8) !important;
+  color:#fff !important;
+}
+header a{color:#4b6685 !important;}
+header .meta{color:#6e8198 !important;}
+.msg .who{color:#8b9aad}
+.msg.user .who{color:#7b93b0}
+.msg.system{
+  color:#6f8096;
+  background:rgba(255,255,255,.62);
+  border-color:rgba(126,151,181,.24);
+}
+.time{color:#9aa9ba}
+#typing{color:#7e8fa4}
+#bar{
+  border-top:1px solid rgba(126,151,181,.20);
+  background:linear-gradient(180deg,rgba(255,253,248,.58),rgba(249,251,254,.93));
+}
+#bar .hint{color:#8798ab}
+textarea{
+  color:#2f3d50;
+  background:rgba(255,255,255,.88);
+  border-color:rgba(126,151,181,.30);
+  box-shadow:0 4px 14px rgba(70,100,140,.06);
+}
+textarea::placeholder{color:#9aa9ba}
+textarea:focus{
+  border-color:rgba(91,147,214,.72);
+  box-shadow:0 0 0 3px rgba(91,147,214,.12),0 4px 14px rgba(70,100,140,.08);
+}
+#row button{
+  background:linear-gradient(135deg,#74a9df,#5b8fce);
+  box-shadow:0 6px 16px rgba(65,110,170,.22);
+}
+#attach{
+  background:rgba(255,255,255,.82) !important;
+  border-color:rgba(126,151,181,.28) !important;
+  color:#60758d !important;
+}
+#toast{background:#4f7fb8}
+#list:empty::before{color:#8a9ab0}
+#tokenChip,#moneyChip{color:#5b6e86 !important}
+@media (max-width:700px){
+  header{padding:10px 12px}
+  #list{padding:16px 14px 10px}
+  #bar{padding:10px 12px 12px}
+  .msg{max-width:88%}
+}
+</style>
+
+<style>
+/* 暖光主题对比度微调 */
+.msg .who{color:#74869b !important}
+.msg.user .who{color:#6f88a7 !important}
+#bar .hint{color:#7f92a7 !important}
+textarea::placeholder{color:#8e9fb3 !important}
+#typing{color:#71849a !important}
+</style>
+
+<style>
+/* 0.6.3 背景图片层 + 宽屏宽度 */
+#chatBg{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;background:#f7efe8}
+#chatBg img{width:100%;height:100%;object-fit:cover;object-position:center 55%;display:block}
+#chatBg::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,252,246,.16),rgba(246,250,255,.22));pointer-events:none}
+header,#list,#typing,#bar{position:relative;z-index:1}
+@media (max-width:700px){
+  #list{max-width:100%;padding:16px 14px 10px}
+  #bar .hint,#row{max-width:100%}
+  .msg{max-width:88%}
+}
+</style>
+
+<style>
+/* 聊天页配色跟随设置 */
+html[data-theme="mint"] .msg.user .bubble{background:linear-gradient(135deg,#7bcdb0,#57a88f)!important}
+html[data-theme="mint"] #send{background:linear-gradient(135deg,#6fc7a6,#4f9f8a)!important}
+html[data-theme="mint"] header a:hover{color:#3f7f6d!important}
+html[data-theme="mint"] #toast{background:#4f9f8a}
+html[data-theme="mint"] #bgBtn{border-color:rgba(111,199,166,.5)!important;color:#3f7f6d!important}
+html[data-theme="sakura"] .msg.user .bubble{background:linear-gradient(135deg,#efa9c0,#d27e9f)!important}
+html[data-theme="sakura"] #send{background:linear-gradient(135deg,#e9a0b8,#c97191)!important}
+html[data-theme="sakura"] header a:hover{color:#a55773!important}
+html[data-theme="sakura"] #toast{background:#c97191}
+html[data-theme="sakura"] #bgBtn{border-color:rgba(233,160,184,.5)!important;color:#a55773!important}
+html[data-theme="ocean"] .msg.user .bubble{background:linear-gradient(135deg,#7fc2e8,#4b8fc7)!important}
+html[data-theme="ocean"] #send{background:linear-gradient(135deg,#74b6df,#4b8fc7)!important}
+html[data-theme="ocean"] header a:hover{color:#3d709d!important}
+html[data-theme="ocean"] #toast{background:#4b8fc7}
+html[data-theme="ocean"] #bgBtn{border-color:rgba(116,182,223,.5)!important;color:#3d709d!important}
+html[data-theme="lavender"] .msg.user .bubble{background:linear-gradient(135deg,#b7a5ee,#8d7bce)!important}
+html[data-theme="lavender"] #send{background:linear-gradient(135deg,#a995e4,#8877c9)!important}
+html[data-theme="lavender"] header a:hover{color:#6a5aa5!important}
+html[data-theme="lavender"] #toast{background:#8877c9}
+html[data-theme="lavender"] #bgBtn{border-color:rgba(169,149,228,.5)!important;color:#6a5aa5!important}
+</style>
+<link rel="stylesheet" href="/ui-theme.css"><script src="/ui-theme.js"></script><script src="/ui-dialog.js"></script></head><body>
+<div id="chatBg" aria-hidden="true"><img id="chatBgImg" alt="" draggable="false" src="/chat-bg/sunset.jpg"></div>
 <header>
   <div class="ava" id="ava">🐟</div>
   <div>
@@ -47,6 +365,7 @@ button:disabled{opacity:.5;cursor:default}
   <span class="chip" id="moneyChip">💰 …</span>
   <span class="chip" id="tokenChip">🪙 …</span>
   <span class="chip" id="modeChip">…</span>
+  <button class="chip" id="bgBtn" onclick="toggleBgPanel()" title="换聊天背景">🎨 背景</button>
   <span class="chip" id="standaloneChip" style="display:none" title="纯聊天模式可以脱离 DSH 独立运行：Node 18+ 和 DeepSeek API Key 即可；完整版仍需 DSH">🧩 可独立运行</span>
   <div class="spacer"></div>
   <a href="/screen" target="_blank" title="快捷键 Alt+S">屏幕</a>
@@ -54,6 +373,7 @@ button:disabled{opacity:.5;cursor:default}
   <a href="/map" target="_blank">地图</a>
   <a href="/settings" target="_blank">设置</a>
 </header>
+<div id="bgPanel"></div>
 <div id="list"></div>
 <div id="typing" style="display:none">对方正在输入…</div>
 <div id="bar">
@@ -109,18 +429,96 @@ async function loadHeader(){
     if (sc) sc.style.display = modeEff === 'chat' ? '' : 'none';
     const econ = await (await fetch('/api/economy')).json();
     const w = econ.wallet || {};
-    $('#moneyChip').textContent = '💰 ' + (w.spendable ?? w.balance ?? '…') + ' 元';
+    const rb = econ.realBalance || {};
     const tk = st.tokens || {};
     const tc = document.getElementById('tokenChip');
-    if (tc) {
-      const rem = Number(tk.remainingTokens ?? w.remainingTokens ?? 0);
-      const today = Number(tk.dailyUsed ?? 0);
-      const fmt = (n) => n >= 1000000 ? (n / 1000000).toFixed(n >= 10000000 ? 0 : 1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
-      tc.textContent = '🪙 余 ' + fmt(rem) + ' · 今日 ' + fmt(today);
-      tc.title = '剩余 token：' + rem.toLocaleString() + '\n今日已用：' + today.toLocaleString() + (tk.tokenBudget ? '\n预算：' + Number(tk.tokenBudget).toLocaleString() : '');
+    if (w.tokenMode) {
+      $('#moneyChip').textContent = '💰 零花 ' + (w.spendable ?? w.balance ?? '…') + ' 元';
+      if (tc) {
+        tc.style.display = '';
+        tc.textContent = '🪙 用户余额 ' + (rb.ok ? '¥' + Number(rb.total).toFixed(2) : '读取失败');
+        tc.title = rb.ok ? ('用户 DeepSeek 真实余额：¥' + Number(rb.total).toFixed(2) + (rb.todayRmb !== undefined ? '\n今日消耗：¥' + Number(rb.todayRmb).toFixed(2) : '')) : '读取不到用户余额';
+      }
+    } else {
+      $('#moneyChip').textContent = '💰 ' + (w.spendable ?? w.balance ?? '…') + ' 元';
+      if (tc) tc.style.display = 'none';
     }
   } catch (e) {}
 }
+
+let CHAT_BG = { current: 'sunset', options: [] };
+function applyChatBg(id){
+  const opt = (CHAT_BG.options || []).find(x => x.id === id) || {url:'/chat-bg/sunset.jpg'};
+  const img = document.getElementById('chatBgImg');
+  if (img) img.src = opt.url;
+  CHAT_BG.current = id;
+  document.querySelectorAll('#bgPanel .bgOpt').forEach(el => el.classList.toggle('on', el.dataset.id === id));
+}
+async function loadChatBg(){
+  try {
+    const r = await (await fetch('/api/chat-bg', {cache:'no-store'})).json();
+    CHAT_BG = r;
+    renderBgPanel();
+    applyChatBg(r.current || 'sunset');
+  } catch(e) {}
+}
+function renderBgPanel(){
+  const panel = document.getElementById('bgPanel');
+  if (!panel) return;
+  panel.innerHTML = '<h3>聊天背景</h3><div class="bgGrid">'
+    + (CHAT_BG.options || []).map(o => '<button class="bgOpt'+ (o.id===CHAT_BG.current?' on':'') +'" data-id="'+esc(o.id)+'" onclick="chooseChatBg(\''+esc(o.id)+'\')">'
+      + '<div class="bgThumb" style="background-image:url('+esc(o.url)+')"></div><div class="bgName">'+esc(o.name)+'</div></button>').join('')
+    + '</div>'
+    + '<button class="bgUpload" onclick="document.getElementById(\'bgFile\').click()">＋ 上传自定义背景</button>'
+    + '<input id="bgFile" type="file" accept="image/*" style="display:none" onchange="uploadChatBg(this)">'
+    + '<div class="bgFoot">支持 jpg / png / webp，最大 10MB；只换背景，不加载额外动画。</div>';
+}
+function toggleBgPanel(){
+  const p = document.getElementById('bgPanel');
+  if (!p) return;
+  p.style.display = p.style.display === 'block' ? 'none' : 'block';
+}
+async function chooseChatBg(id){
+  applyChatBg(id);
+  try { await fetch('/api/chat-bg', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})}); } catch(e) {}
+  toggleBgPanel();
+}
+function fileToDataUrl(file){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ''));
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+async function uploadChatBg(input){
+  const f = input.files && input.files[0];
+  if (!f) return;
+  if (f.size > 10 * 1024 * 1024) { toast('图片太大，最大 10MB'); input.value = ''; return; }
+  try {
+    const image = await fileToDataUrl(f);
+    const res = await fetch('/api/chat-bg/upload', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({image})});
+    const r = await res.json();
+    if (!r.ok) { toast(r.error || '上传失败'); input.value = ''; return; }
+    CHAT_BG = r; renderBgPanel(); applyChatBg('custom'); toast('自定义背景已应用');
+  } catch(e) { toast('读取图片失败'); }
+  input.value = '';
+}
+document.addEventListener('click', (e) => {
+  const p = document.getElementById('bgPanel');
+  const b = document.getElementById('bgBtn');
+  if (!p || !b) return;
+  if (p.style.display === 'block' && !p.contains(e.target) && !b.contains(e.target)) p.style.display = 'none';
+});
+
+
+async function loadUiTheme(){
+  try {
+    const r = await (await fetch('/api/ui-theme', {cache:'no-store'})).json();
+    document.documentElement.dataset.theme = r.current || 'warm';
+  } catch(e) {}
+}
+
 async function poll(){
   try {
     const r = await (await fetch('/api/events?since=' + lastId)).json();
@@ -207,6 +605,8 @@ function initStream(){
     (r.messages || []).forEach((m) => { addMsg(m); lastId = Math.max(lastId, Number(m.id)||0); });
   } catch (e) { addMsg({ role:'system', text:'运行时好像没起来：' + e.message }); }
   await loadHeader();
+  loadUiTheme();
+  loadChatBg();
   if (!location.search.includes('nostream')) initStream();
   setInterval(poll, 1200);
   setInterval(loadHeader, 15000);

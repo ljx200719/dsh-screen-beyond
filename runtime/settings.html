@@ -71,8 +71,169 @@ input[type=range]{flex:1;accent-color:#2563eb}
   .fact .meta{flex-wrap:wrap;row-gap:6px}
   .fact .t{overflow-wrap:anywhere}
   @media (max-width:900px){ .wrap{flex-direction:column} .col.side2{flex:1 1 auto;width:100%;max-width:none} }
+
+/* 0.6 UI polish：柔和的深色海面 + 更圆的卡片/按钮 */
+body {
+  background-image:
+    radial-gradient(1000px 520px at 18% -8%, rgba(70, 130, 210, 0.16), transparent 62%),
+    radial-gradient(900px 480px at 88% 108%, rgba(38, 170, 150, 0.10), transparent 58%);
+  background-attachment: fixed;
+}
+.card, .stat, .fact, .box, .panel, .msg .bubble, .bubble {
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+}
+button, .btn { border-radius: 10px; transition: transform .12s ease, background .18s ease, border-color .18s ease; }
+button:hover, .btn:hover { transform: translateY(-1px); }
+input, textarea, select { border-radius: 9px; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: #2b3a4c; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #3b5068; }
+
 </style>
-<link rel="stylesheet" href="/theme.css"></head>
+<link rel="stylesheet" href="/theme.css">
+<style>
+/* 0.6.4 设置页暖光主题 */
+:root{color-scheme:light}
+body{
+  color:#3d4a5c;
+  background:
+    radial-gradient(900px 520px at 10% -8%, rgba(255,214,186,.38), transparent 62%),
+    radial-gradient(800px 500px at 96% 104%, rgba(188,220,245,.40), transparent 62%),
+    #f7f2eb;
+}
+.side{
+  background:rgba(255,252,247,.86);
+  border-right:1px solid rgba(160,132,105,.16);
+  box-shadow:8px 0 30px rgba(80,60,40,.06);
+}
+.brand{border-bottom:1px solid rgba(160,132,105,.15)}
+.nm{color:#2f3c4f}
+.st{color:#5e9e72}
+.nav a{color:#6e7f93}
+.nav a:hover{background:rgba(255,255,255,.72);color:#2f3c4f}
+.nav a.on{
+  background:rgba(255,255,255,.92);
+  color:#2f5f96;
+  box-shadow:inset 3px 0 0 #74a9df,0 3px 12px rgba(80,100,130,.06);
+}
+.sidefoot{color:#8d9bab;border-top:1px solid rgba(160,132,105,.15)}
+.sidefoot a{color:#5b8fce !important}
+.main{background:transparent}
+.top{
+  background:rgba(255,252,247,.82);
+  border-bottom:1px solid rgba(160,132,105,.16);
+  box-shadow:0 6px 20px rgba(80,60,40,.04);
+}
+.top h1{color:#2f3c4f}
+.top .sub{color:#8795a5}
+.btn{
+  background:rgba(255,255,255,.85);
+  color:#4d6078;
+  border:1px solid rgba(160,132,105,.25);
+  box-shadow:0 2px 8px rgba(80,60,40,.04);
+}
+.btn.primary{background:linear-gradient(135deg,#74a9df,#5b8fce);border-color:transparent;color:#fff;box-shadow:0 6px 16px rgba(65,110,170,.20)}
+.btn.danger{background:#fff1ef;border-color:#e8bdb8;color:#b95a51}
+.btn.ghost{background:transparent;box-shadow:none}
+.btn:hover{filter:none;background:#fff;border-color:rgba(91,143,206,.45)}
+.btn.primary:hover{background:linear-gradient(135deg,#7db4e9,#6198d6)}
+.card{
+  background:rgba(255,255,255,.84);
+  border:1px solid rgba(160,132,105,.18);
+  box-shadow:0 10px 28px rgba(80,60,40,.07);
+}
+.card h2{color:#5f7189}
+.card h2 .tag{color:#6f8094}
+.row label{color:#5f7288}
+input[type=text],input[type=number],textarea,select{
+  background:rgba(255,255,255,.90);
+  border:1px solid rgba(160,132,105,.26);
+  color:#354256;
+}
+input::placeholder,textarea::placeholder{color:#9aa8b7}
+input:focus,textarea:focus{border-color:rgba(91,143,206,.72);box-shadow:0 0 0 3px rgba(91,143,206,.12)}
+.hint{color:#687b8f}
+.small{color:#687b8f}
+.chip{background:rgba(255,255,255,.72);border-color:rgba(160,132,105,.22);color:#63758a}
+.chip.on{background:rgba(227,240,255,.92);border-color:rgba(91,143,206,.55);color:#2f5f96}
+.fact{background:rgba(255,255,255,.78);border-color:rgba(160,132,105,.18)}
+.fact .t{color:#39485c}
+.fact .meta{color:#8797a8}
+.bar{background:rgba(160,132,105,.14)}
+.pill{border-color:rgba(160,132,105,.25);color:#63758a}
+.pill.core{background:#eaf3ff;border-color:#9ec5ea;color:#3f6f9f}
+.pill.faint{background:#fff5e7;border-color:#e6c99e;color:#a77a39}
+.example{background:rgba(255,255,255,.66);border-left-color:#74a9df;color:#63758a}
+.stat .s{background:rgba(255,255,255,.78);border-color:rgba(160,132,105,.18)}
+.stat .s .n{color:#2f3c4f}
+.stat .s .l{color:#8797a8}
+.mode-banner{
+  background:linear-gradient(135deg,rgba(232,244,255,.96),rgba(255,246,235,.92));
+  border-color:rgba(91,143,206,.35);
+  box-shadow:0 8px 24px rgba(80,100,130,.06);
+}
+.avatar{background:rgba(255,255,255,.72);color:#63758a}
+#toast{background:#5b8fce}
+::-webkit-scrollbar-thumb{background:rgba(160,132,105,.28)}
+::-webkit-scrollbar-thumb:hover{background:rgba(160,132,105,.42)}
+</style>
+
+<style>
+/* 配色选择器 */
+.themeBox{margin-top:auto;padding:10px 14px 4px;border-top:1px solid rgba(160,132,105,.15)}
+.themeLabel{font-size:11px;color:#6f8094;margin-bottom:7px}
+.themeDots{display:flex;gap:8px;align-items:center}
+.themeDot{width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.9);box-shadow:0 0 0 1px rgba(100,90,80,.18);cursor:pointer;padding:0}
+.themeDot.on{box-shadow:0 0 0 2px #5b8fce,0 0 0 4px rgba(91,143,206,.22)}
+.themeDot[data-theme="warm"]{background:#f0c9ad}
+.themeDot[data-theme="mint"]{background:#8fd2bb}
+.themeDot[data-theme="sakura"]{background:#eaa2ba}
+.themeDot[data-theme="ocean"]{background:#8ec8e9}
+.themeDot[data-theme="lavender"]{background:#b9a9e8}
+.themeDots{flex-wrap:wrap;row-gap:8px}
+.themeDot[data-theme="midnight"]{background:#1b2a3d}
+.themeDot[data-theme="forest"]{background:#1d3428}
+.themeDot[data-theme="sepia"]{background:#3a2b1d}
+
+/* 薄荷 */
+html[data-theme="mint"] body{background:radial-gradient(900px 520px at 10% -8%,rgba(186,235,215,.55),transparent 62%),radial-gradient(800px 500px at 96% 104%,rgba(195,235,245,.48),transparent 62%),#f0faf5}
+html[data-theme="mint"] .side{background:rgba(245,255,250,.90);border-right-color:rgba(80,150,125,.16)}
+html[data-theme="mint"] .top{background:rgba(245,255,250,.86);border-bottom-color:rgba(80,150,125,.16)}
+html[data-theme="mint"] .btn.primary{background:linear-gradient(135deg,#6fc7a6,#4f9f8a)}
+html[data-theme="mint"] .nav a.on{color:#3f7f6d;box-shadow:inset 3px 0 0 #6fc7a6,0 3px 12px rgba(60,120,100,.06)}
+html[data-theme="mint"] .sidefoot a{color:#4f9f8a!important}
+html[data-theme="mint"] .mode-banner{border-color:rgba(111,199,166,.45)}
+html[data-theme="mint"] #toast{background:#4f9f8a}
+/* 樱花 */
+html[data-theme="sakura"] body{background:radial-gradient(900px 520px at 10% -8%,rgba(249,205,219,.55),transparent 62%),radial-gradient(800px 500px at 96% 104%,rgba(255,226,206,.48),transparent 62%),#fff7f9}
+html[data-theme="sakura"] .side{background:rgba(255,248,251,.90);border-right-color:rgba(190,120,145,.15)}
+html[data-theme="sakura"] .top{background:rgba(255,248,251,.86);border-bottom-color:rgba(190,120,145,.15)}
+html[data-theme="sakura"] .btn.primary{background:linear-gradient(135deg,#e9a0b8,#c97191)}
+html[data-theme="sakura"] .nav a.on{color:#a55773;box-shadow:inset 3px 0 0 #e9a0b8,0 3px 12px rgba(150,80,100,.06)}
+html[data-theme="sakura"] .sidefoot a{color:#c97191!important}
+html[data-theme="sakura"] .mode-banner{border-color:rgba(233,160,184,.45)}
+html[data-theme="sakura"] #toast{background:#c97191}
+/* 海盐 */
+html[data-theme="ocean"] body{background:radial-gradient(900px 520px at 10% -8%,rgba(190,225,246,.58),transparent 62%),radial-gradient(800px 500px at 96% 104%,rgba(204,244,250,.48),transparent 62%),#f1f9ff}
+html[data-theme="ocean"] .side{background:rgba(245,251,255,.90);border-right-color:rgba(90,140,180,.16)}
+html[data-theme="ocean"] .top{background:rgba(245,251,255,.86);border-bottom-color:rgba(90,140,180,.16)}
+html[data-theme="ocean"] .btn.primary{background:linear-gradient(135deg,#74b6df,#4b8fc7)}
+html[data-theme="ocean"] .nav a.on{color:#3d709d;box-shadow:inset 3px 0 0 #74b6df,0 3px 12px rgba(60,100,140,.06)}
+html[data-theme="ocean"] .sidefoot a{color:#4b8fc7!important}
+html[data-theme="ocean"] .mode-banner{border-color:rgba(116,182,223,.45)}
+html[data-theme="ocean"] #toast{background:#4b8fc7}
+/* 薰衣草 */
+html[data-theme="lavender"] body{background:radial-gradient(900px 520px at 10% -8%,rgba(220,210,248,.58),transparent 62%),radial-gradient(800px 500px at 96% 104%,rgba(220,235,255,.48),transparent 62%),#f7f4ff}
+html[data-theme="lavender"] .side{background:rgba(250,247,255,.90);border-right-color:rgba(130,110,180,.15)}
+html[data-theme="lavender"] .top{background:rgba(250,247,255,.86);border-bottom-color:rgba(130,110,180,.15)}
+html[data-theme="lavender"] .btn.primary{background:linear-gradient(135deg,#a995e4,#8877c9)}
+html[data-theme="lavender"] .nav a.on{color:#6a5aa5;box-shadow:inset 3px 0 0 #a995e4,0 3px 12px rgba(100,80,150,.06)}
+html[data-theme="lavender"] .sidefoot a{color:#8877c9!important}
+html[data-theme="lavender"] .mode-banner{border-color:rgba(169,149,228,.45)}
+html[data-theme="lavender"] #toast{background:#8877c9}
+</style>
+<link rel="stylesheet" href="/ui-theme.css"><script src="/ui-theme.js"></script><script src="/ui-dialog.js"></script></head>
 <body><div class="app">
   <aside class="side">
     <div class="brand"><div class="ava" id="navAva">?</div><div><div class="nm" id="navName">角色</div><div class="st">● 在线</div></div></div>
@@ -85,7 +246,8 @@ input[type=range]{flex:1;accent-color:#2563eb}
       <a href="#data" data-tab="data"><span>💾</span>数据</a>
       <a href="#tutorial" data-tab="tutorial"><span>📖</span>教程</a>
     </nav>
-    <div class="sidefoot">v0.5.10 · <span id="sideMode">…</span><br><a href="/screen" target="_blank" style="color:#3b82f6;text-decoration:none;margin-right:10px">看屏幕</a><a href="/" style="color:#3b82f6;text-decoration:none">回到聊天</a></div>
+    <div class="themeBox"><div class="themeLabel">配色</div><div class="themeDots" id="themeDots"></div></div>
+    <div class="sidefoot">v0.6.1 · <span id="sideMode">…</span><br><a href="/screen" target="_blank" style="color:#3b82f6;text-decoration:none;margin-right:10px">看屏幕</a><a href="/" style="color:#3b82f6;text-decoration:none">回到聊天</a></div>
   </aside>
 
   <div class="main">
@@ -131,7 +293,7 @@ async function envStartAll(){
 }
 async function envPower(kind, action){
   const label = kind === 'space' ? '她的屏幕' : '她的手机';
-  if (action === 'stop' && !confirm('关掉' + label + '？关掉后她就不能看/用这个环境了。')) return;
+  if (action === 'stop' && !(await uiConfirm('关掉' + label + '？关掉后她就不能看/用这个环境了。'))) return;
   try {
     const r = await api('/api/' + kind + '/' + action, { method: 'POST' });
     toast(r.message || (action === 'stop' ? '已关闭' : '启动中…'));
@@ -208,14 +370,14 @@ async function switchChar(id){
   else toast(r.error || '切换失败');
 }
 async function newChar(){
-  const name = prompt('新角色叫什么？', '新角色');
+  const name = await uiPrompt('新角色叫什么？', '新角色', '新建角色');
   if (!name || !name.trim()) return;
   const r = await saveJson('/api/characters', { action: 'new', name: name.trim() });
   if (r.ok) { await loadPersona(); await loadChars(); toast('已创建'); go('role'); }
   else toast(r.error || '创建失败');
 }
 async function delChar(id){
-  if (!confirm('确定删除这个角色？她的记忆/日记/聊天都会一起删掉。')) return;
+  if (!(await uiConfirm('确定删除这个角色？她的记忆/日记/聊天都会一起删掉。'))) return;
   const r = await saveJson('/api/characters', { action: 'delete', id });
   if (r.ok) { await loadPersona(); await loadChars(); toast('已删除'); go('role'); }
   else toast(r.error || '删除失败');
@@ -327,7 +489,7 @@ async function preview(){
   const text = $('#previewIn').value.trim() || '在吗';
   $('#previewBox').innerHTML = '<div class="small">生成中…</div>';
   const r = await saveJson('/api/preview', { text });
-  $('#previewBox').innerHTML = '<div class="example">你：'+esc(text)+'</div><div class="example" style="background:#101a24">'+esc(PERSONA.meta.name)+'：'+esc(r.text||'（没生成出来）')+'</div>';
+  $('#previewBox').innerHTML = '<div class="example">你：'+esc(text)+'</div><div class="example" style="background:rgba(255,255,255,.72)">'+esc(PERSONA.meta.name)+'：'+esc(r.text||'（没生成出来）')+'</div>';
 }
 async function uploadAvatar(input){
   const f = input.files[0]; if(!f) return;
@@ -348,7 +510,7 @@ function importRole(){
     const text = await f.text();
     try {
       const j = JSON.parse(text);
-      const isNew = confirm('导入角色卡：\n\n确定 = 新建一个角色\n取消 = 覆盖当前角色');
+      const isNew = await uiConfirm('导入角色卡：\n\n确定 = 新建一个角色\n取消 = 覆盖当前角色', '导入角色卡');
       if (isNew) {
         const nm = (j.meta && j.meta.name) || '导入的角色';
         const created = await saveJson('/api/characters', { action: 'new', name: nm });
@@ -436,7 +598,10 @@ async function loadEconomyUi(){
     const en = document.getElementById('ecoEnabled'); if (en) en.checked = e.enabled !== false;
     const mt = document.getElementById('ecoMoneyType'); if (mt) mt.value = e.moneyType === 'token' ? 'token' : 'virtual';
     const wt = document.getElementById('ecoWallet');
-    if (wt) wt.textContent = '余额 ' + (w.spendable !== undefined ? w.spendable : '-') + ' 元 · 剩余 token ' + Number(w.remainingTokens || 0).toLocaleString() + '（已用 ' + Number(w.usedTokens || 0).toLocaleString() + '）' + (w.tokenMode ? ' · 当前用 token 当钱' : '');
+    const rb = r.realBalance || {};
+    if (wt) wt.textContent = w.tokenMode
+      ? '用户实时余额 ' + (rb.ok ? '¥' + Number(rb.total).toFixed(2) : '读取失败') + ' · 今日消耗 ¥' + (rb.ok && rb.todayRmb !== undefined ? Number(rb.todayRmb).toFixed(2) : '0.00') + ' · 你的虚拟零花钱 ' + (w.spendable !== undefined ? w.spendable : '-') + ' 元'
+      : '虚拟余额 ' + (w.spendable !== undefined ? w.spendable : '-') + ' 元 · Token 已用 ' + Number(w.usedTokens || 0).toLocaleString();
   } catch (err) {}
 }
 async function saveEconomyUi(){
@@ -517,11 +682,11 @@ function addSchedule(){
   renderLife();
 }
 function delSchedule(i){ LIFE.schedules.splice(i,1); renderLife(); }
-function editSchedule(i){
+async function editSchedule(i){
   const s = LIFE.schedules[i];
-  const time = prompt('时间（如 07:20 或 21:00-22:00）', s.time); if(time===null) return;
-  const label = prompt('做什么', s.label); if(label===null) return;
-  const days = prompt('频率（每天/工作日/周末）', s.days||'每天') || '每天';
+  const time = await uiPrompt('时间（如 07:20 或 21:00-22:00）', s.time, '编辑作息'); if(time===null) return;
+  const label = await uiPrompt('做什么', s.label, '编辑作息'); if(label===null) return;
+  const days = await uiPrompt('频率（每天/工作日/周末）', s.days||'每天', '编辑作息') || '每天';
   LIFE.schedules[i] = { time, label, days }; renderLife();
 }
 function addActivity(){
@@ -531,19 +696,19 @@ function addActivity(){
   renderLife();
 }
 function delActivity(i){ LIFE.activities.splice(i,1); renderLife(); }
-function editActivity(i){
+async function editActivity(i){
   const a = LIFE.activities[i];
-  const name = prompt('活动名', a.name); if(name===null) return;
-  const weight = prompt('权重（数字，越大越常做）', String(a.weight||20)); if(weight===null) return;
-  const minMin = prompt('最短几分钟', String(a.minMin||5)); if(minMin===null) return;
-  const maxMin = prompt('最长几分钟', String(a.maxMin||20)); if(maxMin===null) return;
-  const win = prompt('限定时间段（留空=空闲随时），如 22:00-01:30', a.window||'');
+  const name = await uiPrompt('活动名', a.name, '编辑活动'); if(name===null) return;
+  const weight = await uiPrompt('权重（数字，越大越常做）', String(a.weight||20), '编辑活动'); if(weight===null) return;
+  const minMin = await uiPrompt('最短几分钟', String(a.minMin||5), '编辑活动'); if(minMin===null) return;
+  const maxMin = await uiPrompt('最长几分钟', String(a.maxMin||20), '编辑活动'); if(maxMin===null) return;
+  const win = await uiPrompt('限定时间段（留空=空闲随时），如 22:00-01:30', a.window||'', '编辑活动');
   LIFE.activities[i] = { name, window: (win||'').trim(), weight: Number(weight)||10, minMin: Number(minMin)||5, maxMin: Number(maxMin)||20 };
   renderLife();
 }
-function toggleActivityWindow(i){
+async function toggleActivityWindow(i){
   const a = LIFE.activities[i];
-  const win = prompt('限定时间段（留空=空闲随时），如 22:00-01:30', a.window||'');
+  const win = await uiPrompt('限定时间段（留空=空闲随时），如 22:00-01:30', a.window||'', '活动时段');
   if(win===null) return;
   a.window = win.trim(); renderLife();
 }
@@ -571,7 +736,7 @@ async function loadLifeNow(){
 async function genDiary(){
   const r = await saveJson('/api/diary/generate', {});
   toast(r.ok ? '日记写好了' : '写失败');
-  if(r.ok) alert('今天的日记：\n\n' + (r.text||''));
+  if(r.ok) uiAlert('今天的日记：\n\n' + (r.text||''), '今天的日记');
 }
 async function lifeTick(){ await saveJson('/api/life-tick', {}); toast('已叫她'); loadLifeNow(); }
 
@@ -632,7 +797,7 @@ function renderPins(){
     const el = document.createElement('div');
     el.style.cssText = 'position:absolute;left:'+(p.x*100)+'%;top:'+(p.y*100)+'%;transform:translate(-50%,-100%);cursor:grab;user-select:none;text-align:center;filter:drop-shadow(0 3px 4px rgba(0,0,0,.5))';
     el.innerHTML = '<div style="font-size:22px">'+esc(p.icon)+'</div>'
-      + '<div style="font-size:11px;color:#d7e3ee;background:#14202c;padding:1px 6px;border-radius:8px;border:1px solid #2a3a4a;white-space:nowrap">'+esc(p.name)+'</div>'
+      + '<div style="font-size:11px;color:#4d6078;background:rgba(255,255,255,.9);padding:1px 6px;border-radius:8px;border:1px solid rgba(160,132,105,.25);white-space:nowrap">'+esc(p.name)+'</div>'
       + '<div style="width:2px;height:8px;background:#2a3a4a;margin:0 auto"></div>';
     el.addEventListener('pointerdown', (ev) => {
       ev.preventDefault();
@@ -691,7 +856,7 @@ async function renderMemory(){
   const core = facts.filter(f=>f.pinned||(f.strength||0)>=0.85);
   const normal = facts.filter(f=>!core.includes(f));
   const params = MEM.params || {};
-  $('#topAction').innerHTML = '<button class="btn" onclick="renderMemory(true)">刷新</button> <button class="btn primary" onclick="saveMemParams()">保存参数</button>';
+  $('#topAction').innerHTML = '<button class="btn" onclick="renderMemory(true)">刷新</button> <button class="btn ghost" onclick="document.getElementById(\'memImportFile\').click()">导入记忆</button> <button class="btn primary" onclick="saveMemParams()">保存参数</button><input type="file" id="memImportFile" accept=".txt,.md,.json,.jsonl" style="display:none" onchange="importMemoryFile(this)">';
   $('#body').innerHTML = '<div class="wrap"><div class="col">'
   + '<div class="stat">'
   + '<div class="s"><div class="n">'+(st.live??0)+'</div><div class="l">活着的记忆</div></div>'
@@ -712,6 +877,8 @@ async function renderMemory(){
   + '<div class="row"><label>每轮注入</label><input type="number" id="mMax" value="'+(params.maxInjected??8)+'" style="width:80px"><span class="small">条</span></div>'
   + '<div class="hint">半衰期越短忘得越快；核心记忆不受影响</div></div>'
   + '<div class="card"><h2>管理记忆</h2><div class="small">批量删除 · 恢复归档 · 导入导出</div>'
+  + '<button class="btn primary" style="width:100%;margin-top:8px" onclick="document.getElementById(\'memImportFile\').click()">📥 导入记忆文件</button>'
+  + '<div class="hint" style="margin-top:4px">支持 txt / md / json / jsonl；会自动拆句、去重、合并</div>'
   + '<button class="btn ghost" style="width:100%;margin-top:8px" onclick="manageArchived()">查看归档（'+(st.archived??0)+'）</button>'
   + '<button class="btn ghost" style="width:100%;margin-top:8px" onclick="exportMemory()">导出记忆</button></div>'
   + '<div class="card"><h2>日记</h2><div id="diaryBox" class="small">加载中…</div>'
@@ -734,25 +901,45 @@ function factRow(f){
     + '</div></div>';
 }
 async function pinFact(id){ await saveJson('/api/memory/pin', {id}); renderMemory(true); }
-async function delFact(id){ if(!confirm('确定删掉这条记忆？')) return; await saveJson('/api/memory/delete', {id}); renderMemory(true); }
+async function delFact(id){ if(!(await uiConfirm('确定删掉这条记忆？'))) return; await saveJson('/api/memory/delete', {id}); renderMemory(true); }
 async function saveMemParams(){
   const params = { halfLifeDays: Number($('#mHalf').value), forgetThreshold: Number($('#mThr').value), reinforceBoost: Number($('#mBoost').value), maxInjected: Number($('#mMax').value) };
   const r = await saveJson('/api/memory/params', params);
   if(r.ok){ toast('参数已保存'); }
 }
+
+async function importMemoryFile(input){
+  const f = input.files && input.files[0];
+  if (!f) return;
+  if (f.size > 2 * 1024 * 1024) { toast('文件太大，建议小于 2MB'); input.value = ''; return; }
+  try {
+    const text = await f.text();
+    const r = await saveJson('/api/memory/import', { text, importance: 0.5 });
+    if (r.ok) {
+      toast('导入 ' + r.total + ' 条：新增 ' + r.added + '，合并 ' + r.merged);
+      input.value = '';
+      renderMemory(true);
+    } else {
+      toast(r.error || '导入失败');
+    }
+  } catch (e) {
+    toast('读取文件失败');
+  }
+}
+
 async function loadDiary(){
   const r = await api('/api/diary');
   const dates = r.dates || [];
   $('#diaryBox').innerHTML = dates.length ? '共 '+dates.length+' 篇，最近：'+dates[0] : '还没有日记';
 }
-function showDiaryList(){
-  const dates = (MEM && MEM.diaryDates) || [];
-  api('/api/diary').then(r=>{
-    const list = (r.dates||[]).join('\n');
-    const d = prompt('输入日期查看日记（YYYY-MM-DD）：', (r.dates||[])[0] || '');
+async function showDiaryList(){
+  try {
+    const r = await api('/api/diary');
+    const d = await uiPrompt('输入日期查看日记（YYYY-MM-DD）：', (r.dates||[])[0] || '', '日记列表');
     if(!d) return;
-    api('/api/diary?date='+encodeURIComponent(d)).then(x=>alert(x.text || '没有这篇日记'));
-  });
+    const x = await api('/api/diary?date='+encodeURIComponent(d));
+    uiAlert(x.text || '没有这篇日记', '日记');
+  } catch(e) { toast('读取日记失败'); }
 }
 async function showDiaryToHer(){
   const r = await saveJson('/api/diary/show', {});
@@ -764,12 +951,13 @@ function exportMemory(){
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='memory-export.json'; a.click();
   });
 }
-function manageArchived(){
-  api('/api/memory').then(m=>{
+async function manageArchived(){
+  try {
+    const m = await api('/api/memory');
     const arch = m.archived||[];
-    if(!arch.length){ alert('归档里是空的'); return; }
-    alert('归档记忆：\n\n' + arch.map(f=>'· '+f.text).join('\n') + '\n\n（恢复功能将在记忆管理器页面里做）');
-  });
+    if(!arch.length){ uiAlert('归档里是空的', '归档记忆'); return; }
+    uiAlert('归档记忆：\n\n' + arch.map(f=>'· '+f.text).join('\n') + '\n\n（恢复功能将在记忆管理器页面里做）', '归档记忆');
+  } catch(e) { toast('读取归档失败'); }
 }
 
 // ================= 环境/模型/数据 =================
@@ -792,9 +980,9 @@ async function renderEnv(){
     { v: 'code', label: '代码控制（危险）', cls: 'warn' },
   ];
   $('#body').innerHTML = '<div class="wrap"><div class="col">'
-    + (inChat ? '<div class="card" style="border-color:#2f6bd8;background:#0f1825"><h2 style="color:#8fc1ff">当前是纯聊天模式</h2><div class="small">这些环境工具不会被启用。想让她有屏幕/手机，切到上方「完整版」。</div></div>' : '')
-    + '<div class="card" style="border-color:#5a3a2a;background:#1a1410"><h2 style="color:#e0b37a">⚠️ 权限分两级</h2>'
-    + '<div class="small" style="color:#c9a97a">「仅鼠标键盘」= 像人一样看屏幕、点鼠标、打字，安全；「代码控制」= 直接执行命令、读写文件，强大但危险，只在你信任时开启。</div></div>'
+    + (inChat ? '<div class="card" style="border-color:#b9d7f2;background:#eef7ff"><h2 style="color:#3f6f9f">当前是纯聊天模式</h2><div class="small">这些环境工具不会被启用。想让她有屏幕/手机，切到上方「完整版」。</div></div>' : '')
+    + '<div class="card" style="border-color:#ead3b3;background:#fff7ea"><h2 style="color:#a77a39">⚠️ 权限分两级</h2>'
+    + '<div class="small" style="color:#8a6b43">「仅鼠标键盘」= 像人一样看屏幕、点鼠标、打字，安全；「代码控制」= 直接执行命令、读写文件，强大但危险，只在你信任时开启。</div></div>'
     + '<div class="card"><h2>🧪 环境自检 <span class="tag">完整版进不去先点这里</span></h2>'
     + '<div class="flex"><button class="btn primary sm" onclick="runEnvCheck()">开始自检</button><button class="btn sm" onclick="installAdbKeyboard()">安装 ADBKeyboard</button></div>'
     + '<div id="envCheckBox" class="small" style="margin-top:10px;line-height:1.8">还没检查。点「开始自检」看看缺什么。</div></div>'
@@ -857,6 +1045,9 @@ async function renderModel(){
   window._saving = SAVING;
   window._ctx = CTX;
   window._model = m;
+  let IMG = { provider: 'seedream', baseURL: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-seedream-5-0-pro-260628', size: '1024x1024', apiKeySet: false };
+  try { IMG = (await api('/api/image/config')).config || IMG; } catch(e){}
+  window._img = IMG;
   const levels = [
     { v: 'low', t: '低', d: '日常聊天够用，最省 token（推荐）' },
     { v: 'medium', t: '中', d: '稍复杂一点的对话' },
@@ -880,6 +1071,14 @@ async function renderModel(){
     + '<div class="card"><h2>DeepSeek API Key <span class="tag">独立运行 / 没装 DSH 时填这里</span></h2>'
     + '<div class="row"><label>API Key</label><input type="password" id="apiKeyInput" placeholder="sk-...（只保存在本机数据目录）" style="flex:1"><button class="btn sm primary" onclick="saveApiKey()">保存</button></div>'
     + '<div class="hint">当前：'+(SETUP && SETUP.apiKeyOk ? '已配置' : '未配置')+' · 纯聊天独立运行需要；DSH 环境下会自动读取 DSH 的 Key，通常不用填。</div></div>'
+    + '<div class="card"><h2>🖼️ 图片反馈 <span class="tag">她会在聊天里发图</span></h2>'
+    + '<div class="row"><label>服务</label><select id="imgProvider" style="flex:1"><option value="seedream"'+(IMG.provider==='seedream'?' selected':'')+'>火山 Seedream</option><option value="openai-compat"'+(IMG.provider==='openai-compat'?' selected':'')+'>OpenAI 兼容</option><option value="http"'+(IMG.provider==='http'?' selected':'')+'>自定义 HTTP</option></select></div>'
+    + '<div class="row"><label>Base URL</label><input type="text" id="imgBase" value="'+esc(IMG.baseURL||'')+'" style="flex:1"></div>'
+    + '<div class="row"><label>模型</label><input type="text" id="imgModel" value="'+esc(IMG.model||'')+'" style="flex:1"></div>'
+    + '<div class="row"><label>尺寸</label><input type="text" id="imgSize" value="'+esc(IMG.size||'1024x1024')+'" style="width:140px"><span class="small">如 1024x1024</span></div>'
+    + '<div class="row"><label>API Key</label><input type="password" id="imgKey" placeholder="填入后保存；已配置可留空" style="flex:1"><button class="btn sm primary" onclick="saveImageCfg()">保存</button></div>'
+    + '<div class="row"><label>生图开关</label><span class="small" style="flex:1">关闭时完全不会调用生图 API，不花钱</span><button class="btn '+(IMG.enabled?'primary':'ghost')+'" onclick="setImageEnabled()">'+(IMG.enabled?'已开启':'已关闭')+'</button></div>'
+    + '<div class="hint">当前：'+(IMG.apiKeySet?'已配置':'未配置')+' · 开启后她可以用 send_image 发图；自定义 HTTP 需返回 data[0].b64_json 或 data[0].url。</div></div>'
     + '<div class="card"><h2>模型兼容性</h2><div class="small">只验证过 DeepSeek 模型（默认 deepseek-flash）。换其它 OpenAI 兼容模型时，工具循环、reasoning_content 回传可能不兼容，这部分不做适配。</div></div>'
     + '<div class="card"><h2>聊天风格 <span class="tag">会影响她所有说话</span></h2>'
     + '<div class="row"><label>无括号模式</label><input type="checkbox" id="noParens" style="width:auto" '+(STYLE.noParens?'checked':'')+' onchange="setNoParens(this.checked)"><span class="small">开启后她不用括号表示动作/表情，只直接说话</span></div></div>'
@@ -914,6 +1113,20 @@ async function setSaving(key){
   try { const r = await api('/api/token-saving', { method: 'POST', body: JSON.stringify(body) }); if(r && r.ok) toast('已切换'); } catch(e){ toast('保存失败'); }
   renderModel();
 }
+async function setImageEnabled(){
+  const cur = (window._img && window._img.enabled) || false;
+  const r = await saveJson('/api/image/config', { enabled: !cur });
+  if (r.ok) { toast(!cur ? '图片反馈已开启' : '图片反馈已关闭'); renderModel(); } else toast(r.error || '保存失败');
+}
+
+async function saveImageCfg(){
+  const body = { provider: document.getElementById('imgProvider').value, baseURL: document.getElementById('imgBase').value, model: document.getElementById('imgModel').value, size: document.getElementById('imgSize').value };
+  const key = document.getElementById('imgKey').value.trim();
+  if (key) body.apiKey = key;
+  const r = await saveJson('/api/image/config', body);
+  if (r.ok) { toast('图片反馈已保存'); renderModel(); } else toast(r.error || '保存失败');
+}
+
 async function saveModel(){
   const body = {
     name: document.getElementById('mName').value,
@@ -929,20 +1142,54 @@ async function renderTutorial(){
   $('#topAction').innerHTML = '<button class="btn" onclick="location.hash=\'env\'">回到环境</button>';
   let text = '';
   try { text = (await api('/api/tutorial')).text || ''; } catch(e){ text = '教程加载失败：' + e.message; }
-  const html = text.split('\n').map(line => {
-    if (line.startsWith('# ')) return '<h2 style="font-size:18px;margin:0 0 12px">' + esc(line.slice(2)) + '</h2>';
-    if (line.startsWith('## ')) return '<div style="font-size:14px;font-weight:600;color:#9fb3c8;margin:18px 0 8px">' + esc(line.slice(3)) + '</div>';
-    if (line.startsWith('> ')) return '<div class="example">' + esc(line.slice(2)) + '</div>';
-    if (line.startsWith('- ')) return '<div style="padding-left:14px;color:#c4d0de">• ' + esc(line.slice(2)) + '</div>';
-    if (!line.trim()) return '<div style="height:6px"></div>';
-    return '<div style="color:#c4d0de">' + esc(line) + '</div>';
-  }).join('');
-  $('#body').innerHTML = '<div class="wrap"><div class="col"><div class="card" style="line-height:1.8">' + html + '</div></div>'
-    + '<div class="col side2"><div class="card"><h2>状态</h2><div class="small">当前模式：'+(((window._mode||{}).effective==='full')?'完整版':'纯聊天版')+'</div>'
+  const inline = (x) => esc(x).replace(/\*\*([^*]+)\*\*/g, '<strong style="font-weight:650;color:var(--t-text,#2f3c4f)">$1</strong>');
+  const toc = []; const blocks = [];
+  text.split('\n').forEach((line, idx) => {
+    let html = '', plain = line.trim(), id = '', level = 0;
+    if (line.startsWith('# ')) { id = 'tut-' + (toc.length + 1); level = 1; plain = line.slice(2).trim(); toc.push({id, level, text: plain}); html = '<h2 id="' + id + '" style="font-size:22px;line-height:1.5;margin:26px 0 14px;color:var(--t-text,#2f3c4f)">' + inline(plain) + '</h2>'; }
+    else if (line.startsWith('### ')) { id = 'tut-' + (toc.length + 1); level = 3; plain = line.slice(4).trim(); toc.push({id, level, text: plain}); html = '<div id="' + id + '" style="font-size:14px;font-weight:650;color:var(--t-text,#2f3c4f);margin:17px 0 6px">' + inline(plain) + '</div>'; }
+    else if (line.startsWith('## ')) { id = 'tut-' + (toc.length + 1); level = 2; plain = line.slice(3).trim(); toc.push({id, level, text: plain}); html = '<div id="' + id + '" style="font-size:16px;font-weight:650;color:var(--t-text,#2f3c4f);margin:24px 0 9px">' + inline(plain) + '</div>'; }
+    else if (line.startsWith('> ')) { plain = line.slice(2).trim(); html = '<div class="example" style="font-size:13.5px;line-height:1.85">' + inline(plain) + '</div>'; }
+    else if (line.startsWith('- ')) { plain = line.slice(2).trim(); html = '<div style="padding-left:16px;color:var(--t-text,#3d4a5c);margin:3px 0">• ' + inline(plain) + '</div>'; }
+    else if (!line.trim()) { html = '<div style="height:8px"></div>'; plain = ''; }
+    else { html = '<div style="color:var(--t-text,#3d4a5c);margin:3px 0">' + inline(line) + '</div>'; }
+    blocks.push({html, plain, id, level});
+  });
+  const tocHtml = toc.map(x => '<a href="#' + x.id + '" style="display:inline-block;padding:3px 9px;margin:3px;border:1px solid var(--t-line,#e0d5c8);border-radius:999px;background:var(--t-surface,rgba(255,255,255,.88));color:var(--t-text,#3d4a5c);text-decoration:none;font-size:12px">' + esc(x.text) + '</a>').join('');
+  const bodyHtml = blocks.map(x => '<div class="tutBlock">' + x.html + '</div>').join('');
+  $('#body').innerHTML = '<div class="wrap"><div class="col">'
+    + '<div class="card" style="padding:20px 22px;max-width:1000px">'
+    + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">'
+    + '<strong style="font-size:16px;color:var(--t-text,#2f3c4f)">教程目录</strong>'
+    + '<input id="tutSearch" type="search" placeholder="搜索教程，例如：桌宠 / 体力 / 备份 / 3D" style="flex:1;min-width:220px;padding:9px 12px;border-radius:10px;border:1px solid var(--t-line,#e0d5c8);background:var(--t-input,#fff);color:var(--t-text,#2f3c4f)">'
+    + '</div>'
+    + '<div id="tutToc" style="max-height:150px;overflow:auto;padding:4px 0 10px;border-bottom:1px solid var(--t-line,#eee);margin-bottom:12px">' + tocHtml + '</div>'
+    + '<div id="tutContent" style="line-height:1.95;font-size:14.5px">' + bodyHtml + '</div>'
+    + '<div id="tutEmpty" style="display:none;padding:26px;text-align:center;color:var(--t-muted,#6b7d90)">没有找到匹配的内容</div>'
+    + '</div></div><div class="col side2"><div class="card"><h2>状态</h2><div class="small">当前模式：'+(((window._mode||{}).effective==='full')?'完整版':'纯聊天版')+'</div>'
     + '<button class="btn ghost" style="width:100%;margin-top:8px" onclick="location.hash=\'env\'">去环境页检测</button></div>'
     + '<div class="card"><h2>说明</h2><div class="small">装好教程里的环境后回到插件，横幅会自动变成「完整版」，不用手动切。</div></div></div></div>';
+  const search = document.getElementById('tutSearch');
+  const content = document.getElementById('tutContent');
+  const empty = document.getElementById('tutEmpty');
+  if (search && content) {
+    search.addEventListener('input', () => {
+      const q = search.value.trim().toLowerCase();
+      let shown = 0;
+      content.querySelectorAll('.tutBlock').forEach(el => {
+        const hit = !q || el.textContent.toLowerCase().includes(q);
+        el.style.display = hit ? '' : 'none';
+        if (hit) shown++;
+      });
+      if (empty) empty.style.display = shown ? 'none' : 'block';
+    });
+  }
+  document.querySelectorAll('#tutToc a').forEach(a => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const el = document.querySelector(a.getAttribute('href'));
+    if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  }));
 }
-
 async function doBackup(){
   try { const r = await api('/api/backup', { method: 'POST' }); toast(r.message || '正在备份'); }
   catch(e){ toast('备份失败'); }
@@ -958,9 +1205,35 @@ async function renderData(){
   + '<div class="row"><label>人设</label><input type="text" value="'+esc(dp('persona.md'))+'" disabled></div>'
   + '<div class="row"><label>记忆/日记/聊天</label><input type="text" value="'+esc(dp('data'))+'" disabled></div>'
   + '</div>'
-  + '<div class="card"><h2>备份</h2><div class="small">导出把数据目录打包成 zip；导入覆盖恢复。系统每天凌晨 4 点后会自动备份一次。</div>'
-  + '<div class="row"><button class="btn primary" onclick="doBackup()">立即备份</button><span class="hint" style="flex:1;margin-left:8px">备份到数据目录下的 backups</span></div><button class="btn ghost" style="margin-top:8px">导出备份</button></div>'
-  + '</div><div class="col side2"><div class="card"><h2>版本</h2><div class="small">v0.5.10 · 本地运行时</div></div></div></div>';
+  + '<div class="card"><h2>备份</h2><div class="small">导出把数据目录打包成 zip；导入覆盖恢复。系统每天凌晨 4 点后会自动备份一次。<br>备份/恢复也可以双击插件 scripts 目录里的 <b>backup.cmd</b> / <b>restore.cmd</b>，已使用 ExecutionPolicy Bypass，不需要你改系统执行策略。</div>'
+  + '<div class="row"><button class="btn primary" onclick="doBackup()">立即备份</button><span class="hint" style="flex:1;margin-left:8px">备份到数据目录下的 backups</span></div><button class="btn ghost" style="margin-top:8px" onclick="doBackup()">备份到数据目录</button></div>'
+  + '</div><div class="col side2"><div class="card"><h2>版本</h2><div class="small">v0.6.1 · 本地运行时</div></div></div></div>';
+}
+
+
+let UI_THEMES = [], UI_THEME = 'warm';
+function applyUiTheme(id){
+  UI_THEME = id || 'warm';
+  document.documentElement.dataset.theme = UI_THEME;
+  document.querySelectorAll('.themeDot').forEach(d => d.classList.toggle('on', d.dataset.theme === UI_THEME));
+}
+function renderThemeDots(){
+  const host = document.getElementById('themeDots');
+  if (!host || !UI_THEMES.length) return;
+  host.innerHTML = UI_THEMES.map(t => '<button class="themeDot'+ (t.id===UI_THEME?' on':'') +'" data-theme="'+esc(t.id)+'" title="'+esc(t.name)+'" onclick="chooseUiTheme(\''+esc(t.id)+'\')"></button>').join('');
+}
+async function loadUiTheme(){
+  try {
+    const r = await api('/api/ui-theme');
+    UI_THEMES = r.themes || [];
+    applyUiTheme(r.current || 'warm');
+    renderThemeDots();
+  } catch(e) {}
+}
+async function chooseUiTheme(id){
+  applyUiTheme(id);
+  renderThemeDots();
+  try { await saveJson('/api/ui-theme', {id}); toast('配色已切换'); } catch(e) { toast('保存失败'); }
 }
 
 // ================= router =================
@@ -1011,5 +1284,6 @@ async function setMode(m){
 }
 document.querySelectorAll('.nav a').forEach(a=>a.onclick = () => { location.hash = a.dataset.tab; });
 window.addEventListener('hashchange', () => go((location.hash||'#role').slice(1)));
+loadUiTheme();
 go((location.hash||'#role').slice(1));
 </script></body></html>

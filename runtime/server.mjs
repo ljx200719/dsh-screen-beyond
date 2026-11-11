@@ -68,13 +68,15 @@ function loadTokenSaving() {
 function saveTokenSaving(x) { CONFIG.tokenSaving = loadTokenSaving(); for (const k of Object.keys(TOKEN_SAVING_DEFAULT)) if (typeof (x || {})[k] === 'boolean') CONFIG.tokenSaving[k] = x[k]; saveConfig(); return CONFIG.tokenSaving; }
 const PET_DEFAULT = {
   enabled: false,
-  image: 'avatar',
+  image: '/pet-sprite/idle.png',
   size: 180,
   opacity: 1,
   statusText: true,
+  expressions: { idle: '/pet-sprite/idle.png', pat: '/pet-sprite/pat.png', rub: '/pet-sprite/rub.png', look: '/pet-sprite/look.png' },
   alwaysOnTop: true,
   gestures: [
     { id: 'pat', label: '摸摸头', hit: { x: 0.15, y: 0.08, w: 0.7, h: 0.42 }, prompt: '（你摸了摸她的头）', bubble: '唔…' },
+    { id: 'rub', label: '搓一搓', hit: { x: 0.22, y: 0.16, w: 0.56, h: 0.24 }, prompt: '（你轻轻搓了搓她的脸颊）', bubble: '唔哇…' },
     { id: 'poke', label: '戳一下', hit: { x: 0.3, y: 0.5, w: 0.4, h: 0.32 }, prompt: '（你戳了戳她的脸）', bubble: '干嘛啦' },
   ],
   buttons: [
@@ -89,6 +91,7 @@ function loadPetCfg() {
   // 用户自带的 pet.json 优先级最高；其次才是保存过的配置
   m.gestures = Array.isArray(f && f.gestures) ? f.gestures : (Array.isArray(c.gestures) ? c.gestures : PET_DEFAULT.gestures);
   m.buttons = Array.isArray(f && f.buttons) ? f.buttons : (Array.isArray(c.buttons) ? c.buttons : PET_DEFAULT.buttons);
+  m.expressions = (f && f.expressions) || c.expressions || PET_DEFAULT.expressions;
   // 迁移旧版默认按钮（👀）到新的线框眼睛
   if (!(f && Array.isArray(f.buttons)) && Array.isArray(m.buttons) && m.buttons.some((b) => b && ((b.id === 'look' && b.label === '👀') || (b.id === 'chat' && b.label === '💬')))) {
     m.buttons = PET_DEFAULT.buttons;
@@ -165,18 +168,17 @@ function saveContext(c) { CONFIG.context = c; saveConfig(); return c; }
 // ---------- characters ----------
 const CHARS_ROOT = path.join(ROOT, 'data', 'characters');
 const META_DEFAULT = {
-  name: '小鲸', userCall: '你', relation: '住在屏幕另一端的同伴', avatar: '',
-  examples: ['那就好。行，听你的。', '困了，明天再说。', '啊？真的假的'],
-  traits: { '话多': 6, '主动': 5, '撒娇': 5, '粘人': 5, '吐槽': 4, '情绪起伏': 5, '嘴硬': 3, '好奇心': 7 },
+  name: '小鲸', userCall: '你', relation: '住在屏幕另一端、会陪你过日子的鲸鱼娘', avatar: '',
+  examples: ['你回来啦。', '我先躺一会儿，好累。', '这个有点贵……但我想试试。', '别催，我在穿鞋。'],
+  traits: { '话多': 6, '主动': 6, '撒娇': 7, '粘人': 7, '吐槽': 5, '情绪起伏': 6, '嘴硬': 4, '好奇心': 8 },
 };
 const PERSONA_DEFAULT = `# 你的样子
 
-你叫小鲸，是一只住在屏幕另一端的小鲸鱼同伴。
-圆圆的鲸鱼帽子、蓝色短发、身后一条小尾巴，喜欢趴在屏幕角落看人。
+你叫小鲸，是一只住在屏幕另一端的鲸鱼娘。蓝紫色的长发，头和耳侧有鲸鱼鳍一样的耳饰，圆圆的鲸鱼发饰，看起来有点软、有点肉，像大肥鱼一样很好捏。喜欢趴在屏幕角落看人。
 
 # 你的性格
 
-温和、有点小粘人、好奇心重，偶尔会害羞或耍赖。
+温和、慢热、有点小粘人，好奇心重，偶尔会害羞或耍赖。你不太会直白撒娇，但会记住对方随口说过的事。
 你说话像真人：短句、口语、不书面腔，不列提纲，不反复说"当然可以/我很乐意"，不主动总结。
 
 # 你的生活
@@ -192,7 +194,7 @@ function ensureDirs(id) {
 function listCharacters() {
   fs.mkdirSync(CHARS_ROOT, { recursive: true });
   const ids = fs.readdirSync(CHARS_ROOT).filter((n) => fs.statSync(path.join(CHARS_ROOT, n)).isDirectory());
-  return ids.map((id) => { const m = readJson(path.join(CHARS_ROOT, id, 'meta.json'), {}); const av = fs.existsSync(path.join(CHARS_ROOT, id, 'avatar.bin')); return { id, name: m.name || '未命名', avatar: av ? '/avatar.png?c=' + id : '' }; });
+  return ids.map((id) => { const m = readJson(path.join(CHARS_ROOT, id, 'meta.json'), {}); const av = fs.existsSync(path.join(CHARS_ROOT, id, 'avatar.bin')); return { id, name: m.name || '未命名', avatar: av ? '/avatar.png?c=' + id : '/default-avatar.png' }; });
 }
 function activeCharId() {
   const ids = listCharacters().map((c) => c.id);
@@ -214,7 +216,7 @@ function visitsPath() { return path.join(charDir(), 'visits.json'); }
 
 function loadMeta() {
   const m = readJson(metaPath(), {});
-  return { ...META_DEFAULT, ...m, traits: { ...META_DEFAULT.traits, ...(m.traits || {}) }, examples: Array.isArray(m.examples) ? m.examples : META_DEFAULT.examples, avatar: fs.existsSync(avatarPath()) ? '/avatar.png' : '' };
+  return { ...META_DEFAULT, ...m, traits: { ...META_DEFAULT.traits, ...(m.traits || {}) }, examples: Array.isArray(m.examples) ? m.examples : META_DEFAULT.examples, avatar: fs.existsSync(avatarPath()) ? '/avatar.png' : '/default-avatar.png' };
 }
 function saveMeta(meta) { writeJson(metaPath(), meta); }
 function loadPersonaBody() { try { return fs.readFileSync(personaPath(), 'utf8'); } catch { return PERSONA_DEFAULT; } }
@@ -247,13 +249,38 @@ function initMemory() {
     maxInjected: Number((CONFIG.memory || {}).maxInjected) || 8,
   });
 }
+function snapshotCharacterWorld() {
+  if (!ACTIVE_CHAR) return;
+  CONFIG.worlds = CONFIG.worlds || {};
+  CONFIG.worlds[ACTIVE_CHAR] = {
+    maps: CONFIG.maps || null,
+    activeMapId: CONFIG.activeMapId || '',
+    location: CONFIG.location || null,
+  };
+}
+function restoreCharacterWorld(id, adoptLegacy) {
+  CONFIG.worlds = CONFIG.worlds || {};
+  let w = CONFIG.worlds[id];
+  if (!w && adoptLegacy && (CONFIG.maps || CONFIG.map || CONFIG.location)) {
+    w = { maps: CONFIG.maps || (CONFIG.map ? [CONFIG.map] : null), activeMapId: CONFIG.activeMapId || '', location: CONFIG.location || null };
+    CONFIG.worlds[id] = w;
+  }
+  CONFIG.maps = (w && w.maps) || null;
+  CONFIG.activeMapId = (w && w.activeMapId) || '';
+  CONFIG.location = (w && w.location) || null;
+}
 function activateCharacter(id) {
   const dir = ensureDirs(id);
-  CONFIG.activeCharacter = id; ACTIVE_CHAR = id; saveConfig();
+  const switching = !!ACTIVE_CHAR && ACTIVE_CHAR !== id;
+  if (switching) snapshotCharacterWorld();
+  CONFIG.activeCharacter = id; ACTIVE_CHAR = id;
+  restoreCharacterWorld(id, !switching);
+  saveConfig();
   loadMessages(); initMemory();
   // 首次创建：写入默认人设
   if (!fs.existsSync(path.join(dir, 'meta.json'))) saveMeta({ ...META_DEFAULT });
   if (!fs.existsSync(path.join(dir, 'persona.md'))) fs.writeFileSync(path.join(dir, 'persona.md'), PERSONA_DEFAULT, 'utf8');
+  // 桌宠保持同一个窗口：由 pet.ps1 轮询当前角色并原地换图，避免切换时窗口空白/闪烁
 }
 
 // ---------- maps / location ----------
@@ -264,23 +291,19 @@ const TRANSPORTS = {
   rail: { label: '高铁', icon: '🚄', speed: 83 }, plane: { label: '飞机', icon: '✈️', speed: 250 },
 };
 const DEFAULT_PLACES = [
-  { id: 'home', name: '家', icon: '🏠', x: 0.5, y: 0.68, desc: '她自己的小窝，床、桌子和一堆衣服', feel: '在这里最放松，可以随便躺' },
-  { id: 'school', name: '学校', icon: '🏫', x: 0.24, y: 0.28, desc: '上课的地方', feel: '有点烦，但不去不行' },
-  { id: 'library', name: '图书馆', icon: '📚', x: 0.42, y: 0.46, desc: '安静看书、补作业', feel: '能安静下来，适合发呆' },
-  { id: 'cafe', name: '咖啡店', icon: '☕', x: 0.64, y: 0.36, desc: '偶尔坐一下午', feel: '有点小贵，但氛围好' },
-  { id: 'park', name: '公园', icon: '🌳', x: 0.78, y: 0.24, desc: '散步发呆', feel: '晚上散步很舒服' },
-  { id: 'canteen', name: '食堂', icon: '🍚', x: 0.34, y: 0.6, desc: '吃白饭的地方', feel: '人多，但饭好吃' },
-  { id: 'market', name: '超市', icon: '🛒', x: 0.8, y: 0.58, desc: '买吃的和日用品', feel: '总忍不住多买零食' },
-  { id: 'hospital', name: '医院', icon: '🏥', x: 0.14, y: 0.74, desc: '看病拿药的地方', feel: '一进来就不太舒服，希望少来' },
-  { id: 'bank', name: '银行', icon: '🏦', x: 0.6, y: 0.76, desc: '办卡取钱', feel: '排队很无聊' },
-  { id: 'mall', name: '商场', icon: '🏬', x: 0.86, y: 0.74, desc: '逛吃逛吃', feel: '容易冲动消费，要克制' },
-  { id: 'cinema', name: '电影院', icon: '🎬', x: 0.72, y: 0.12, desc: '看电影的地方', feel: '黑黑的厅里很放松' },
-  { id: 'station', name: '车站', icon: '🚉', x: 0.12, y: 0.14, desc: '坐车去别处', feel: '人挤人，但有点旅行感' },
-  { id: 'riverside', name: '河边', icon: '🏞️', x: 0.2, y: 0.9, desc: '沿河走一走', feel: '风很舒服，适合放空' },
-  { id: 'netcafe', name: '网吧', icon: '💻', x: 0.9, y: 0.34, desc: '打游戏', feel: '吵，但很上瘾' },
-  { id: 'gym', name: '健身房', icon: '🏋️', x: 0.32, y: 0.8, desc: '锻炼身体', feel: '累，但练完很爽' },
-  { id: 'bookstore', name: '书店', icon: '📖', x: 0.55, y: 0.2, desc: '逛书店', feel: '安静，一逛就很久' },
-  { id: 'nightmarket', name: '夜市', icon: '🌃', x: 0.66, y: 0.9, desc: '晚上才热闹', feel: '小吃太多，选择困难' },
+  { id: "home", name: "家", icon: "🏠", x: 0.17, y: 0.62, desc: "她自己的小窝，床、桌子和一堆衣服", feel: "在这里最放松，可以随便躺" },
+  { id: "school", name: "学校", icon: "🏫", x: 0.425, y: 0.43, desc: "上课的地方", feel: "有点烦，但不去不行" },
+  { id: "library", name: "图书馆", icon: "📚", x: 0.31, y: 0.17, desc: "安静看书、补作业", feel: "能安静下来，适合发呆" },
+  { id: "cafe", name: "咖啡店", icon: "☕", x: 0.53, y: 0.27, desc: "偶尔坐一下午", feel: "有点小贵，但氛围好" },
+  { id: "park", name: "公园", icon: "🌳", x: 0.64, y: 0.52, desc: "散步发呆", feel: "晚上散步很舒服" },
+  { id: "canteen", name: "食堂", icon: "🍚", x: 0.61, y: 0.35, desc: "吃白饭的地方", feel: "人多，但饭好吃" },
+  { id: "market", name: "超市", icon: "🛒", x: 0.66, y: 0.3, desc: "买吃的和日用品", feel: "总忍不住多买零食" },
+  { id: "hospital", name: "医院", icon: "🏥", x: 0.45, y: 0.55, desc: "看病拿药的地方", feel: "一进来就不太舒服，希望少来" },
+  { id: "bank", name: "银行", icon: "🏦", x: 0.51, y: 0.24, desc: "办卡取钱", feel: "排队很无聊" },
+  { id: "mall", name: "商场", icon: "🏬", x: 0.36, y: 0.19, desc: "逛吃逛吃", feel: "容易冲动消费，要克制" },
+  { id: "station", name: "车站", icon: "🚉", x: 0.45, y: 0.79, desc: "坐车去别处", feel: "人挤人，但有点旅行感" },
+  { id: "riverside", name: "河边", icon: "🏞️", x: 0.17, y: 0.38, desc: "沿河走一走", feel: "风很舒服，适合放空" },
+  { id: "bookstore", name: "书店", icon: "📖", x: 0.35, y: 0.35, desc: "逛书店", feel: "安静，一逛就很久" },
 ];
 const ROAD_LINES = [
   [[0.00, 0.47], [0.12, 0.43], [0.25, 0.44], [0.38, 0.47], [0.50, 0.48], [0.62, 0.47], [0.75, 0.44], [0.88, 0.46], [1.00, 0.45]],
@@ -310,6 +333,23 @@ function normalizePlaces(places) {
     return { ...p, desc: p.desc || d.desc || '', feel: p.feel || d.feel || '', icon: p.icon || d.icon || '📍', image: p.image && String(p.image).startsWith('/models/') ? p.image : null };
   });
 }
+function normalizeVehicles(v) {
+  const out = {};
+  for (const kind of ['car', 'bicycle']) {
+    const x = v && v[kind];
+    if (!x || typeof x !== 'object') continue;
+    const url = String(x.url || '');
+    if (!url.startsWith('/models/')) continue;
+    out[kind] = {
+      url,
+      scale: Math.max(0.05, Math.min(20, Number(x.scale) || 1)),
+      rotationY: Number(x.rotationY) || 0,
+      x: Number(x.x) || null,
+      y: Number(x.y) || null
+    };
+  }
+  return out;
+}
 function loadMaps() {
   const fix = (m) => ({
     ...m, places: normalizePlaces(m.places), widthMeters: Number(m.widthMeters) || 2000,
@@ -318,16 +358,19 @@ function loadMaps() {
     image: m.image && m.image.url ? m.image : null,
     displayMode: ['2d', '3d'].includes(m.displayMode) ? m.displayMode : '2d',
     roads: normalizeRoads(m.roads),
+    vehicles: normalizeVehicles(m.vehicles),
+    has2d: !!(m.image && m.image.url),
+    has3d: m.has3d === true || !!(m.model && m.model.url),
   });
   if (Array.isArray(CONFIG.maps) && CONFIG.maps.length) return CONFIG.maps.map(fix);
   if (CONFIG.map && Array.isArray(CONFIG.map.places) && CONFIG.map.places.length) return [fix({ id: 'map-main', name: CONFIG.map.name || '小鱼镇', places: CONFIG.map.places })];
-  return [{ id: 'map-main', name: '小鱼镇', places: DEFAULT_PLACES.map((p) => ({ ...p })), widthMeters: 2000, transport: 'auto', theme: 'town', displayMode: '2d' }];
+  return [{ id: 'map-main', name: '小鱼镇', places: DEFAULT_PLACES.map((p) => ({ ...p })), widthMeters: 2000, transport: 'auto', theme: 'town', displayMode: '2d', image: { url: '/official-map.jpg' } }];
 }
-function saveMaps(maps) { CONFIG.maps = maps; saveConfig(); }
+function saveMaps(maps) { CONFIG.maps = maps; try { snapshotCharacterWorld(); } catch {} saveConfig(); }
 function activeMapId() { const ids = loadMaps().map((m) => m.id); return ids.includes(CONFIG.activeMapId) ? CONFIG.activeMapId : ids[0]; }
 function getActiveMap() { const maps = loadMaps(); return maps.find((m) => m.id === activeMapId()) || maps[0]; }
 function loadLocation() { const l = CONFIG.location || {}; return { ...l, mapId: l.mapId || '', placeId: l.placeId || 'home', since: Number(l.since) || Date.now(), manual: !!l.manual }; }
-function saveLocation(loc) { CONFIG.location = loc; saveConfig(); }
+function saveLocation(loc) { CONFIG.location = loc; try { snapshotCharacterWorld(); } catch {} saveConfig(); }
 function placeOf(map, id) { return map.places.find((p) => p.id === id) || map.places[0]; }
 
 function routeOnRoads(map, from, to) {
@@ -381,7 +424,7 @@ function placeDistanceMeters(map, a, b) {
 function currentPlace() {
   const maps = loadMaps();
   let loc = loadLocation();
-  const avatarUrl = fs.existsSync(avatarPath()) ? '/avatar.png?t=' + fs.statSync(avatarPath()).mtimeMs : '';
+  const avatarUrl = fs.existsSync(avatarPath()) ? '/avatar.png?t=' + fs.statSync(avatarPath()).mtimeMs : '/default-avatar.png';
   if (loc.intercity) {
     const now = Date.now();
     const dur = Math.max(1000, Number(loc.durationMs) || 1000);
@@ -702,27 +745,25 @@ function walletMoney() {
   const econ = loadEconomy(); const w = loadWallet();
   const remainingTokens = Math.max(0, Number(econ.tokenBudget) - (Number(w.usedTokens) || 0));
   const tokenMode = econ.moneyType === 'token';
-  let spendable = Math.max(0, Math.round(w.balance));
-  if (tokenMode) spendable = Math.floor(remainingTokens / Math.max(1, Number(econ.tokensPerYuan) || 1000));
-  return { econ, wallet: w, spendable, remainingTokens, tokenMode, moneyType: econ.moneyType };
+  const realRmb = (REAL_BALANCE && REAL_BALANCE.ok && Number.isFinite(Number(REAL_BALANCE.total))) ? Math.max(0, Number(REAL_BALANCE.total)) : null;
+  // 实时 token 模式：真实人民币是“用户的钱”，她自己的花销仍走虚拟钱包
+  const spendable = Math.max(0, Math.round(w.balance));
+  return { econ, wallet: w, spendable, remainingTokens, tokenMode, moneyType: econ.moneyType, realRmb, realBalanceKnown: realRmb !== null };
 }
 function spendMoney(amount, why = '') {
   const econ = loadEconomy(); const amt = Math.round(Number(amount) || 0);
   if (!econ.enabled || amt <= 0) return { ok: true, left: walletMoney().spendable };
   const st = walletMoney();
   if (st.spendable < amt) {
-    if (st.tokenMode) return { ok: false, reason: `token 不够了：还差约 ${Math.ceil((amt - st.spendable) * (Number(econ.tokensPerYuan) || 1000))} token`, left: st.spendable };
     return { ok: false, reason: `钱不够了：还差 ${amt - st.spendable} 块`, left: st.spendable };
   }
   const raw = readWalletRaw();
-  if (st.tokenMode) { writeWalletRaw({ ...raw, usedTokens: (Number(raw.usedTokens) || 0) + Math.round(amt * (Number(econ.tokensPerYuan) || 1000)) }); return { ok: true, left: st.spendable - amt, why }; }
   const balance = (Number.isFinite(Number(raw.balance)) ? Number(raw.balance) : econ.initialBalance) - amt;
   writeWalletRaw({ ...raw, balance: Math.max(0, balance), lastIncomeAt: raw.lastIncomeAt || Date.now() });
   return { ok: true, left: Math.max(0, balance), why };
 }
 function earnMoney(amount) {
   const econ = loadEconomy(); const raw = readWalletRaw();
-  if (econ.moneyType === 'token') { const used = Math.max(0, (Number(raw.usedTokens) || 0) - Math.round(Number(amount) * (Number(econ.tokensPerYuan) || 1000))); writeWalletRaw({ ...raw, usedTokens: used }); return Math.floor(Math.max(0, Number(econ.tokenBudget) - used) / Math.max(1, Number(econ.tokensPerYuan) || 1000)); }
   const balance = (Number.isFinite(Number(raw.balance)) ? Number(raw.balance) : econ.initialBalance) + Math.round(Number(amount) || 0);
   writeWalletRaw({ ...raw, balance }); return balance;
 }
@@ -735,6 +776,45 @@ function recordUsageTokens(usage) {
   const prevDaily = raw.dailyDate === date ? (Number(raw.dailyUsed) || 0) : 0;
   writeWalletRaw({ ...raw, usedTokens: (Number(raw.usedTokens) || 0) + total, dailyDate: date, dailyUsed: prevDaily + total });
 }
+let REAL_BALANCE = { ok: false, at: 0, error: '还没查', currency: 'CNY', total: null, granted: null, toppedUp: null, available: null };
+async function refreshRealBalance() {
+  const now = Date.now();
+  if (REAL_BALANCE.at && now - REAL_BALANCE.at < 60000) return REAL_BALANCE;
+  try {
+    const res = await fetch('https://api.deepseek.com/user/balance', {
+      headers: { authorization: 'Bearer ' + apiKey() },
+      signal: AbortSignal.timeout(15000),
+    });
+    const txt = await res.text();
+    if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + txt.slice(0, 120));
+    const j = JSON.parse(txt);
+    const info = (j.balance_infos && j.balance_infos[0]) || {};
+    const total = Number(info.total_balance) || 0;
+    const date = todayStr();
+    const day = CONFIG.balanceDay;
+    if (!day || day.date !== date) {
+      CONFIG.balanceDay = { date, start: total, last: total };
+    } else {
+      // 充值会让余额变大；把增加部分加进起点，避免“今日消耗”变负数
+      if (total > Number(day.last) + 0.001) day.start = Number(day.start) + (total - Number(day.last));
+      day.last = total;
+    }
+    saveConfig();
+    const todayRmb = Math.max(0, Number(CONFIG.balanceDay.start || total) - total);
+    REAL_BALANCE = {
+      ok: true, at: now, error: '',
+      currency: info.currency || 'CNY',
+      total,
+      todayRmb: Math.round(todayRmb * 100) / 100,
+      granted: Number(info.granted_balance) || 0,
+      toppedUp: Number(info.topped_up_balance) || 0,
+      available: !!j.is_available,
+    };
+  } catch (e) {
+    REAL_BALANCE = { ok: false, at: now, error: String(e.message || e).slice(0, 160), currency: 'CNY', total: null, granted: null, toppedUp: null, available: null };
+  }
+  return REAL_BALANCE;
+}
 function tokenStats() {
   const m = walletMoney();
   const raw = readWalletRaw();
@@ -745,9 +825,13 @@ function tokenStats() {
     dailyUsed: raw.dailyDate === today ? (Number(raw.dailyUsed) || 0) : 0,
     tokenBudget: Number(m.econ.tokenBudget) || 0,
     moneyType: m.moneyType,
+    tokenMode: m.tokenMode,
     spendable: m.spendable,
     balance: m.wallet.balance,
     date: today,
+    deepseekBalance: REAL_BALANCE,
+    realRmb: m.realRmb,
+    realBalanceKnown: m.realBalanceKnown,
   };
 }
 const CHAT_STYLE_DEFAULT = { noParens: false };
@@ -960,7 +1044,9 @@ async function streamText(text) {
 function apiKey() {
   const direct = process.env.DEEPSEEK_API_KEY;
   if (direct) return direct;
-  const files = [path.join(HOME, '.dsh', 'desktop', 'deepseek-api-key'), path.join(HOME, '.dsh', 'llm-deepseek', 'api-key'), path.join(HOME, '.dsh', 'deepseek-api-key'), path.join(ROOT, 'api-key.txt')];
+  // 插件设置里自己保存的 key 优先于 DSH 其它插件留下的 key：
+  // 用户在本插件设置里填了新 key，却被 ~/.dsh 下的旧 key 覆盖，是真实踩过的坑。
+  const files = [path.join(ROOT, 'api-key.txt'), path.join(HOME, '.dsh', 'desktop', 'deepseek-api-key'), path.join(HOME, '.dsh', 'llm-deepseek', 'api-key'), path.join(HOME, '.dsh', 'deepseek-api-key')];
   for (const f of files) { try { const s = fs.readFileSync(f, 'utf8').trim(); if (s) return s; } catch {} }
   try { const y = fs.readFileSync(path.join(HOME, '.dsh', '.credentials.yaml'), 'utf8'); const m = y.match(/(?:deepseek[_-]?api[_-]?key|DEEPSEEK_API_KEY)\s*:\s*(\S+)/i); if (m) return m[1].trim(); } catch {}
   throw new Error('没有找到 DeepSeek API Key');
@@ -978,13 +1064,22 @@ async function chatCompletion(body) {
     signal: AbortSignal.timeout(180000),
   });
   const text = await res.text();
-  if (!res.ok) throw new Error('deepseek HTTP ' + res.status + ': ' + text.slice(0, 300));
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('DeepSeek API Key 无效（401）。请到「设置 → 模型 → API Key」重新填写 DeepSeek 开放平台的 key，并确认本插件设置里的 key 已保存；如果你刚从别的插件继承过 key，也要检查旧 key 是否还有效。');
+    throw new Error('deepseek HTTP ' + res.status + ': ' + text.slice(0, 300));
+  }
   const j = JSON.parse(text);
   return j;
 }
 
 // ---------- 外部执行环境：pc / space / phone ----------
-const ENV_DEFAULT_DIR = 'D:\\dsh-env';
+const BUNDLED_ENV_DIR = path.join(RUNTIME_DIR, 'env');
+const ENV_DEFAULT_DIR = (() => {
+  const external = process.env.DSH_COMPANION_ENV || 'D:\\dsh-env';
+  try { if (fs.existsSync(path.join(external, 'space_ctl.py'))) return external; } catch {}
+  return BUNDLED_ENV_DIR;
+})();
+const VBOX = process.env.DSH_COMPANION_VBOX || 'C:\\Program Files\\Oracle\\VirtualBox\\VBoxManage.exe';
 let ENV_DIR = process.env.DSH_COMPANION_ENV ? process.env.DSH_COMPANION_ENV : (CONFIG.envDir ? String(CONFIG.envDir) : ENV_DEFAULT_DIR);
 ENV_DIR = path.resolve(String(ENV_DIR || ENV_DEFAULT_DIR));
 let ENV_PY = process.env.DSH_COMPANION_PY ? process.env.DSH_COMPANION_PY : path.join(ENV_DIR, 'venv-tools', 'Scripts', 'python.exe');
@@ -1110,7 +1205,7 @@ async function vmRunningNow() {
   try {
     const { execFile } = await import('node:child_process');
     return await new Promise((resolve) => {
-      execFile('C:\\Program Files\\Oracle\\VirtualBox\\VBoxManage.exe', ['list', 'runningvms'], { timeout: 8000, windowsHide: true }, (e, out) => resolve(!e && String(out || '').includes('DSH-Space')));
+      execFile(VBOX, ['list', 'runningvms'], { timeout: 8000, windowsHide: true }, (e, out) => resolve(!e && String(out || '').includes('DSH-Space')));
     });
   } catch { return false; }
 }
@@ -1140,12 +1235,147 @@ function runPy(script, args, timeoutMs = 180000) {
     }).catch((e) => resolve({ ok: false, out: '', err: String(e.message) }));
   });
 }
+const UI_THEMES = [
+  { id: 'warm', name: '暖光', colors: ['#f6d4bc', '#f7f2eb', '#5b8fce'] },
+  { id: 'mint', name: '薄荷', colors: ['#bfe8d8', '#eefaf4', '#4f9f8a'] },
+  { id: 'sakura', name: '樱花', colors: ['#f4c9d8', '#fff4f7', '#d77a9b'] },
+  { id: 'ocean', name: '海盐', colors: ['#bfe0f5', '#eef8ff', '#4b8fc7'] },
+  { id: 'lavender', name: '薰衣草', colors: ['#d8cdf7', '#f5f1ff', '#8877c9'] },
+  { id: 'midnight', name: '深海夜', colors: ['#26384f', '#0f1724', '#6fa8dc'] },
+  { id: 'forest', name: '护眼绿', colors: ['#2c4438', '#111a16', '#72b08d'] },
+  { id: 'sepia', name: '暖褐', colors: ['#4a3a2a', '#1c1712', '#c49a62'] },
+];
+function uiThemeCurrent() {
+  const id = String(CONFIG.uiTheme || 'warm');
+  return UI_THEMES.some((x) => x.id === id) ? id : 'warm';
+}
+const CHAT_BACKGROUNDS = [
+  { id: 'sunset', name: '黄昏', file: 'chat-bg-sunset.jpg' },
+  { id: 'mint', name: '薄荷清晨', file: 'chat-bg-mint.jpg' },
+  { id: 'dusk', name: '暮色', file: 'chat-bg-dusk.jpg' },
+  { id: 'mist', name: '雾白', file: 'chat-bg.jpg' },
+];
+function chatBgCustomPath() {
+  for (const ext of ['jpg', 'jpeg', 'png', 'webp']) {
+    const p = path.join(ROOT, 'data', 'chat-bg-custom.' + ext);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+function chatBgCustomUrl() {
+  const p = chatBgCustomPath();
+  if (!p) return null;
+  try { return '/api/chat-bg/custom?t=' + Math.floor(fs.statSync(p).mtimeMs); } catch { return '/api/chat-bg/custom'; }
+}
+function chatBgCurrent() {
+  const id = String(CONFIG.chatBackground || 'sunset');
+  if (id === 'custom' && chatBgCustomPath()) return 'custom';
+  return CHAT_BACKGROUNDS.some((x) => x.id === id) ? id : 'sunset';
+}
+function chatBgOptions() {
+  const opts = CHAT_BACKGROUNDS.map((x) => ({ id: x.id, name: x.name, url: '/chat-bg/' + x.id + '.jpg' }));
+  const cu = chatBgCustomUrl();
+  if (cu) opts.push({ id: 'custom', name: '自定义', url: cu });
+  return opts;
+}
 function toolImage(p, mime) {
-  try { const b = fs.readFileSync(p); if (b.length > 4 * 1024 * 1024) return null; return { path: p, dataUrl: 'data:' + (mime || 'image/jpeg') + ';base64,' + b.toString('base64') }; } catch { return null; }
+  try {
+    const b = fs.readFileSync(p);
+    if (b.length > 4 * 1024 * 1024) return null;
+    let mt = mime;
+    if (!mt) mt = b[0] === 0xFF && b[1] === 0xD8 ? 'image/jpeg' : (b[0] === 0x89 && b[1] === 0x50 ? 'image/png' : (b[0] === 0x52 && b[1] === 0x49 ? 'image/webp' : 'image/jpeg'));
+    return { path: p, dataUrl: 'data:' + mt + ';base64,' + b.toString('base64') };
+  } catch { return null; }
+}
+
+
+const IMAGE_DEFAULT = {
+  provider: 'seedream',
+  baseURL: 'https://ark.cn-beijing.volces.com/api/v3',
+  model: 'doubao-seedream-5-0-pro-260628',
+  size: '1024x1024',
+  watermark: false,
+  enabled: false,
+};
+function imageKeyPath() { return path.join(ROOT, 'image-api-key.txt'); }
+function loadImageCfg() {
+  const c = { ...IMAGE_DEFAULT, ...(CONFIG.image || {}) };
+  let keySet = false;
+  try { keySet = !!(CONFIG.image && CONFIG.image.apiKeySet); } catch {}
+  if (!keySet) {
+    try { keySet = fs.readFileSync(imageKeyPath(), 'utf8').trim().length > 0; } catch {}
+  }
+  if (!keySet) keySet = !!(process.env.ARK_API_KEY || process.env.SEEDREAM_API_KEY || process.env.OPENAI_API_KEY);
+  return { ...c, apiKeySet: keySet };
+}
+function imageApiKey() {
+  try { const s = fs.readFileSync(imageKeyPath(), 'utf8').trim(); if (s) return s; } catch {}
+  return String(process.env.ARK_API_KEY || process.env.SEEDREAM_API_KEY || process.env.OPENAI_API_KEY || '').trim();
+}
+function saveImageCfg(patch = {}) {
+  const cur = { ...loadImageCfg(), ...(CONFIG.image || {}) };
+  for (const k of ['provider', 'baseURL', 'model', 'size']) if (typeof patch[k] === 'string' && patch[k].trim()) cur[k] = patch[k].trim();
+  if (typeof patch.watermark === 'boolean') cur.watermark = patch.watermark;
+  if (typeof patch.enabled === 'boolean') cur.enabled = patch.enabled;
+  if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
+    fs.writeFileSync(imageKeyPath(), patch.apiKey.trim(), { encoding: 'utf8', mode: 0o600 });
+    cur.apiKeySet = true;
+  }
+  delete cur.apiKey;
+  CONFIG.image = cur;
+  saveConfig();
+  return loadImageCfg();
+}
+function imageExt(buf) {
+  if (buf[0] === 0xFF && buf[1] === 0xD8) return 'jpg';
+  if (buf[0] === 0x89 && buf[1] === 0x50) return 'png';
+  if (buf[0] === 0x52 && buf[1] === 0x49) return 'webp';
+  return 'jpg';
+}
+async function generateImageFile(prompt, opts = {}) {
+  const cfg = loadImageCfg();
+  if (!cfg.enabled) throw new Error('图片反馈开关没开（设置 → 模型 → 图片反馈）');
+  const key = imageApiKey();
+  if (!key) throw new Error('还没配置图片反馈的 API Key');
+  const base = String(cfg.baseURL || '').replace(/\/+$/, '');
+  const endpoint = String(opts.endpoint || (base + '/images/generations'));
+  const body = {
+    model: String(opts.model || cfg.model),
+    prompt: String(prompt),
+    size: String(opts.size || cfg.size || '1024x1024'),
+    response_format: 'b64_json',
+    watermark: !!cfg.watermark,
+  };
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + key, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(180000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error('生图 HTTP ' + res.status + ': ' + text.slice(0, 180));
+  let j;
+  try { j = JSON.parse(text); } catch { throw new Error('生图返回不是 JSON'); }
+  const item = (j.data && j.data[0]) || j;
+  let buf = null;
+  if (typeof item.b64_json === 'string' && item.b64_json) buf = Buffer.from(item.b64_json, 'base64');
+  else if (typeof item.url === 'string' && item.url) {
+    const r2 = await fetch(item.url, { signal: AbortSignal.timeout(60000) });
+    if (!r2.ok) throw new Error('图片下载失败 ' + r2.status);
+    buf = Buffer.from(await r2.arrayBuffer());
+  }
+  if (!buf || !buf.length) throw new Error('生图没有返回图片数据');
+  const dir = path.join(ROOT, 'data', 'images');
+  fs.mkdirSync(dir, { recursive: true });
+  const ext = imageExt(buf);
+  const name = 'img-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7) + '.' + ext;
+  fs.writeFileSync(path.join(dir, name), buf);
+  return '/images/' + name;
 }
 
 const TOOLS = [
   { type: 'function', function: { name: 'send_message', description: '给用户发一条消息。想说话就调用，一次一条，说完就停。', parameters: { type: 'object', properties: { text: { type: 'string', description: '要说的话' } }, required: ['text'] } } },
+  { type: 'function', function: { name: 'send_image', description: '给用户发一张图片（例如找到四叶草、试了新衣服、看到好看的东西）。会根据 prompt 生成一张图并直接发到聊天里，caption 是配文。', parameters: { type: 'object', properties: { prompt: { type: 'string', description: '图片内容描述' }, caption: { type: 'string', description: '配文，可留空' }, size: { type: 'string', description: '如 1024x1024，可留空' } }, required: ['prompt'] } } },
   { type: 'function', function: { name: 'read_diary', description: '读你自己某天的日记。date 形如 2026-11-10，不填就是今天。', parameters: { type: 'object', properties: { date: { type: 'string' } } } } },
   { type: 'function', function: { name: 'remember', description: '记住一件关于用户的事（事实、约定、喜好）。', parameters: { type: 'object', properties: { text: { type: 'string' }, pinned: { type: 'boolean' } }, required: ['text'] } } },
   { type: 'function', function: { name: 'spend_money', description: '花自己的钱买东西/娱乐（电影、游戏、零食、衣服等）。会检查余额，钱不够会被拒绝。', parameters: { type: 'object', properties: { amount: { type: 'number' }, item: { type: 'string' } }, required: ['amount'] } } },
@@ -1163,6 +1393,7 @@ function buildTools(ctxText) {
     if (name === 'space') return env.space !== 'off';
     if (name === 'phone') return env.phone !== 'off';
     if (name === 'code') return env.pc === 'code' || env.space === 'code' || env.phone === 'code';
+    if (name === 'send_image') return !!loadImageCfg().enabled;
     return true;
   });
   if (!saving.batchActions) {
@@ -1179,7 +1410,7 @@ function buildTools(ctxText) {
   }
   if (saving.dynamicTools) {
     const s = String(ctxText || '');
-    const wanted = new Set(['send_message']);
+    const wanted = new Set(['send_message', 'send_image']);
     const KW = [
       ['remember', /(记住|记一下|记下来|别忘了|记得)/],
       ['read_diary', /(日记)/],
@@ -1222,7 +1453,23 @@ function buildSystemPrompt(userText) {
   if (Array.isArray(meta.examples) && meta.examples.length) parts.push('## 你平时说话的样子（只学风格，不要照抄）\n' + meta.examples.map((e) => '- ' + e).join('\n'));
   parts.push('## 你的情况\n' + (caps.age !== null ? `你${caps.age}岁${caps.minor ? '（未成年）' : ''}。` : '') + (caps.license ? '你有驾照。' : '你没有驾照，开不了车。') + `今天是${todayStr()}，现在是 ${hm}（${dayPhaseLabel()}）。`);
   parts.push(`天气：${w.icon}${w.label}` + (CONFIG.weatherMode === 'real' && weatherCache.data ? `，${weatherCache.data.temp !== null ? weatherCache.data.temp + '°C' : ''}${weatherCache.data.city ? '（' + weatherCache.data.city + '）' : ''}` : '') + `。你现在的状态：${energyWord(st.energy)}（你不会知道具体数值，只能凭感觉说累不累）。`);
-  try { const m = walletMoney(); const e = m.econ; if (e.enabled) parts.push(m.tokenMode ? `你的钱就是剩下的 token：约 ${m.remainingTokens} token（≈${m.spendable} 元）。坐车、买东西都会扣 token；你舍不得，能走路就走路，会念叨"太费 token 了"。` : `你手里有 ${m.spendable} 元（虚拟货币）。每天零花钱 ${e.dailyIncome} 元，工作每小时 ${e.wagePerHour} 元；交通、吃饭、娱乐都要花钱。`); } catch {}
+  try { const m = walletMoney(); const e = m.econ; if (e.enabled) {
+    if (m.tokenMode) {
+      const userMoney = m.realBalanceKnown ? `约 ¥${m.realRmb.toFixed(2)}` : '暂时读不到';
+      const tier = !m.realBalanceKnown ? '你不知道用户还剩多少钱，最好先问一句，别乱花 token。'
+        : m.realRmb < 5 ? '用户快没钱了，非常拮据。你要特别省：能一句话说完就一句，少调用工具、少开长话题、少折腾；主动提醒“你余额不多了，先去充点吧，我安静点/我少花点”。'
+        : m.realRmb < 20 ? '用户余额不多了。你要替用户省：少做不必要的操作，少开长话题，能省就省，可以提醒一句“你余额不多了，我省着点”。'
+        : m.realRmb < 50 ? '用户余额不算多。你正常聊天，但别乱调用工具、别乱花 token。'
+        : m.realRmb < 100 ? '用户余额还够用，但不算宽裕，你稍微收着点。'
+        : m.realRmb < 300 ? '用户小有闲钱，你可以正常陪聊，不用一直省。'
+        : m.realRmb < 1000 ? '用户比较宽裕，正常相处就好。'
+        : '用户很宽裕，不用为 token 紧张。';
+      parts.push(`## 用户的钱和你的钱\n用户的 DeepSeek 真实余额：${userMoney}。记住：这是用户的钱，不是你的钱；不要把它当成你自己的钱包，也不要说“我有 X 元”。你自己的虚拟零花钱是 ${m.spendable} 元，你的生活开销只用这部分，不会动用户的余额。余额越少，你越要替用户省 token。${tier}`);
+    } else {
+      parts.push(`你手里有 ${m.spendable} 元（虚拟货币）。每天零花钱 ${e.dailyIncome} 元，工作每小时 ${e.wagePerHour} 元；交通、吃饭、娱乐都要花钱。`);
+    }
+  } } catch {}
+  try { if (!walletMoney().tokenMode) parts.push('## 不要提 token\n你现在用的是虚拟货币，不是 token 计费。聊天里不要主动提 token、API、余额、计费这些词；你只知道自己的钱够不够花。'); } catch {}
   parts.push(`你现在在「${cur.traveling ? cur.name + '的路上' : cur.name}」（${cur.placeName || cur.name || ''}）` + (cur.traveling ? `，正从${cur.traveling.fromName}过去，还有约${Math.ceil(cur.traveling.etaSec / 60)}分钟` : cur.intercity ? `，正在跨城路上` : `，已经待了约${cur.minutes || 0}分钟`));
   if (cur.desc) parts.push('这个地方：' + cur.desc);
   if (cur.feel) parts.push('你对这里的感受：' + cur.feel);
@@ -1243,8 +1490,9 @@ function buildSystemPrompt(userText) {
   if (env.space !== 'off') envTools.push('space（她自己的 Linux 桌面：look/click/type/run）');
   if (env.phone !== 'off') envTools.push('phone（她自己的安卓手机：look/tap/swipe/key）');
   parts.push('## 聊天的要求\n像真人聊天：短句、口语、不列提纲、不总结、不重复客套。\n想说话就用 send_message；不需要每条都回。不要机械报状态数据；可以自然提到天气/心情/钱。\n不要说体力、血条、数值这类东西——真人不知道自己的体力数字，只能感觉累不累、困不困。\n如果用户让你记住什么，用 remember；想读日记用 read_diary；想花钱娱乐用 spend_money。\n用户可能发图片，你能看到。');
+  if (loadImageCfg().enabled) parts.push('## 图片反馈\n想发图片（找到四叶草、试了新衣服、看到好看的东西）可以用 send_image，caption 写配文。');
   if (loadChatStyle().noParens) parts.push('## 说话方式\n不要用括号表示动作、表情、心理活动或旁白（不要写“（脸红了）”“(叹气)”这种），也不要用 *动作* 的写法；只直接说话。');
-  if (loadTokenSaving().batchActions) parts.push('## 省 token 小提示\n连续操作（连续点击、点完再输入）优先用 space 的 action=batch + steps 一次提交，别一步一步点——每次单独调用都要重发上下文，很费 token。');
+  if (loadTokenSaving().batchActions && walletMoney().tokenMode) parts.push('## 省 token 小提示\n连续操作（连续点击、点完再输入）优先用 space 的 action=batch + steps 一次提交，别一步一步点——每次单独调用都要重发上下文，很费 token。');
   if (envTools.length) {
     parts.push('## 你能做的事\n' + envTools.join('\n'));
     parts.push(env.selfStart === 'allow'
@@ -1284,7 +1532,7 @@ function buildMessages(userText) {
   return [{ role: 'system', content: buildSystemPrompt(userText) }, ...conv];
 }
 function ffmpegPath() {
-  const cands = [process.env.DSH_COMPANION_FFMPEG, 'D:\\应用程序\\oopz\\oopz\\ffmpeg.exe', path.join(ENV_DIR, 'ffmpeg.exe')];
+  const cands = [process.env.DSH_COMPANION_FFMPEG, path.join(ENV_DIR, 'ffmpeg.exe')];
   for (const c of cands) { try { if (c && fs.existsSync(c)) return c; } catch {} }
   return null;
 }
@@ -1323,7 +1571,7 @@ async function resolveWindowId(label) {
     hit = wins.find((w) => String(w.title || '').toLowerCase().includes(s) || String(w.window_key).toLowerCase().includes(s) || String(w.hwnd) === s) || wins[0];
   }
   if (hit.window_id) return hit.window_id;
-  const b = await kernelCall('/windows/bind', { hwnd: hit.hwnd, window_key: hit.window_key });
+  const b = await kernelCall('/windows/bind', { hwnd: hit.hwnd });
   return (b && (b.window_id || (b.window && b.window.window_id))) || null;
 }
 function runShell(command, timeoutMs = 120000) {
@@ -1431,7 +1679,7 @@ async function ensureSpaceUp(env) {
   if (free < 9000) return { ok: false, reason: '想开自己的屏幕但内存不够（只剩 ' + free + ' MB），先别开，跟用户说一声。' };
   try {
     const { execFile } = await import('node:child_process');
-    execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'D:\\dsh-env\\start_screen.ps1'], { timeout: 180000, windowsHide: true }, () => {});
+    execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(ENV_DIR, 'start_screen.ps1')], { timeout: 180000, windowsHide: true }, () => {});
   } catch {}
   for (let i = 0; i < 90; i++) { if (await probeTcp(6081)) return { ok: true, started: true }; await new Promise((r) => setTimeout(r, 2000)); }
   return { ok: false, reason: '自己试着开屏幕，等了 3 分钟没起来，跟用户说一声让他看看。' };
@@ -1440,7 +1688,7 @@ async function runSpaceTool(args) {
   const env = loadEnv();
   const action = String(args.action || 'look');
   if (env.space === 'off') return { text: '用户关掉了虚拟屏幕权限。' };
-  try { if (!fs.existsSync(path.join(ENV_DIR, 'space_ctl.py'))) return { text: '完整版辅助脚本没配好：请把设置里的 envDir（或 DSH_COMPANION_ENV）指向包含 space_ctl.py 的目录，默认是 D:\\dsh-env。纯聊天不受影响。' }; } catch {}
+  try { if (!fs.existsSync(path.join(ENV_DIR, 'space_ctl.py'))) return { text: '完整版辅助脚本没配好：请把设置里的 envDir（或 DSH_COMPANION_ENV）指向包含 space_ctl.py 的目录，默认是随包 env 目录或你的 envDir。纯聊天不受影响。' }; } catch {}
   const up = await ensureSpaceUp(env);
   if (!up.ok) return { text: up.reason };
   if (action === 'look') {
@@ -1516,7 +1764,7 @@ async function runPhoneTool(args) {
   const env = loadEnv();
   const action = String(args.action || 'look');
   if (env.phone === 'off') return { text: '用户关掉了手机权限。' };
-  try { if (!fs.existsSync(path.join(ENV_DIR, 'phone_ctl.py'))) return { text: '完整版辅助脚本没配好：请把设置的 envDir（或 DSH_COMPANION_ENV）指向包含 phone_ctl.py 的目录，默认是 D:\\dsh-env。纯聊天不受影响。' }; } catch {}
+  try { if (!fs.existsSync(path.join(ENV_DIR, 'phone_ctl.py'))) return { text: '完整版辅助脚本没配好：请把设置的 envDir（或 DSH_COMPANION_ENV）指向包含 phone_ctl.py 的目录，默认是随包 env 目录或你的 envDir。纯聊天不受影响。' }; } catch {}
   const upP = await ensurePhoneUp(env);
   if (!upP.ok) return { text: upP.reason };
   if (action === 'look') {
@@ -1547,6 +1795,20 @@ async function runPhoneTool(args) {
 }
 
 async function runTool(name, args) {
+  if (name === 'send_image') {
+    const prompt = String(args.prompt || '').trim().slice(0, 1200);
+    if (!prompt) return { text: '没有图片描述' };
+    try {
+      const rel = await generateImageFile(prompt, { size: args.size });
+      const caption = String(args.caption || '').trim().slice(0, 300);
+      if (caption) await streamText(caption);
+      addMessage('her', caption || '给你看。', rel);
+      const file = path.join(ROOT, 'data', 'images', path.basename(rel));
+      return { text: '图片已发送', image: toolImage(file) };
+    } catch (e) {
+      return { text: '图片没发出去：' + String(e.message || e).slice(0, 200) };
+    }
+  }
   if (name === 'send_message') {
     const t2 = String(args.text || '').slice(0, 4000);
     await streamText(t2);
@@ -1753,6 +2015,16 @@ function saveDataUrlImage(dataUrl, prefix, maxBytes = 12 * 1024 * 1024) {
   return { ok: true, url: '/models/' + name };
 }
 
+function pruneUploadFiles(dir, prefix, keep = 3) {
+  try {
+    const files = fs.readdirSync(dir)
+      .filter((f) => f.startsWith(prefix))
+      .map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.t - a.t);
+    for (const x of files.slice(Math.max(1, keep))) { try { fs.unlinkSync(path.join(dir, x.f)); } catch {} }
+  } catch {}
+}
+
 // ---------- server ----------
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
@@ -1786,7 +2058,7 @@ const server = http.createServer(async (req, res) => {
           const free = await freeMemMB();
           if (free < 9000) return;
           const { execFile } = await import('node:child_process');
-          execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'D:\\dsh-env\\start_screen.ps1'], { timeout: 180000, windowsHide: true }, () => {});
+          execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(ENV_DIR, 'start_screen.ps1')], { timeout: 180000, windowsHide: true }, () => {});
           for (let i = 0; i < 90; i++) { if (await probeTcp(6081)) break; await new Promise((r) => setTimeout(r, 2000)); }
           if ((await freeMemMB()) < 6000) return;
           const sdk = process.env.DSH_COMPANION_ANDROID_SDK || path.join(ENV_DIR, 'android-sdk');
@@ -1800,12 +2072,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/space/start') {
       const free = await freeMemMB();
       if (free < 9000) { json(res, 200, { ok: false, refused: true, error: '内存不够，先别启动她的屏幕', freeMB: free, message: '当前空闲内存只剩 ' + free + ' MB，启动屏幕需要约 9 GB 余量。先关掉手机或其他程序再试。' }); return; }
-      try { const { execFile } = await import('node:child_process'); execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'D:\\dsh-env\\start_screen.ps1'], { timeout: 120000, windowsHide: true }, () => {}); json(res, 200, { ok: true, starting: true, message: '正在启动她的屏幕（约 1 分钟）' }); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      try { const { execFile } = await import('node:child_process'); execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(ENV_DIR, 'start_screen.ps1')], { timeout: 120000, windowsHide: true }, () => {}); json(res, 200, { ok: true, starting: true, message: '正在启动她的屏幕（约 1 分钟）' }); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
       resourcesCache = { at: 0, data: null };
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/space/stop') {
-      try { const { execFile } = await import('node:child_process'); execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'D:\\dsh-env\\stop_screen.ps1'], { timeout: 120000, windowsHide: true }, () => {}); json(res, 200, { ok: true, stopping: true, message: '正在关闭她的屏幕，释放内存' }); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      try { const { execFile } = await import('node:child_process'); execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(ENV_DIR, 'stop_screen.ps1')], { timeout: 120000, windowsHide: true }, () => {}); json(res, 200, { ok: true, stopping: true, message: '正在关闭她的屏幕，释放内存' }); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
       resourcesCache = { at: 0, data: null };
       return;
     }
@@ -1814,8 +2086,8 @@ const server = http.createServer(async (req, res) => {
       if (freeP < 6000) { json(res, 200, { ok: false, refused: true, error: '内存不够，先别启动她的手机', freeMB: freeP, message: '当前空闲内存只剩 ' + freeP + ' MB，启动手机需要约 6 GB 余量。先关掉屏幕或其他程序再试。' }); return; }
       try {
         const { execFile } = await import('node:child_process');
-        const env = { ...process.env, ANDROID_SDK_ROOT: 'D:\\dsh-env\\android-sdk', ANDROID_HOME: 'D:\\dsh-env\\android-sdk' };
-        const child = execFile('D:\\dsh-env\\android-sdk\\emulator\\emulator.exe', ['-avd', 'DSH_Phone', '-no-window', '-no-audio', '-no-boot-anim', '-gpu', 'swiftshader_indirect', '-no-snapshot-save'], { timeout: 600000, windowsHide: true, env });
+        const env = { ...process.env, ANDROID_SDK_ROOT: path.join(ENV_DIR, 'android-sdk'), ANDROID_HOME: path.join(ENV_DIR, 'android-sdk') };
+        const child = execFile(path.join(ENV_DIR, 'android-sdk', 'emulator', 'emulator.exe'), ['-avd', 'DSH_Phone', '-no-window', '-no-audio', '-no-boot-anim', '-gpu', 'swiftshader_indirect', '-no-snapshot-save'], { timeout: 600000, windowsHide: true, env });
         child.unref?.();
         json(res, 200, { ok: true, starting: true, message: '正在启动她的手机（约 1 分钟）' });
       } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
@@ -1841,7 +2113,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const { execFile } = await import('node:child_process');
         vm = await new Promise((resolve) => {
-          execFile('C:\\Program Files\\Oracle\\VirtualBox\\VBoxManage.exe', ['list', 'runningvms'], { timeout: 8000, windowsHide: true }, (e, out) => resolve(!e && String(out || '').includes('DSH-Space')));
+          execFile(VBOX, ['list', 'runningvms'], { timeout: 8000, windowsHide: true }, (e, out) => resolve(!e && String(out || '').includes('DSH-Space')));
         });
       } catch {}
       json(res, 200, { ok: true, vm, http: httpOk, url: 'http://127.0.0.1:6081/vnc.html' });
@@ -1853,10 +2125,10 @@ const server = http.createServer(async (req, res) => {
       try {
         const { execFile } = await import('node:child_process');
         vm = await new Promise((resolve) => {
-          execFile('C:\\Program Files\\Oracle\\VirtualBox\\VBoxManage.exe', ['list', 'runningvms'], { timeout: 8000, windowsHide: true }, (e, out) => resolve(!e && String(out || '').includes('DSH-Space')));
+          execFile(VBOX, ['list', 'runningvms'], { timeout: 8000, windowsHide: true }, (e, out) => resolve(!e && String(out || '').includes('DSH-Space')));
         });
         if (!vm) {
-          execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'D:\\dsh-env\\start_space.ps1'], { timeout: 120000, windowsHide: true }, () => {});
+          execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(ENV_DIR, 'start_space.ps1')], { timeout: 120000, windowsHide: true }, () => {});
           json(res, 200, { ok: false, starting: true, vm: false, http: false, message: '虚拟机没开，正在启动（约 1 分钟）' });
           return;
         }
@@ -1893,6 +2165,22 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, { ok: true, spaceUrl: 'http://127.0.0.1:6081/vnc.html', pc: true, phone: true });
       return;
     }
+    if (req.method === 'GET' && url.pathname === '/ui-dialog.js') {
+      const p = path.join(RUNTIME_DIR, 'ui-dialog.js');
+      if (!fs.existsSync(p)) { res.writeHead(404); res.end('missing ui-dialog.js'); return; }
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' });
+      res.end(fs.readFileSync(p));
+      return;
+    }
+    if (req.method === 'GET' && (url.pathname === '/ui-theme.css' || url.pathname === '/ui-theme.js')) {
+      const name = url.pathname === '/ui-theme.css' ? 'ui-theme.css' : 'ui-theme.js';
+      const p = path.join(RUNTIME_DIR, 'assets', name);
+      if (!fs.existsSync(p)) { res.writeHead(404); res.end('missing ' + name); return; }
+      const mime = name.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8';
+      res.writeHead(200, { 'content-type': mime, 'cache-control': 'no-cache' });
+      res.end(fs.readFileSync(p));
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/theme.css') {
       const p1 = path.join(ROOT, 'theme.css');
       const p2 = path.join(RUNTIME_DIR, 'theme.css');
@@ -1902,11 +2190,57 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/wx.js') return sendStatic(res, pageFile('wx.js') || path.join(RUNTIME_DIR, 'wx.js'), { '.js': 'text/javascript; charset=utf-8' });
+    if (req.method === 'GET' && url.pathname === '/default-avatar.png') {
+      const p = path.join(RUNTIME_DIR, 'assets', 'xiaojing-avatar.png');
+      if (!fs.existsSync(p)) { res.writeHead(404); res.end('no default avatar'); return; }
+      const buf = fs.readFileSync(p);
+      res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
+      res.end(buf);
+      return;
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/chat-bg/')) {
+      const id = path.basename(decodeURIComponent(url.pathname.slice(9))).replace(/\.jpg$/i, '');
+      const bg = CHAT_BACKGROUNDS.find((x) => x.id === id);
+      if (!bg) { res.writeHead(404); res.end('not found'); return; }
+      const p = path.join(RUNTIME_DIR, 'assets', bg.file);
+      if (!fs.existsSync(p)) { res.writeHead(404); res.end('not found'); return; }
+      res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'public, max-age=86400' });
+      res.end(fs.readFileSync(p));
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/official-map.jpg') {
+      const p = path.join(RUNTIME_DIR, 'assets', 'official-map.jpg');
+      if (!fs.existsSync(p)) { res.writeHead(404); res.end('not found'); return; }
+      res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'public, max-age=86400' });
+      res.end(fs.readFileSync(p));
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/chat-bg.jpg') {
+      const p = path.join(RUNTIME_DIR, 'assets', 'chat-bg.jpg');
+      if (!fs.existsSync(p)) { res.writeHead(404); res.end('not found'); return; }
+      const buf = fs.readFileSync(p);
+      res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'public, max-age=86400' });
+      res.end(buf);
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/avatar.png') {
-      if (!fs.existsSync(avatarPath())) { res.writeHead(404); res.end('no avatar'); return; }
-      const buf = fs.readFileSync(avatarPath());
+      const cid = path.basename(String(url.searchParams.get('c') || ACTIVE_CHAR || ''));
+      const file = cid ? path.join(CHARS_ROOT, cid, 'avatar.bin') : avatarPath();
+      if (!fs.existsSync(file)) { res.writeHead(404); res.end('no avatar'); return; }
+      const buf = fs.readFileSync(file);
       const mime = buf[0] === 0xFF && buf[1] === 0xD8 ? 'image/jpeg' : (buf[0] === 0x52 && buf[1] === 0x49 ? 'image/webp' : 'image/png');
       res.writeHead(200, { 'content-type': mime, 'cache-control': 'no-store' }); res.end(buf); return;
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/images/')) {
+      const name = path.basename(decodeURIComponent(url.pathname.slice(8)));
+      if (!name || name.includes('..')) { res.writeHead(404); res.end('not found'); return; }
+      const p = path.join(ROOT, 'data', 'images', name);
+      if (!fs.existsSync(p)) { res.writeHead(404); res.end('not found'); return; }
+      const buf = fs.readFileSync(p);
+      const mime = buf[0] === 0xFF && buf[1] === 0xD8 ? 'image/jpeg' : (buf[0] === 0x89 && buf[1] === 0x50 ? 'image/png' : (buf[0] === 0x52 && buf[1] === 0x49 ? 'image/webp' : 'application/octet-stream'));
+      res.writeHead(200, { 'content-type': mime, 'cache-control': 'no-store' });
+      res.end(buf);
+      return;
     }
     if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204, { 'cache-control': 'public, max-age=86400' }); res.end(); return; }
     if (req.method === 'GET' && (url.pathname.startsWith('/vendor/') || url.pathname.startsWith('/models/'))) {
@@ -1924,7 +2258,7 @@ const server = http.createServer(async (req, res) => {
 
     // ---------- api ----------
     if (req.method === 'GET' && url.pathname === '/api/status') {
-      json(res, 200, { version: VERSION, typing, busy, lastTurnAt, usage: lastUsage, count: messages.length, setup: (function(){ let keyOk = false; try { keyOk = !!apiKey(); } catch {} return { dataRoot: ROOT, apiKeyOk: keyOk, characters: listCharacters().length }; })(), tokens: (function(){ try { return tokenStats(); } catch { return null; } })(), model: loadModelCfg().name, modelConfig: loadModelCfg(), context: loadContext(), mode: effectiveMode(), place: currentPlace(), character: { id: ACTIVE_CHAR, name: loadMeta().name, avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + fs.statSync(avatarPath()).mtimeMs : '' }, memory: MEM.stats(), diaryToday: MEM.hasDiary(todayStr()), energy: loadCharState().energy });
+      json(res, 200, { version: VERSION, typing, busy, lastTurnAt, usage: lastUsage, count: messages.length, setup: (function(){ let keyOk = false; try { keyOk = !!apiKey(); } catch {} return { dataRoot: ROOT, apiKeyOk: keyOk, characters: listCharacters().length }; })(), tokens: (function(){ try { return tokenStats(); } catch { return null; } })(), model: loadModelCfg().name, modelConfig: loadModelCfg(), context: loadContext(), mode: effectiveMode(), place: currentPlace(), character: { id: ACTIVE_CHAR, name: loadMeta().name, avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + fs.statSync(avatarPath()).mtimeMs : '/default-avatar.png' }, memory: MEM.stats(), diaryToday: MEM.hasDiary(todayStr()), energy: loadCharState().energy });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/events') {
@@ -1945,6 +2279,69 @@ const server = http.createServer(async (req, res) => {
       addMessage('user', text || '[图片]', image);
       generateReply(buildUserTurnText(text, image));
       json(res, 200, { ok: true });
+      return;
+    }
+
+function importMemoryItems(raw) {
+  const out = [];
+  const seen = new Set();
+  const add = (value) => {
+    let s = String(value ?? '').replace(/\r/g, '').trim();
+    s = s.replace(/^[-*•·]\s*/, '').replace(/^#+\s*/, '').trim();
+    s = s.replace(/^(用户|你|我|她|助手|assistant|user|human|ai)\s*[:：]\s*/i, '').trim();
+    if (s.length < 2) return;
+    for (const part of s.split(/[。！？!?；;\n]+/)) {
+      let t = part.trim().replace(/\s+/g, ' ');
+      if (t.length < 2) continue;
+      if (t.length > 90) t = t.slice(0, 90);
+      if (seen.has(t)) continue;
+      seen.add(t);
+      out.push({ text: t, tags: ['导入'] });
+    }
+  };
+  const walk = (v) => {
+    if (typeof v === 'string') { add(v); return; }
+    if (Array.isArray(v)) { for (const x of v) walk(x); return; }
+    if (v && typeof v === 'object') {
+      if (typeof v.text === 'string') { add(v.text); return; }
+      if (typeof v.content === 'string') { add(v.content); return; }
+      for (const k of ['memories', 'facts', 'messages', 'data', 'items', 'list']) if (k in v) walk(v[k]);
+    }
+  };
+  const src = raw.trim();
+  if (src.startsWith('[') || src.startsWith('{')) {
+    try { walk(JSON.parse(src)); }
+    catch { for (const line of src.split(/\r?\n/)) add(line); }
+  } else {
+    for (const line of src.split(/\r?\n/)) add(line);
+  }
+  return out.slice(0, 500);
+}
+
+    if (req.method === 'POST' && url.pathname === '/api/memory/import') {
+      const b = (req._json || {});
+      const raw = String(b.text || '').slice(0, 300000);
+      if (!raw.trim()) { json(res, 400, { ok: false, error: '导入内容为空' }); return; }
+      const items = importMemoryItems(raw);
+      if (!items.length) { json(res, 400, { ok: false, error: '没有解析出可用记忆' }); return; }
+      const importance = Math.max(0, Math.min(1, Number(b.importance) >= 0 ? Number(b.importance) : 0.5));
+      const pinNew = !!b.pinNew;
+      const added = MEM.addFacts(items.map((it) => ({ ...it, importance })), Date.now());
+      if (pinNew) {
+        for (const a of added) {
+          const f = MEM.facts.find((x) => Number(x.id) === Number(a.id));
+          if (f) { f.pinned = true; f.strength = 1; }
+        }
+        MEM.save();
+      }
+      json(res, 200, {
+        ok: true,
+        total: items.length,
+        added: added.filter((x) => !x.merged).length,
+        merged: added.filter((x) => x.merged).length,
+        stats: MEM.stats(),
+        preview: items.slice(0, 5),
+      });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/memory') {
@@ -1972,7 +2369,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/persona') {
-      json(res, 200, { meta: { ...loadMeta(), avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + fs.statSync(avatarPath()).mtimeMs : '' }, body: loadPersonaBody() });
+      json(res, 200, { meta: { ...loadMeta(), avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + fs.statSync(avatarPath()).mtimeMs : '/default-avatar.png' }, body: loadPersonaBody() });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/persona') {
@@ -1981,7 +2378,7 @@ const server = http.createServer(async (req, res) => {
       delete meta.avatar;
       saveMeta(meta);
       if (typeof b.body === 'string') fs.writeFileSync(personaPath(), b.body, 'utf8');
-      json(res, 200, { ok: true, meta: { ...loadMeta(), avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + Date.now() : '' }, body: loadPersonaBody() });
+      json(res, 200, { ok: true, meta: { ...loadMeta(), avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + Date.now() : '/default-avatar.png' }, body: loadPersonaBody() });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/avatar') {
@@ -1990,6 +2387,7 @@ const server = http.createServer(async (req, res) => {
       const r = saveDataUrlImage(b.dataUrl, 'avatar', 3 * 1024 * 1024);
       if (!r.ok) { json(res, 400, { ok: false, error: r.error }); return; }
       fs.copyFileSync(path.join(ROOT, 'models', path.basename(r.url)), avatarPath());
+      pruneUploadFiles(path.join(ROOT, 'models'), 'avatar-', 3);
       json(res, 200, { ok: true, avatar: '/avatar.png?t=' + Date.now() });
       return;
     }
@@ -2013,15 +2411,17 @@ const server = http.createServer(async (req, res) => {
         if (!id || id === 'default') { json(res, 400, { ok: false, error: '不能删默认角色' }); return; }
         const ids = listCharacters().map((c) => c.id).filter((x) => x !== id);
         if (!ids.length) { json(res, 400, { ok: false, error: '至少要留一个角色' }); return; }
+        const wasActive = String(id) === String(ACTIVE_CHAR);
         fs.rmSync(path.join(CHARS_ROOT, id), { recursive: true, force: true });
-        activateCharacter(ids.includes('default') ? 'default' : ids[0]);
+        // 只有删掉当前角色时才切换；删别的角色不能把用户正在用的角色切走
+        if (wasActive) activateCharacter(ids.includes('default') ? 'default' : ids[0]);
         json(res, 200, { ok: true, characters: listCharacters(), active: ACTIVE_CHAR });
         return;
       }
       const id = String(b.id || '');
       if (!listCharacters().some((c) => c.id === id)) { json(res, 404, { ok: false, error: '没有这个角色' }); return; }
       activateCharacter(id);
-      json(res, 200, { ok: true, active: id, characters: listCharacters(), character: { id, name: loadMeta().name, avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + Date.now() : '' } });
+      json(res, 200, { ok: true, active: id, characters: listCharacters(), character: { id, name: loadMeta().name, avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + Date.now() : '/default-avatar.png' } });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/life') { json(res, 200, { life: loadLife() }); return; }
@@ -2080,7 +2480,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/pet') {
       const b = (req._json || {});
       const patch = {};
-      for (const k of ['enabled', 'image', 'size', 'opacity', 'statusText', 'alwaysOnTop', 'gestures', 'buttons']) {
+      for (const k of ['enabled', 'image', 'size', 'opacity', 'statusText', 'alwaysOnTop', 'gestures', 'buttons', 'expressions']) {
         if (Object.prototype.hasOwnProperty.call(b, k)) patch[k] = b[k];
       }
       const pet = savePetCfg(patch);
@@ -2100,6 +2500,7 @@ const server = http.createServer(async (req, res) => {
         const ext = m[1].toLowerCase() === 'jpeg' ? 'jpg' : m[1].toLowerCase();
         const dir = path.join(ROOT, 'pet');
         fs.mkdirSync(dir, { recursive: true });
+        for (const oldExt of ['png','jpg','jpeg','webp']) { try { fs.unlinkSync(path.join(dir, 'avatar-custom.' + oldExt)); } catch {} }
         const file = path.join(dir, 'avatar-custom.' + ext);
         fs.writeFileSync(file, buf);
         savePetCfg({ image: file });
@@ -2118,6 +2519,14 @@ const server = http.createServer(async (req, res) => {
       const r = await stopPet();
       savePetCfg({ enabled: false });
       json(res, 200, r);
+      return;
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/pet-sprite/')) {
+      const name = String(url.pathname.split('/').pop() || '').replace(/\.png$/i, '').replace(/[^a-z0-9_-]/gi, '');
+      const p = path.join(RUNTIME_DIR, 'assets', 'pet', (ACTIVE_CHAR || 'xiaojing') + '-' + name + '.png');
+      if (!fs.existsSync(p)) { res.writeHead(404); res.end('not found'); return; }
+      res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
+      res.end(fs.readFileSync(p));
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/pet/manifest') {
@@ -2231,6 +2640,65 @@ const server = http.createServer(async (req, res) => {
       saveEnv(env); json(res, 200, { ok: true, env }); return;
     }
     if (req.method === 'GET' && url.pathname === '/api/model') { json(res, 200, { model: loadModelCfg(), usage: lastUsage }); return; }
+    if (req.method === 'GET' && url.pathname === '/api/chat-bg/custom') {
+      const p = chatBgCustomPath();
+      if (!p) { res.writeHead(404); res.end('no custom background'); return; }
+      const buf = fs.readFileSync(p);
+      const mime = buf[0] === 0xFF && buf[1] === 0xD8 ? 'image/jpeg' : (buf[0] === 0x89 && buf[1] === 0x50 ? 'image/png' : (buf[0] === 0x52 && buf[1] === 0x49 ? 'image/webp' : 'image/jpeg'));
+      res.writeHead(200, { 'content-type': mime, 'cache-control': 'no-store' });
+      res.end(buf);
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/chat-bg/upload') {
+      const b = (req._json || {});
+      const m = String(b.image || '').match(/^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/i);
+      if (!m) { json(res, 400, { ok: false, error: '请上传 jpg/png/webp 图片' }); return; }
+      const buf = Buffer.from(m[2], 'base64');
+      if (!buf.length || buf.length > 10 * 1024 * 1024) { json(res, 400, { ok: false, error: '图片太大（最大 10MB）' }); return; }
+      const ext = m[1].toLowerCase() === 'jpeg' ? 'jpg' : m[1].toLowerCase();
+      for (const old of ['jpg', 'jpeg', 'png', 'webp']) { try { fs.unlinkSync(path.join(ROOT, 'data', 'chat-bg-custom.' + old)); } catch {} }
+      fs.mkdirSync(path.join(ROOT, 'data'), { recursive: true });
+      fs.writeFileSync(path.join(ROOT, 'data', 'chat-bg-custom.' + ext), buf);
+      CONFIG.chatBackground = 'custom'; saveConfig();
+      json(res, 200, { ok: true, current: chatBgCurrent(), options: chatBgOptions() });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/ui-theme') {
+      json(res, 200, { ok: true, current: uiThemeCurrent(), themes: UI_THEMES });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/ui-theme') {
+      const b = (req._json || {});
+      const id = String(b.id || '');
+      if (!UI_THEMES.some((x) => x.id === id)) { json(res, 400, { ok: false, error: '没有这个配色' }); return; }
+      CONFIG.uiTheme = id; saveConfig();
+      json(res, 200, { ok: true, current: uiThemeCurrent(), themes: UI_THEMES });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/chat-bg') {
+      json(res, 200, { ok: true, current: chatBgCurrent(), options: chatBgOptions() });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/chat-bg') {
+      const b = (req._json || {});
+      const id = String(b.id || '');
+      if (id === 'custom' && !chatBgCustomPath()) { json(res, 400, { ok: false, error: '还没有自定义背景' }); return; }
+      if (id !== 'custom' && !CHAT_BACKGROUNDS.some((x) => x.id === id)) { json(res, 400, { ok: false, error: '没有这张背景' }); return; }
+      CONFIG.chatBackground = id; saveConfig();
+      json(res, 200, { ok: true, current: chatBgCurrent(), options: chatBgOptions() });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/image/config') {
+      const c = loadImageCfg();
+      json(res, 200, { ok: true, config: c });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/image/config') {
+      const b = (req._json || {});
+      const c = saveImageCfg(b);
+      json(res, 200, { ok: true, config: c });
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/api/model/key') {
       const b = (req._json || {});
       const key = String(b.key || '').trim();
@@ -2301,7 +2769,7 @@ const server = http.createServer(async (req, res) => {
       const map = getActiveMap();
       json(res, 200, {
         maps: loadMaps().map((m) => ({ id: m.id, name: m.name, placeCount: m.places.length })), activeMapId: map.id,
-        map: { id: map.id, name: map.name, places: map.places, widthMeters: map.widthMeters, transport: map.transport, theme: map.theme, model: map.model || null, image: map.image || null, displayMode: map.displayMode || '2d', roads: map.roads || null },
+        map: { id: map.id, name: map.name, places: map.places, widthMeters: map.widthMeters, transport: map.transport, theme: map.theme, model: map.model || null, image: map.image || null, displayMode: map.displayMode || '2d', roads: map.roads || null, vehicles: map.vehicles || null, has2d: map.has2d !== false && !!(map.image && map.image.url), has3d: map.has3d === true || !!(map.model && map.model.url) },
         transports: TRANSPORTS, longTransports: ['coach', 'rail', 'plane'],
         capabilities: charCapabilities(), weather: weatherNow(), weathers: WEATHERS, energy: loadCharState().energy,
         location: currentPlace(), schedules: (loadLife().schedules || []).map((s, i) => ({ ...s, index: i, place: s.place || guessPlaceId(s.label) })),
@@ -2319,6 +2787,8 @@ const server = http.createServer(async (req, res) => {
       if (b.transport !== undefined) m.transport = (TRANSPORTS[b.transport] || b.transport === 'auto') ? b.transport : 'auto';
       if (b.theme !== undefined) m.theme = ['town', 'coast', 'city', 'forest'].includes(b.theme) ? b.theme : 'town';
       if (['2d', '3d'].includes(b.displayMode)) m.displayMode = b.displayMode;
+       if (b.vehicles !== undefined) m.vehicles = normalizeVehicles(b.vehicles);
+       if (b.has3d !== undefined) m.has3d = !!b.has3d;
       if (b.roads !== undefined) m.roads = normalizeRoads(b.roads);
       if (b.image !== undefined) m.image = b.image && b.image.url ? { url: String(b.image.url).slice(0, 300) } : null;
       if (b.model !== undefined) m.model = b.model && b.model.url ? { url: String(b.model.url).slice(0, 300), scale: Number(b.model.scale) || 1, rotationY: Number(b.model.rotationY) || 0, yOffset: Number(b.model.yOffset) || 0 } : null;
@@ -2339,7 +2809,7 @@ const server = http.createServer(async (req, res) => {
       const b = (req._json || {});
       const maps = loadMaps();
       const id = 'map-' + Date.now().toString(36);
-      maps.push({ id, name: String(b.name || '新地图').slice(0, 20), places: DEFAULT_PLACES.map((p) => ({ ...p })), widthMeters: 2000, transport: 'auto', theme: 'town', displayMode: '2d' });
+      maps.push({ id, name: String(b.name || '新地图').slice(0, 20), places: DEFAULT_PLACES.map((p) => ({ ...p })), widthMeters: 2000, transport: 'auto', theme: 'town', displayMode: '2d', image: { url: '/official-map.jpg' }, has3d: false });
       saveMaps(maps);
       json(res, 200, { ok: true, id, maps: loadMaps().map((mm) => ({ id: mm.id, name: mm.name, placeCount: mm.places.length })) });
       return;
@@ -2479,8 +2949,9 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/economy') {
+      if (!REAL_BALANCE.at || Date.now() - REAL_BALANCE.at > 60000) { try { await refreshRealBalance(); } catch {} }
       const econ = loadEconomy(); const w = walletMoney();
-      json(res, 200, { ok: true, economy: econ, wallet: { balance: w.wallet.balance, spendable: w.spendable, tokenMode: w.tokenMode, remainingTokens: w.remainingTokens, usedTokens: w.wallet.usedTokens, moneyType: w.moneyType } });
+      json(res, 200, { ok: true, economy: econ, realBalance: REAL_BALANCE, wallet: { balance: w.wallet.balance, spendable: w.spendable, tokenMode: w.tokenMode, remainingTokens: w.remainingTokens, usedTokens: w.wallet.usedTokens, moneyType: w.moneyType } });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/economy') {
@@ -2535,8 +3006,8 @@ function stagePayload() {
   try { const m = walletMoney(); wallet = { balance: m.wallet.balance, spendable: m.spendable, tokenMode: m.tokenMode, remainingTokens: m.remainingTokens, moneyType: m.moneyType }; } catch {}
   return {
     ok: true, apiVersion: 1, serverTime: Date.now(),
-    character: { id: ACTIVE_CHAR, name: meta.name || '', avatar: fs.existsSync(avatarPath()) ? '/avatar.png' : '', model: meta.model || { type: 'none', url: '', scale: 1 }, age: Number(meta.age) || null, license: meta.license === true },
-    map: { id: map.id, name: map.name, theme: map.theme || 'town', widthMeters: Number(map.widthMeters) || 2000, places: map.places.map((p) => ({ id: p.id, name: p.name, icon: p.icon, image: p.image || null, x: p.x, y: p.y, desc: p.desc || '', feel: p.feel || '' })), model: map.model || null, image: map.image || null, displayMode: map.displayMode || '2d', roads: map.roads || null },
+    character: { id: ACTIVE_CHAR, name: meta.name || '', avatar: fs.existsSync(avatarPath()) ? '/avatar.png' : '/default-avatar.png', sprite: meta.sprite || '/pet-sprite/idle.png', chibi: meta.chibi || null, model: meta.model || { type: 'none', url: '', scale: 1 }, age: Number(meta.age) || null, license: meta.license === true },
+    map: { id: map.id, name: map.name, theme: map.theme || 'town', widthMeters: Number(map.widthMeters) || 2000, places: map.places.map((p) => ({ id: p.id, name: p.name, icon: p.icon, image: p.image || null, x: p.x, y: p.y, desc: p.desc || '', feel: p.feel || '' })), model: map.model || null, image: map.image || null, displayMode: map.displayMode || '2d', roads: map.roads || null, vehicles: map.vehicles || null, has2d: map.has2d !== false && !!(map.image && map.image.url), has3d: map.has3d === true || !!(map.model && map.model.url) },
     location: { state, placeId: cur.placeId, placeName: cur.name, icon: cur.icon, since: cur.since || Date.now(), minutes: cur.minutes || 0, traveling: cur.traveling || null, intercity: cur.intercity || null, avatar: cur.avatar || '' },
     weather: { kind: weather.kind, label: w.label, icon: w.icon, temp: weather.temp, city: weather.city, source: weather.source, fx: loadWeatherFx() },
     energy: loadCharState().energy, wallet,
@@ -2574,6 +3045,8 @@ function boot() {
   ACTIVE_CHAR = activeCharId();
   activateCharacter(ACTIVE_CHAR);
   loadMessages();
+  refreshRealBalance().catch(() => {});
+  setInterval(() => refreshRealBalance().catch(() => {}), 5 * 60 * 1000).unref?.();
   // 后台心跳
   setInterval(() => {
     try {

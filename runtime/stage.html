@@ -11,10 +11,11 @@ header .chip{border:1px solid #2a3745;border-radius:99px;padding:1px 8px;font-si
 header .spacer{flex:1}
 #stage{flex:1;position:relative;overflow:hidden}
 #stage svg{position:absolute;inset:0;width:100%;height:100%}
+#mapView{position:absolute;overflow:hidden;border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.28)}
 #pins{z-index:4}
-.pin{position:absolute;transform:translate(-50%,-100%);text-align:center;filter:drop-shadow(0 3px 4px rgba(0,0,0,.5))}
-.pin .icon{font-size:22px}
-.pin .label{font-size:11px;background:#14202c;border:1px solid #2a3a4a;border-radius:8px;padding:0 6px;white-space:nowrap;color:#d7e3ee}
+.pin{position:absolute;transform:translate(-50%,-100%);text-align:center;filter:drop-shadow(0 4px 8px rgba(38,32,24,.28));z-index:6}
+.pin .icon{font-size:20px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,252,247,.94);border:1px solid rgba(125,108,86,.35);box-shadow:0 3px 10px rgba(40,35,25,.18)}
+.pin .label{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.02em;background:rgba(255,252,247,.96);border:1px solid #DCCDBB;border-radius:999px;padding:2px 8px;margin-top:2px;white-space:nowrap;color:#46586A;box-shadow:0 2px 8px rgba(40,35,25,.16)}
 #me{position:absolute;z-index:5;transform:translate(-50%,-100%);display:none;text-align:center;filter:drop-shadow(0 4px 8px rgba(0,0,0,.6))}
 #me .ava{width:44px;height:44px;border-radius:50%;border:2px solid #8fc1ff;background:#16202b center/cover;display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto}
 #me .tag{font-size:11px;background:#16304f;border:1px solid #2f6bd8;color:#cfe0f7;border-radius:8px;padding:0 6px;margin-top:2px;white-space:nowrap}
@@ -28,8 +29,27 @@ header .spacer{flex:1}
 @keyframes twinkle{from{opacity:.55}to{opacity:1}}
 #wx{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:3}
 #docs{position:absolute;right:14px;bottom:14px;background:rgba(8,13,20,.8);border:1px solid #2a3745;border-radius:8px;padding:6px 10px;font-size:11px;color:#7d8fa5;max-width:360px}
+
+/* 0.6 UI polish：柔和的深色海面 + 更圆的卡片/按钮 */
+body {
+  background-image:
+    radial-gradient(1000px 520px at 18% -8%, rgba(70, 130, 210, 0.16), transparent 62%),
+    radial-gradient(900px 480px at 88% 108%, rgba(38, 170, 150, 0.10), transparent 58%);
+  background-attachment: fixed;
+}
+.card, .stat, .fact, .box, .panel, .msg .bubble, .bubble {
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+}
+button, .btn { border-radius: 10px; transition: transform .12s ease, background .18s ease, border-color .18s ease; }
+button:hover, .btn:hover { transform: translateY(-1px); }
+input, textarea, select { border-radius: 9px; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: #2b3a4c; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #3b5068; }
+
 </style>
-<link rel="stylesheet" href="/theme.css"></head><body>
+<link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/ui-theme.css"><script src="/ui-theme.js"></script><script src="/ui-dialog.js"></script></head><body>
 <header>
   <span class="name" id="name">…</span>
   <span class="chip" id="where">…</span>
@@ -38,15 +58,16 @@ header .spacer{flex:1}
   <span class="chip" id="money">…</span>
   <span class="chip" id="token">🪙 …</span>
   <span class="spacer"></span><a href="/screen" target="_blank" style="color:#59a6ff;text-decoration:none;font-size:12px">屏幕</a>
-  <a href="/model" style="color:#59a6ff;text-decoration:none;font-size:12px">3D 舞台</a>
   <span style="color:#5a6878;font-size:11px">想换小人：设置→角色→模型类型选「2D 精灵图」+ 填图片地址 · 数据接口见下方说明</span>
 </header>
 <div id="stage">
   <div id="tod" class="day"></div>
   <div id="wx" style="position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1"></div>
-  <div id="bgLayer" style="position:absolute;inset:0;display:none"><img id="bgImg" alt="" style="width:100%;height:100%;object-fit:fill;display:block"></div>
-  <div id="pins"></div>
-  <div id="me"><img id="meSprite" style="display:none;width:96px;height:auto;margin:0 auto" alt=""><div class="ava" id="meAva">🐟</div><div class="tag" id="meTag">…</div></div>
+  <div id="mapView">
+    <div id="bgLayer" style="position:absolute;inset:0;display:none"><img id="bgImg" alt="" style="width:100%;height:100%;object-fit:fill;display:block"></div>
+    <div id="pins"></div>
+    <div id="me"><img id="meSprite" style="display:none;width:96px;height:auto;margin:0 auto" alt=""><div class="ava" id="meAva">🐟</div><div class="tag" id="meTag">…</div></div>
+  </div>
   <div id="status">加载中…</div>
   <div id="docs">GET /api/stage（当前状态）· GET /api/stage/stream（SSE 每秒推送）· 字段：map.places[].x/y（0~1 归一化）、location.state（stationary/traveling/intercity）、location.traveling.path、character.model{type,url,scale}</div>
 </div>
@@ -68,6 +89,15 @@ function themeSvg(theme){
     + '<path d="M500 320 C 505 400, 470 520, 505 640" fill="none" stroke="#2a3a44" stroke-width="34" stroke-linecap="round"/>';
   return base + extra + road + '</svg>';
 }
+function fitMapView(){
+  const st = document.getElementById('stage'), v = document.getElementById('mapView');
+  if (!st || !v) return;
+  const sw = st.clientWidth, sh = st.clientHeight, ar = 1.5;
+  let w = sw, h = w / ar;
+  if (h > sh) { h = sh; w = h * ar; }
+  v.style.width = w + 'px'; v.style.height = h + 'px';
+  v.style.left = ((sw - w) / 2) + 'px'; v.style.top = ((sh - h) / 2) + 'px';
+}
 function render(payload){
   DATA = payload;
   const ch = payload.character, map = payload.map, loc = payload.location;
@@ -76,6 +106,14 @@ function render(payload){
     : loc.state === 'traveling' ? ('去 ' + (loc.traveling && loc.traveling.toName) + ' 的路上')
     : (loc.icon + ' ' + loc.placeName + ' · ' + map.name);
   $('#where').textContent = where;
+  if (map.has2d === false) {
+    const st = document.getElementById('status');
+    if (st) st.textContent = '这张地图没有 2D 资源';
+    const pinsEl = document.getElementById('pins'); if (pinsEl) pinsEl.innerHTML = '';
+    const meEl = document.getElementById('me'); if (meEl) meEl.style.display = 'none';
+    const bgEl = document.getElementById('bgLayer'); if (bgEl) bgEl.style.display = 'none';
+    return;
+  }
   $('#weather').textContent = payload.weather.icon + ' ' + payload.weather.label + (payload.weather.temp !== null && payload.weather.temp !== undefined ? ' ' + payload.weather.temp + '°C' : '');
   $('#energy').textContent = '体力 ' + payload.energy;
   const wm = payload.wallet;
@@ -112,10 +150,12 @@ function render(payload){
   const model = ch.model || { type: 'none', url: '', scale: 1 };
   const sprite = document.getElementById('meSprite');
   const ava = document.getElementById('meAva');
-  if (model.type === 'sprite' && model.url) {
+  if (map.has2d === false) { document.getElementById('status').textContent = '这张地图没有 2D 资源'; }
+  const spriteUrl = ch.sprite || (model.type === 'sprite' ? model.url : '');
+  if (spriteUrl) {
     // 2D 精灵图：直接显示图片
     sprite.style.display = 'block';
-    sprite.src = model.url;
+    sprite.src = spriteUrl + (spriteUrl.includes('?') ? '&' : '?') + 'c=' + encodeURIComponent(ch.id || '');
     sprite.style.height = Math.round(96 * (Number(model.scale) || 1)) + 'px';
     sprite.style.width = 'auto';
     ava.style.display = 'none';
@@ -145,20 +185,11 @@ function render(payload){
     CompanionWeatherFx.set(wxEl, payload.weather && payload.weather.kind, (payload.weather && payload.weather.fx) || {});
   }
   const dm = map.displayMode || '2d';
-  let dmBar = document.getElementById('displayModeBar');
-  if (!dmBar) {
-    dmBar = document.createElement('div');
-    dmBar.id = 'displayModeBar';
-    dmBar.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(16,27,41,.9);border:1px solid #2f6bd8;border-radius:10px;padding:6px 14px;font-size:12px;color:#bfd4ef;z-index:5';
-    document.getElementById('stage').appendChild(dmBar);
-  }
-  dmBar.innerHTML = dm === '3d'
-    ? '当前地图设为 <b>3D 视图</b> · <a href="/model" style="color:#59a6ff">打开 3D 舞台 →</a>'
-    : '当前地图设为 <b>2D 平面</b> · <a href="/model" style="color:#59a6ff">也可看 3D →</a>';
+  // 舞台只做 2D，不提供 3D 入口
   const bgLayer = document.getElementById('bgLayer'), bgImg = document.getElementById('bgImg'), themeEl = document.getElementById('themeSvg');
   const mapImg = map.image && map.image.url ? map.image.url : '';
   if (bgLayer && bgImg) {
-    if (mapImg) { bgLayer.style.display = 'block'; bgImg.src = mapImg; if (themeEl) themeEl.style.display = 'none'; }
+    if (mapImg) { bgLayer.style.display = 'block'; bgImg.src = mapImg; if (themeEl) themeEl.style.display = 'none'; try { const oldSvg = document.getElementById('themeSvg'); if (oldSvg) oldSvg.remove(); } catch(e) {} }
     else { bgLayer.style.display = 'none'; bgImg.src = ''; if (themeEl) themeEl.style.display = ''; }
   }
   const pins = document.getElementById('pins');
@@ -174,11 +205,14 @@ function render(payload){
   if (THEME !== map.theme) {
     THEME = map.theme;
     const old = document.getElementById('themeSvg'); if (old) old.remove();
-    const holder = document.createElement('div');
-    holder.id = 'themeSvg';
-    holder.style.cssText = 'position:absolute;inset:0';
-    holder.innerHTML = themeSvg(THEME);
-    $('#stage').insertBefore(holder, $('#stage').firstChild);
+    // 有官方底图时不再叠程序化 SVG 地图，避免地点标和底图错位
+    if (!mapImg) {
+      const holder = document.createElement('div');
+      holder.id = 'themeSvg';
+      holder.style.cssText = 'position:absolute;inset:0';
+      holder.innerHTML = themeSvg(THEME);
+      $('#stage').insertBefore(holder, $('#stage').firstChild);
+    }
   }
   const t = loc.traveling;
   $('#status').textContent = loc.state === 'traveling'
@@ -186,7 +220,10 @@ function render(payload){
     : loc.state === 'intercity'
       ? ('跨城：' + loc.intercity.fromMapName + ' → ' + loc.intercity.toMapName + ' · ' + loc.intercity.modeLabel + ' · 约 ' + Math.max(1, Math.ceil(loc.intercity.etaSec / 60)) + ' 分钟')
       : ('她现在在「' + loc.placeName + '」' + (loc.minutes > 0 ? '（已待 ' + loc.minutes + ' 分钟）' : '') + ' · ' + payload.animationHint);
+  fitMapView();
 }
+var __stageRaf = 0;
+window.addEventListener('resize', () => { if (__stageRaf) return; __stageRaf = requestAnimationFrame(() => { __stageRaf = 0; fitMapView(); }); });
 async function poll(){
   try { const r = await fetch('/api/stage'); render(await r.json()); }
   catch(e) { $('#status').textContent = '连接断开：' + e.message; }

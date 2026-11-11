@@ -59,11 +59,147 @@ input:focus,select:focus{border-color:#2563eb}
 #iconPalette{position:fixed;z-index:20;background:#101b29;border:1px solid #2f6bd8;border-radius:10px;padding:8px;display:none;grid-template-columns:repeat(8,1fr);gap:4px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 #iconPalette button{font-size:18px;background:transparent;border:0;padding:3px;cursor:pointer;border-radius:6px}
 #iconPalette button:hover{background:#16304f}
+
+/* 0.6 UI polish：柔和的深色海面 + 更圆的卡片/按钮 */
+body {
+  background-image:
+    radial-gradient(1000px 520px at 18% -8%, rgba(70, 130, 210, 0.16), transparent 62%),
+    radial-gradient(900px 480px at 88% 108%, rgba(38, 170, 150, 0.10), transparent 58%);
+  background-attachment: fixed;
+}
+.card, .stat, .fact, .box, .panel, .msg .bubble, .bubble {
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+}
+button, .btn { border-radius: 10px; transition: transform .12s ease, background .18s ease, border-color .18s ease; }
+button:hover, .btn:hover { transform: translateY(-1px); }
+input, textarea, select { border-radius: 9px; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: #2b3a4c; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #3b5068; }
+
 </style>
-<link rel="stylesheet" href="/theme.css"></head>
+<link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/ui-theme.css"><script src="/ui-theme.js"></script>
+<script>
+window.addEventListener('load', () => {
+  if (new URLSearchParams(location.search).get('drawRoads') !== '1') return;
+  setTimeout(() => { try { if (!EDITING_ROADS) toggleRoadEditor(); toast('画道路模式：点地图加点，画完保存地图'); } catch (e) {} }, 1200);
+});
+</script>
+<style>
+/* 官方 2D 地图：保持比例 + 精致地点标 */
+#mapWrap{contain:layout paint;aspect-ratio:3/2;flex:0 0 auto;width:100%;height:auto;max-height:calc(100vh - 128px);background:#efe4ce}
+#mapBgImg{object-fit:cover}
+#mapPins{z-index:4}
+.pin{filter:drop-shadow(0 3px 5px rgba(43,35,25,.28))}
+.pin .pinNum{
+  width:26px;height:26px;margin:0 auto;border-radius:50%;
+  border:2px solid rgba(255,255,255,.96);background:#6f9fd1;color:#fff;
+  font-size:12px;font-weight:700;line-height:24px;text-align:center;
+  box-shadow:0 3px 8px rgba(40,35,25,.22);
+}
+.pin .pinLabel{
+  display:inline-flex;align-items:center;gap:4px;margin-top:2px;
+  padding:2px 7px;border-radius:999px;
+  background:rgba(255,252,247,.94);border:1px solid rgba(105,92,72,.22);
+  color:#3e4d5f;font-size:10.5px;line-height:1.5;white-space:nowrap;
+  box-shadow:0 2px 6px rgba(40,35,25,.12);
+}
+.pin .pinStem{width:1px;height:7px;margin:0 auto;background:rgba(95,80,60,.45)}
+@media (max-width:900px){#mapWrap{max-height:none}}
+</style>
+<style>
+.officialBadge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;font-size:11px;color:#8a6a3e;background:rgba(255,241,218,.82);border:1px solid rgba(186,145,90,.35);white-space:nowrap}
+</style>
+<style>
+/* 地图动态：日夜与天气氛围 */
+#mapInfo{
+  position:absolute;left:14px;top:14px;z-index:7;
+  display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:999px;
+  background:rgba(255,252,247,.86);border:1px solid rgba(105,92,72,.20);
+  color:#54657a;font-size:11px;line-height:1.4;box-shadow:0 4px 14px rgba(40,35,25,.12);
+  pointer-events:none;
+}
+#mapInfo #mapWeather{padding-left:8px;border-left:1px solid rgba(105,92,72,.18)}
+#mapWrap::after{content:'';position:absolute;inset:0;z-index:1;pointer-events:none;box-shadow:inset 0 0 70px rgba(48,40,28,.16)}
+#tod{transition:background .6s ease, opacity .6s ease}
+/* 白天：暖阳与薄雾 */
+#tod.day{background:
+  radial-gradient(60% 55% at 18% 6%, rgba(255,229,176,.34), transparent 66%),
+  linear-gradient(180deg, rgba(255,246,220,.10), rgba(255,238,205,.04) 52%, rgba(255,255,255,0))}
+
+/* 清晨 / 黄昏 */
+#tod.dawn{background:
+  radial-gradient(55% 45% at 20% 08%, rgba(255,186,135,.42), transparent 70%),
+  linear-gradient(180deg, rgba(255,176,130,.14), rgba(146,116,170,.10) 58%, rgba(255,160,120,.08))}
+#tod.dusk{background:
+  radial-gradient(58% 48% at 78% 16%, rgba(255,161,112,.35), transparent 68%),
+  linear-gradient(180deg, rgba(255,143,95,.16), rgba(104,60,112,.16) 58%, rgba(28,22,52,.26))}
+/* 夜晚：安静星空、月光、远处灯光 */
+#tod.night{background:
+  radial-gradient(48% 44% at 76% 12%, rgba(196,220,255,.16), transparent 62%),
+  linear-gradient(180deg, rgba(8,18,42,.62), rgba(8,16,38,.52) 60%, rgba(7,12,28,.66))}
+
+#tod.night::after{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background-image:
+    radial-gradient(1.5px 1.5px at 18% 18%,rgba(255,255,255,.8) 50%,transparent 51%),
+    radial-gradient(1px 1px at 34% 10%,rgba(255,255,255,.65) 50%,transparent 51%),
+    radial-gradient(1.6px 1.6px at 55% 24%,rgba(255,255,255,.75) 50%,transparent 51%),
+    radial-gradient(1px 1px at 71% 13%,rgba(255,255,255,.55) 50%,transparent 51%),
+    radial-gradient(1.2px 1.2px at 86% 31%,rgba(255,255,255,.65) 50%,transparent 51%),
+    radial-gradient(1px 1px at 44% 42%,rgba(255,255,255,.45) 50%,transparent 51%);
+  background-size:360px 240px;opacity:.8;animation:mapStars 9s ease-in-out infinite alternate;
+}
+/* 天气叠色（不新增粒子，现有天气画布继续工作） */
+#tod[data-weather="cloudy"]{box-shadow:inset 0 0 0 9999px rgba(130,145,150,.07)}
+#tod[data-weather="rain"]{box-shadow:inset 0 0 0 9999px rgba(70,100,130,.16)}
+#tod[data-weather="rain"]::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(108deg,transparent 0 15px,rgba(210,228,245,.12) 16px 17px,transparent 18px 32px);opacity:.55}
+#tod[data-weather="snow"]{box-shadow:inset 0 0 0 9999px rgba(220,238,255,.14)}
+#tod[data-weather="hot"]{box-shadow:inset 0 0 0 9999px rgba(255,150,80,.08)}
+#tod[data-weather="cold"]{box-shadow:inset 0 0 0 9999px rgba(120,175,230,.13)}
+#tod[data-weather="windy"]{box-shadow:inset 0 0 0 9999px rgba(180,200,210,.08)}
+
+/* 少量、低频的地图动画：只做 opacity / transform / background-position */
+@keyframes mapStars{
+  0%{opacity:.55}
+  100%{opacity:.95}
+}
+@keyframes mapRainDrift{
+  0%{background-position:0 0}
+  100%{background-position:-44px 88px}
+}
+@keyframes mapCloudDrift{
+  0%{transform:translate3d(-2%,0,0)}
+  100%{transform:translate3d(2%,0,0)}
+}
+#tod.day::after{
+  content:'';position:absolute;left:-10%;right:-10%;top:4%;height:38%;pointer-events:none;
+  background:
+    radial-gradient(38% 55% at 24% 50%,rgba(255,255,255,.26),transparent 70%),
+    radial-gradient(30% 45% at 62% 34%,rgba(255,255,255,.18),transparent 70%),
+    radial-gradient(26% 40% at 82% 62%,rgba(255,255,255,.14),transparent 70%);
+  filter:blur(1px);opacity:.7;animation:mapCloudDrift 65s ease-in-out infinite alternate;
+}
+#tod[data-weather="rain"]::before{animation:mapRainDrift 2.2s linear infinite}
+@media (prefers-reduced-motion: reduce){
+  #tod.day::after,#tod.night::after,#tod[data-weather="rain"]::before{animation:none !important}
+}
+#nameDlg{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(2,7,14,.62);backdrop-filter:blur(3px)}
+#nameDlg .card{width:380px;max-width:calc(100vw - 32px);background:#0f1823;border:1px solid #2c4055;border-radius:16px;padding:20px;box-shadow:0 24px 70px rgba(0,0,0,.55);color:#d7e2ee}
+#nameDlg h3{margin:0 0 6px;font-size:16px}
+#nameDlg p{margin:0 0 14px;font-size:12px;color:#8ea4ba}
+#nameDlg input{width:100%;box-sizing:border-box;background:#0a121c;border:1px solid #2f465d;color:#e6eef8;border-radius:9px;padding:9px 11px;font:inherit;margin-bottom:14px}
+#nameDlg .row{display:flex;justify-content:flex-end;gap:8px}
+#nameDlg button{padding:7px 14px}
+</style>
+
+
+<script src="/ui-dialog.js"></script></head>
 <body>
 <header>
   <h1>🗺️ <span id="mapName">地图</span></h1>
+  <span id="mapBadge" class="officialBadge" style="display:none">官方 2D</span>
   <select id="mapSel" onchange="switchMap(this.value)"></select>
   <select id="longMode" title="换地图时的交通方式">
     <option value="auto">自动选长途</option>
@@ -87,6 +223,7 @@ input:focus,select:focus{border-color:#2563eb}
       <div id="tod" class="day"></div>
       <div id="wx" style="position:absolute;inset:0;pointer-events:none;overflow:hidden"></div>
       <div id="mapBg" style="position:absolute;inset:0;display:none"><img id="mapBgImg" alt="" style="width:100%;height:100%;object-fit:fill;display:block"></div>
+      <div id="mapInfo"><span id="mapClock">--:--</span><span id="mapWeather">…</span></div>
       <div id="mapPins"></div>
       <div id="roadLayer" style="position:absolute;inset:0;pointer-events:none"></div>
       <div id="routeLayer"></div>
@@ -124,7 +261,6 @@ input:focus,select:focus{border-color:#2563eb}
     <div class="card"><h2>地图设置</h2>
       <div class="row"><label>地图全宽</label><input type="text" id="widthMeters" placeholder="例如 2000" style="width:90px"><span class="small">米</span></div>
       <div class="row"><label>交通方式</label><select id="transport"><option value="auto">自动</option><option value="walk">🚶 步行</option><option value="bike">🚲 骑车</option><option value="bus">🚌 公交</option><option value="car">🚗 自驾</option><option value="metro">🚇 地铁</option></select></div>
-      <div class="row"><label>地图风格</label><select id="theme"><option value="town">🏘️ 小镇</option><option value="coast">🌊 海边</option><option value="city">🏙️ 城市</option><option value="forest">🌲 森林</option></select></div>
       <div class="row"><label>天气来源</label><select id="weatherMode" onchange="saveWeatherMode()"><option value="manual">手动选择</option><option value="real">真实天气（按设备定位）</option></select></div>
       <div class="row"><label>天气</label><select id="weather" onchange="saveWeather()"><option value="sunny">☀️ 晴天</option><option value="cloudy">☁️ 多云</option><option value="rain">🌧️ 下雨</option><option value="snow">❄️ 下雪</option><option value="hot">🥵 热</option><option value="cold">🧣 冷</option><option value="windy">💨 大风</option></select></div>
       <div class="small" id="realWeatherInfo"></div>
@@ -132,6 +268,7 @@ input:focus,select:focus{border-color:#2563eb}
       <div class="row"><label>体力</label><div style="flex:1"><div class="bar" style="height:8px;background:#1a2431;border-radius:99px;overflow:hidden"><i id="energyBar" style="display:block;height:100%;width:0;background:linear-gradient(90deg,#22c55e,#f59e0b)"></i></div><span class="small" id="energyText">…</span></div></div>
       <div id="capsLine" class="small" style="margin-top:4px;color:#9fb3c8"></div>
       <div class="row"><label>路线</label><button class="btn" onclick="toggleRoadEditor()">✏️ 画道路（自定义路线）</button></div>
+        <div class="row"><label>路径显示</label><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#b7c8db"><input type="checkbox" id="showRoads"> 显示绿色路径</label></div>
       <div class="small">画完道路后，她出门会沿你画的路线走（不画就沿默认道路）</div>
       <div class="row"><label>地图视图</label><select id="displayMode" onchange="saveDisplayMode()"><option value="2d">2D 平面</option><option value="3d">3D 模型</option></select></div>
       <div class="row"><label>2D 底图</label><button class="btn" onclick="document.getElementById('mapImgFile').click()">上传图片</button><input type="file" id="mapImgFile" accept="image/*" style="display:none" onchange="uploadMapImage(this)"><button class="btn danger" style="margin-left:6px" onclick="clearMapImage()">清除</button></div>
@@ -140,7 +277,10 @@ input:focus,select:focus{border-color:#2563eb}
       <div class="row"><label>模型缩放</label><input type="number" id="mmScale" step="0.1" placeholder="1" style="width:80px"><span class="small">倍</span></div>
       <div class="row"><label>模型旋转</label><input type="number" id="mmRot" placeholder="0" style="width:80px"><span class="small">度</span></div>
       <div class="row"><label>高度偏移</label><input type="number" id="mmYoff" step="0.5" placeholder="0" style="width:80px"></div>
-      <div class="row"><button class="btn primary" onclick="saveMapModel()">应用地图模型</button><button class="btn" onclick="window.open('/model','_blank')">预览 3D</button></div>
+      <div class="row"><label>汽车模型</label><input type="text" id="vehCarUrl" placeholder="/models/my-car.glb（留空用内置）"></div>
+      <div class="row"><label>自行车模型</label><input type="text" id="vehBikeUrl" placeholder="/models/my-bike.glb（留空用内置）"></div>
+      <div class="row"><button class="btn" onclick="saveVehicleModels()">应用载具模型</button><span class="small">模型放 models/ 目录，填 /models/xxx.glb</span></div>
+      <div class="row"><button class="btn primary" onclick="saveMapModel()">应用地图模型</button><button class="btn" onclick="openModelPreview()">预览 3D</button></div>
       <div class="small" id="modelHint"></div>
       <div class="small">导入 3D 地图：把 .glb/.gltf 放 models/ 目录，填 /models/xxx.glb，然后打开 3D 舞台 /model 查看</div>
       <div class="small">地图全宽决定比例尺和通勤时间；换地图是长途，按右上角"长途交通"选择</div>
@@ -216,16 +356,25 @@ function themeSvg(theme){
   return '<svg viewBox="0 0 1000 640" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%" xmlns="http://www.w3.org/2000/svg">' + base + bg + roads + trees + '</svg>';
 }
 function drawTheme(){ const wrap = document.getElementById('mapWrap'); const old = document.getElementById('themeSvg'); if (old) old.remove(); wrap.insertAdjacentHTML('afterbegin', '<div id="themeSvg">' + themeSvg(DATA.map.theme) + '</div>'); document.getElementById('themeSvg').style.cssText='position:absolute;inset:0'; }
-function placeEl(p){
+function pinColor(p){
+  const id = String(p && p.id || '');
+  if (id === 'home') return '#e28b73';
+  if (['school','library','bookstore'].includes(id)) return '#6f9fd1';
+  if (['cafe','canteen','market','nightmarket'].includes(id)) return '#e0a45f';
+  if (['park','riverside','gym'].includes(id)) return '#69a97c';
+  if (id === 'station') return '#5aa7a0';
+  return '#9b8bd4';
+}
+function placeEl(p, index){
   const el = document.createElement('div');
   el.className = 'pin';
-  el.style.cssText = 'position:absolute;left:'+(p.x*100)+'%;top:'+(p.y*100)+'%;transform:translate(-50%,-100%);cursor:grab;user-select:none;text-align:center;filter:drop-shadow(0 3px 4px rgba(0,0,0,.5))';
+  el.style.cssText = 'position:absolute;left:'+(p.x*100)+'%;top:'+(p.y*100)+'%;transform:translate(-50%,-100%);cursor:grab;user-select:none;text-align:center';
   const iconHtml = p.image
-    ? '<img src="'+esc(p.image)+'" alt="" style="width:28px;height:28px;object-fit:contain;display:inline-block">'
-    : '<span style="font-size:24px">'+esc(p.icon)+'</span>';
-  el.innerHTML = '<div>'+iconHtml+'</div>'
-    + '<div style="font-size:11px;color:#d7e3ee;background:#14202c;padding:1px 7px;border-radius:8px;border:1px solid #2a3a4a;white-space:nowrap">'+esc(p.name)+'</div>'
-    + '<div style="width:2px;height:8px;background:#2a3a4a;margin:0 auto"></div>';
+    ? '<img src="'+esc(p.image)+'" alt="" style="width:18px;height:18px;object-fit:contain;display:inline-block;vertical-align:middle">'
+    : '<span style="font-size:15px;line-height:1">'+esc(p.icon)+'</span>';
+  el.innerHTML = '<div class="pinNum" style="background:'+pinColor(p)+'">'+(Number(index)+1)+'</div>'
+    + '<div class="pinLabel">'+iconHtml+'<span>'+esc(p.name)+'</span></div>'
+    + '<div class="pinStem"></div>';
   el.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
     const box = document.getElementById('mapWrap').getBoundingClientRect();
@@ -243,7 +392,7 @@ function placeEl(p){
 function renderPins(){
   const wrap = document.getElementById('mapPins');
   wrap.innerHTML = '';
-  PLACES.forEach((p) => wrap.appendChild(placeEl(p)));
+  PLACES.forEach((p, i) => wrap.appendChild(placeEl(p, i)));
 }
 function pathPoints(){ const tv = CURRENT && CURRENT.traveling; return (tv && Array.isArray(tv.path) && tv.path.length > 1) ? tv.path : null; }
 function pointAt(path, progress){
@@ -457,9 +606,8 @@ async function loadMapData(){
   document.getElementById('mapSel').innerHTML = DATA.maps.map(m => '<option value="'+esc(m.id)+'"'+(m.id===DATA.activeMapId?' selected':'')+'>'+esc(m.name)+'（'+m.placeCount+' 个地点）</option>').join('');
   document.getElementById('widthMeters').value = DATA.map.widthMeters || 2000;
   document.getElementById('transport').value = DATA.map.transport || 'auto';
-  document.getElementById('theme').value = DATA.map.theme || 'town';
   const dm = document.getElementById('displayMode'); if (dm) dm.value = DATA.map.displayMode || '2d';
-  const mImg = DATA.map.image || {};
+  const mImg = DATA.map.image || {}; const badge = document.getElementById('mapBadge'); if (badge) badge.style.display = String(mImg.url||'').includes('official-map') ? 'inline-flex' : 'none';
   if (document.getElementById('mapImgUrl')) document.getElementById('mapImgUrl').value = mImg.url || '';
   const bg = document.getElementById('mapBg'), bgImg = document.getElementById('mapBgImg'), themeSvgEl = document.getElementById('themeSvg');
   if (bg && bgImg) {
@@ -471,6 +619,9 @@ async function loadMapData(){
   if (document.getElementById('mmScale')) document.getElementById('mmScale').value = mModel.scale || 1;
   if (document.getElementById('mmRot')) document.getElementById('mmRot').value = mModel.rotationY || 0;
   if (document.getElementById('mmYoff')) document.getElementById('mmYoff').value = mModel.yOffset || 0;
+  const mv = DATA.map.vehicles || {};
+  if (document.getElementById('vehCarUrl')) document.getElementById('vehCarUrl').value = (mv.car && mv.car.url) || '';
+  if (document.getElementById('vehBikeUrl')) document.getElementById('vehBikeUrl').value = (mv.bicycle && mv.bicycle.url) || '';
   document.getElementById('mapName').textContent = DATA.map.name;
   ROADS = (DATA.map.roads || []).map(l => l.map(pt => ({ x: Number(pt[0]), y: Number(pt[1]) })));
   renderRoads();
@@ -478,7 +629,25 @@ async function loadMapData(){
   loadMoneyLine();
   renderPlaceList(); renderSchedList(); renderPins(); drawTheme(); renderScale();
   loadWeatherData();
+  sync3dUi();
   startTicker();
+}
+function sync3dUi(){
+  const has3d = !!(DATA && DATA.map && DATA.map.has3d);
+  const sel = document.getElementById('displayMode');
+  if (sel) {
+    const opt = sel.querySelector('option[value="3d"]');
+    if (opt) { opt.disabled = !has3d; opt.textContent = has3d ? '3D 模型' : '3D 模型（无资源）'; }
+    if (!has3d) sel.value = '2d';
+  }
+  document.querySelectorAll('button').forEach(b => {
+    if (b.textContent.indexOf('预览 3D') >= 0) {
+      b.textContent = has3d ? '预览 3D' : '预览 3D（无资源）';
+      b.title = has3d ? '打开 3D 舞台' : '这张地图没有 3D 资源';
+    }
+  });
+  const hint = document.getElementById('modelHint');
+  if (hint && !has3d) hint.textContent = '这张地图没有 3D 资源；先在下方应用地图模型或使用内置 3D 场景。';
 }
 function pickIcon(ev, i){
   ev.preventDefault(); ev.stopPropagation();
@@ -509,7 +678,6 @@ async function saveMap(){
     mapId: DATA.map.id, name: DATA.map.name, places: PLACES,
     widthMeters: Number(document.getElementById('widthMeters').value) || 2000,
     transport: document.getElementById('transport').value || 'auto',
-    theme: document.getElementById('theme').value || 'town',
     schedules: SCHEDULES.map((s,i)=>({ index: s.index !== undefined ? s.index : i, place: s.place })),
   });
   if (r.ok) { toast('已保存'); await loadMapData(); }
@@ -549,7 +717,7 @@ async function goHere(i){
   const body = { mapId: DATA.map.id, placeId: p.id, mode: modeSel === 'auto' ? undefined : modeSel };
   let r = await saveJson('/api/location', body);
   if (r.refused && r.needsConfirm) {
-    if (!confirm(r.reason + '\n\n（确定就让她去，她会跟你报备）')) { renderCurrent(r.location); return; }
+    if (!await uiConfirm(r.reason + '\n\n（确定就让她去，她会跟你报备）')) { renderCurrent(r.location); return; }
     body.confirmNight = true;
     r = await saveJson('/api/location', body);
   }
@@ -567,10 +735,18 @@ function applyTimeOfDay(){
   const el = document.getElementById('tod');
   if (!el) return;
   const d = new Date();
-  el.className = dayPhase(d.getHours() + d.getMinutes() / 60);
+  const phase = dayPhase(d.getHours() + d.getMinutes() / 60);
+  el.className = phase;
+  const clock = document.getElementById('mapClock');
+  if (clock) clock.textContent = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0') + ' · ' + ({dawn:'清晨',day:'白天',dusk:'黄昏',night:'夜晚'}[phase] || '');
 }
 function applyWeatherFx(kind){
   const el = document.getElementById('wx');
+  const tod = document.getElementById('tod');
+  if (tod) tod.dataset.weather = kind || 'sunny';
+  const w = (WEATHERS && WEATHERS[kind]) || {};
+  const wt = document.getElementById('mapWeather');
+  if (wt) wt.textContent = (w.icon || '🌤️') + ' ' + (w.label || '天气');
   if (!el || !window.CompanionWeatherFx) return;
   CompanionWeatherFx.set(el, kind, WXFX);
 }
@@ -636,9 +812,11 @@ function exportPlaces(){
   URL.revokeObjectURL(a.href);
   toast('已导出 ' + PLACES.length + ' 个地点');
 }
+function roadsVisible() { return localStorage.getItem('mapShowRoads') !== '0'; }
 function renderRoads(){
   const layer = document.getElementById('roadLayer');
   if (!layer) return;
+  if (!roadsVisible()) { layer.innerHTML = ''; return; }
   const lines = ROADS.map(l => l.map(pt => [pt.x, pt.y]));
   if (ROAD_CUR.length) lines.push(ROAD_CUR.map(pt => [pt.x, pt.y]));
   if (!lines.length) { layer.innerHTML = ''; return; }
@@ -647,6 +825,11 @@ function renderRoads(){
     + lines.map((l) => l.map(pt => '<circle cx="'+(pt[0]*100)+'" cy="'+(pt[1]*100)+'" r="0.7" fill="#86efac"/>').join('')).join('')
     + '</svg>';
   layer.innerHTML = svg;
+}
+function toggleShowRoads(on) {
+  localStorage.setItem('mapShowRoads', on ? '1' : '0');
+  renderRoads();
+  try { toast(on ? '已显示绿色路径' : '已隐藏绿色路径'); } catch(e) {}
 }
 function toggleRoadEditor(){
   EDITING_ROADS = !EDITING_ROADS;
@@ -688,6 +871,7 @@ async function useBuiltinScene(){
   const r = await saveJson('/api/map', {
     mapId: DATA.map.id,
     displayMode: '3d',
+    has3d: true,
     model: { url: '/models/demo-town2.gltf', scale: 1, rotationY: 0, yOffset: 0 },
   });
   if (r.ok) { toast('已切到内置 3D 场景（打开 3D 舞台查看）'); await loadMapData(); }
@@ -695,6 +879,7 @@ async function useBuiltinScene(){
 }
 async function saveDisplayMode(){
   const mode = document.getElementById('displayMode').value;
+  if (mode === '3d' && !(DATA.map && DATA.map.has3d)) { toast('这张地图没有 3D 资源，先在下方应用地图模型或使用内置 3D 场景'); return; }
   const r = await saveJson('/api/map', { mapId: DATA.map.id, displayMode: mode });
   if (r.ok) { toast(mode === '3d' ? '已切到 3D 视图（打开 /model 查看）' : '已切到 2D 平面视图'); await loadMapData(); }
 }
@@ -702,6 +887,18 @@ async function saveMapImageUrl(){
   const url = document.getElementById('mapImgUrl').value.trim();
   await saveJson('/api/map', { mapId: DATA.map.id, image: url ? { url } : null });
   await loadMapData(); toast(url ? '底图地址已设置' : '底图已清除');
+}
+function openModelPreview(){ if (!(DATA.map && DATA.map.has3d)) { toast('这张地图没有 3D 资源'); return; } window.open('/model','_blank'); }
+async function saveVehicleModels(){
+  const car = (document.getElementById('vehCarUrl') || {}).value || '';
+  const bike = (document.getElementById('vehBikeUrl') || {}).value || '';
+  const vehicles = {};
+  const carUrl = car.trim(); const bikeUrl = bike.trim();
+  if (carUrl) vehicles.car = { url: carUrl, scale: 1, rotationY: 0 };
+  if (bikeUrl) vehicles.bicycle = { url: bikeUrl, scale: 1, rotationY: 0 };
+  const r = await saveJson('/api/map', { mapId: DATA.map.id, vehicles });
+  if (r.ok) { toast(carUrl || bikeUrl ? '载具模型已应用' : '已恢复内置载具形象'); await loadMapData(); }
+  else toast(r.error || '保存失败');
 }
 async function saveMapModel(){
   const dm = document.getElementById('displayMode') ? document.getElementById('displayMode').value : (DATA.map.displayMode || '2d');
@@ -714,7 +911,7 @@ async function saveMapModel(){
     rotationY: Number(document.getElementById('mmRot').value) || 0,
     yOffset: Number(document.getElementById('mmYoff').value) || 0,
   } : null;
-  const r = await saveJson('/api/map', { mapId: DATA.map.id, model });
+  const r = await saveJson('/api/map', { mapId: DATA.map.id, model, has3d: !!model });
   if (r.ok) { toast(model ? '地图模型已设置，打开 /model 查看' : '已清除地图模型'); await loadMapData(); }
 }
 async function saveWeatherMode(){
@@ -740,39 +937,82 @@ async function switchMap(id){
   if (!DATA || id === DATA.activeMapId) return;
   const mode = document.getElementById('longMode').value || 'auto';
   const target = DATA.maps.find(m => m.id === id);
-  if (!confirm('让她坐长途去「' + (target ? target.name : id) + '」？')) { await loadMapData(); return; }
+  if (!await uiConfirm('让她坐长途去「' + (target ? target.name : id) + '」？')) { await loadMapData(); return; }
   let r = await saveJson('/api/map/activate', { id, mode: mode === 'auto' ? undefined : mode });
   if (r.refused && r.needsConfirm) {
-    if (!confirm(r.reason + '\n\n（确定就让她去，她会跟你报备）')) { await loadMapData(); return; }
+    if (!await uiConfirm(r.reason + '\n\n（确定就让她去，她会跟你报备）')) { await loadMapData(); return; }
     r = await saveJson('/api/map/activate', { id, mode: mode === 'auto' ? undefined : mode, confirmNight: true });
   }
   if (r.refused) { toast('她不去：「' + r.reason + '」'); await loadMapData(); return; }
   await loadMapData(); await loadMapData();
   toast('她出发去长途了');
 }
+let nameDlgResolve = null;
+function askMapName(title, initial, hint) {
+  return new Promise((resolve) => {
+    nameDlgResolve = resolve;
+    const dlg = document.getElementById('nameDlg');
+    document.getElementById('nameDlgTitle').textContent = title;
+    document.getElementById('nameDlgHint').textContent = hint || '给这张地图起个名字';
+    const inp = document.getElementById('nameDlgInput');
+    inp.value = initial || '';
+    dlg.style.display = 'flex';
+    setTimeout(() => { inp.focus(); inp.select(); }, 30);
+  });
+}
+function nameDlgOk() {
+  const val = (document.getElementById('nameDlgInput').value || '').trim();
+  nameDlgClose(val || null);
+}
+function nameDlgClose(val) {
+  const dlg = document.getElementById('nameDlg');
+  if (dlg) dlg.style.display = 'none';
+  const r = nameDlgResolve; nameDlgResolve = null;
+  if (r) r(val);
+}
+document.addEventListener('keydown', (e) => {
+  const dlg = document.getElementById('nameDlg');
+  if (!dlg || dlg.style.display !== 'flex') return;
+  if (e.key === 'Enter') { e.preventDefault(); nameDlgOk(); }
+  if (e.key === 'Escape') { e.preventDefault(); nameDlgClose(null); }
+});
 async function renameMap(){
-  const name = prompt('这张地图叫什么？', DATA.map.name);
-  if (!name || !name.trim()) return;
-  DATA.map.name = name.trim();
-  await saveJson('/api/map', { mapId: DATA.map.id, name: DATA.map.name, places: PLACES });
+  if (!DATA) return;
+  const name = await askMapName('这张地图叫什么？', DATA.map.name, '当前地图：' + DATA.map.name);
+  if (!name) return;
+  const r = await saveJson('/api/map', { mapId: DATA.map.id, name });
+  if (r && r.ok) toast('已改名为「' + name + '」'); else toast((r && r.error) || '改名失败');
   await loadMapData();
 }
 async function newMap(){
-  const name = prompt('新地图叫什么？', '新小镇');
-  if (!name || !name.trim()) return;
-  await saveJson('/api/map/create', { name: name.trim() });
+  const name = await askMapName('新地图叫什么？', '新小镇', '会创建一张只含 2D 底图和地点标的新地图');
+  if (!name) return;
+  const r = await saveJson('/api/map/create', { name });
+  if (!r || !r.ok) { toast((r && r.error) || '创建失败'); return; }
+  toast('已创建「' + name + '」');
   await loadMapData();
+  if (r.id) {
+    const go = await uiConfirm('新地图「' + name + '」已创建。要现在切换过去吗？\n不切换也可以在地图下拉里随时选。', '新地图已创建', { okText: '现在切换', cancelText: '留在这里' });
+    if (go) await saveJson('/api/map/activate', { id: r.id, instant: true });
+    await loadMapData();
+  }
 }
 async function delMap(){
   if (DATA.maps.length <= 1) { toast('至少保留一张地图'); return; }
-  if (!confirm('确定删除「' + DATA.map.name + '」这张地图？')) return;
+  if (!await uiConfirm('确定删除「' + DATA.map.name + '」这张地图？')) return;
   await saveJson('/api/map/delete', { id: DATA.map.id });
   await loadMapData();
 }
-window.addEventListener('resize', renderScale);
+let __mapResizeRaf = 0;
+window.addEventListener('resize', () => {
+  if (__mapResizeRaf) return;
+  __mapResizeRaf = requestAnimationFrame(() => { __mapResizeRaf = 0; renderScale(); });
+});
 setInterval(applyTimeOfDay, 60000);
 (async function init(){
   try {
+    const cb = document.getElementById('showRoads');
+    if (cb) { cb.checked = roadsVisible(); cb.addEventListener('change', () => toggleShowRoads(cb.checked)); }
     await loadMapData();
     await loadRoutine();
     try { const life = await api('/api/life'); document.getElementById('freeWalk').checked = life.life.locationFree !== false; } catch(e){}
@@ -781,4 +1021,19 @@ setInterval(applyTimeOfDay, 60000);
   }
 })();
 </script>
+<script>
+// 换角色后地图页自动刷新，避免还停在上一个角色的地图/位置
+let __companionCharId = '';
+async function __checkCompanionChar(){
+  try {
+    const st = await (await fetch('/api/status', {cache:'no-store'})).json();
+    const id = st && st.character && st.character.id;
+    if (__companionCharId && id && id !== __companionCharId) { location.reload(); return; }
+    __companionCharId = id || '';
+  } catch (e) {}
+}
+setInterval(__checkCompanionChar, 2500);
+__checkCompanionChar();
+</script>
+<div id="nameDlg"><div class="card"><h3 id="nameDlgTitle">改名</h3><p id="nameDlgHint">给这张地图起个名字</p><input id="nameDlgInput" maxlength="20"><div class="row"><button onclick="nameDlgClose(null)">取消</button><button class="primary" onclick="nameDlgOk()">确定</button></div></div></div>
 </body></html>

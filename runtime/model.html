@@ -10,8 +10,27 @@ html,body{margin:0;height:100%;background:#0b0f14;overflow:hidden;font:14px/1.6 
 #hud a{color:#59a6ff;text-decoration:none;font-size:12px;margin-right:10px}
 #hud .hint{font-size:11px;color:#5a6878;margin-top:4px}
 #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0b0f14;color:#7f8c9b;font-size:13px;z-index:9}
+
+/* 0.6 UI polish：柔和的深色海面 + 更圆的卡片/按钮 */
+body {
+  background-image:
+    radial-gradient(1000px 520px at 18% -8%, rgba(70, 130, 210, 0.16), transparent 62%),
+    radial-gradient(900px 480px at 88% 108%, rgba(38, 170, 150, 0.10), transparent 58%);
+  background-attachment: fixed;
+}
+.card, .stat, .fact, .box, .panel, .msg .bubble, .bubble {
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+}
+button, .btn { border-radius: 10px; transition: transform .12s ease, background .18s ease, border-color .18s ease; }
+button:hover, .btn:hover { transform: translateY(-1px); }
+input, textarea, select { border-radius: 9px; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: #2b3a4c; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #3b5068; }
+
 </style>
-<link rel="stylesheet" href="/theme.css"></head><body>
+<link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/ui-theme.css"><script src="/ui-theme.js"></script><script src="/ui-dialog.js"></script></head><body>
 <div id="app"></div>
 <div id="wxOverlay" style="position:fixed;inset:0;pointer-events:none;z-index:2"></div>
 <div id="hud">
@@ -19,7 +38,7 @@ html,body{margin:0;height:100%;background:#0b0f14;overflow:hidden;font:14px/1.6 
   <div class="row" id="hWhere">…</div>
   <div class="row" id="hStatus">…</div>
   <div class="row" id="hMoney">…</div>
-  <div class="row"><a href="/">聊天</a><a href="/screen" target="_blank">屏幕</a><a href="/map">2D 地图</a><a href="/stage">2D 舞台</a><a href="/settings">设置</a></div>
+  <div class="row"><a href="/">聊天</a><a href="/screen" target="_blank">屏幕</a><a href="/map?drawRoads=1" target="_blank">画 3D 道路</a><a href="/model?previewVehicles=1" target="_blank">预览载具</a><a href="/map">2D 地图</a><a href="/stage">2D 舞台</a><a href="/settings">设置</a></div>
   <div class="hint">拖拽画面旋转 · 滚轮缩放 · 地图模型在「地图→地图设置→地图模型」里配</div>
 </div>
 <div id="loading">three.js 加载中…</div>
@@ -61,6 +80,15 @@ dir.shadow.camera.near = 1; dir.shadow.camera.far = 220;
 dir.shadow.bias = -0.0005;
 scene.add(dir);
 const ambient = new THREE.AmbientLight(0x445566, 0.65); scene.add(ambient);
+// 3D 底座：让官方地图像一座海岛模型，不再悬在空网格里
+const basePlane = new THREE.Mesh(
+  new THREE.PlaneGeometry(190, 130),
+  new THREE.MeshStandardMaterial({ color: 0x163447, roughness: 1, metalness: 0.02 })
+);
+basePlane.rotation.x = -Math.PI / 2;
+basePlane.position.y = -0.55;
+basePlane.receiveShadow = true;
+scene.add(basePlane);
 
 // 地面 + 主题
 const themeColors = { town: 0x1d3a33, coast: 0x14425c, city: 0x22303c, forest: 0x1b3325 };
@@ -77,12 +105,22 @@ function buildGround(theme, imageUrl) {
     m.color.set(themeColors[theme] || themeColors.town);
   }
   ground = new THREE.Mesh(g, m); ground.rotation.x = -Math.PI / 2; ground.position.y = -0.01; ground.receiveShadow = true; scene.add(ground);
+  // 官方地图底图已经是完整画面：隐藏程序化道路/网格，避免把画切碎
+  if (imageUrl) {
+    try { roadMeshes.forEach((rm) => { rm.visible = false; }); } catch (e) {}
+    if (grid) grid.visible = false;
+    if (typeof townGroup !== 'undefined') townGroup.visible = false;
+  } else {
+    try { roadMeshes.forEach((rm) => { rm.visible = true; }); } catch (e) {}
+    if (grid) grid.visible = true;
+    if (typeof townGroup !== 'undefined') townGroup.visible = true;
+  }
   const sky = { town: 0x0d1a24, coast: 0x0a1c2c, city: 0x0d1218, forest: 0x0b1812 }[theme] || 0x0d1a24;
   scene.background = new THREE.Color(sky);
   scene.fog.color.set(sky);
   if (!grid) {
     grid = new THREE.GridHelper(WORLD_W, 24, 0x2a3a44, 0x22303a);
-    grid.position.y = 0; scene.add(grid);
+    grid.position.y = 0; grid.visible = false; scene.add(grid);
   }
   // 道路（简化十字路）
   for (const r of roadMeshes || []) scene.remove(r);
@@ -93,10 +131,17 @@ function buildGround(theme, imageUrl) {
   const road2 = new THREE.Mesh(new THREE.PlaneGeometry(6, WORLD_H), roadMat);
   road2.rotation.x = -Math.PI / 2; road2.position.set(0, 0.01, 6); scene.add(road2);
   roadMeshes.push(road1, road2);
+  if (imageUrl) roadMeshes.forEach((rm) => { rm.visible = false; });
 }
 let roadMeshes = [];
 
 // 地点标记（小圆柱 + 文字精灵）
+const TOWN_OFFSETS = {
+  home: [0, 0, 0], school: [0, 0, 0], library: [0, 0, 0], cafe: [0, 0, 0],
+  bank: [0, 0, 0], mall: [0, 0, 0], hospital: [0, 0, 0], station: [0, 0, 0],
+  bookstore: [0, 0, 0], canteen: [0, 0, 0], market: [0, 0, 0], park: [0, 0, 0], riverside: [0, 0, 0]
+};
+
 let markerGroup = new THREE.Group(); scene.add(markerGroup);
 function labelSprite(text, icon) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 128;
@@ -107,7 +152,7 @@ function labelSprite(text, icon) {
   ctx.fillText((icon || '') + ' ' + text, 128, 78);
   const tex = new THREE.CanvasTexture(c); tex.needsUpdate = true;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, fog: false });
-  const sp = new THREE.Sprite(mat); sp.scale.set(13, 6.5, 1); return sp;
+  const sp = new THREE.Sprite(mat); sp.scale.set(8.5, 4.2, 1); return sp;
 }
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
@@ -121,33 +166,518 @@ function buildPlaces(places) {
   markerGroup.clear();
   for (const p of places) {
     const v = toWorld(p.x, p.y);
-    if (p.image) {
-      const tex = new THREE.TextureLoader().load(p.image);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false }));
-      sp.scale.set(7, 7, 1); sp.position.set(v.x, 4.5, v.z); markerGroup.add(sp);
-    } else {
-      const mat = new THREE.MeshStandardMaterial({ color: 0x2f6bd8, emissive: 0x123056, roughness: .6 });
-      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 1.0, 2.4, 16), mat);
-      pin.position.set(v.x, 1.2, v.z); markerGroup.add(pin);
-    }
-    const label = labelSprite(p.name, p.image ? '' : p.icon); label.position.set(v.x, 8, v.z); markerGroup.add(label);
+    // 3D 地点只保留悬浮名牌，不再放蓝色圆柱体
+    const off = TOWN_OFFSETS[p.id] || [0, 0, 0]; const label = labelSprite(p.name, p.icon || ''); label.position.set(v.x + off[0], 8.8, v.z + off[2]); markerGroup.add(label);
   }
+}
+
+// 官方 3D 小镇：程序化地面、河流、道路与低模建筑（不依赖 2D 底图）
+let townGroup = new THREE.Group();
+scene.add(townGroup);
+let townKey = '';
+const TOWN_MAT = new Map();
+function townMat(color, rough = .86, metal = .02) {
+  const k = color + '|' + rough + '|' + metal;
+  if (!TOWN_MAT.has(k)) TOWN_MAT.set(k, new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal }));
+  return TOWN_MAT.get(k);
+}
+function townBox(w, h, d, color, x, y, z) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), townMat(color));
+  m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; return m;
+}
+function townRoof(w, h, d, color, x, y, z) {
+  const m = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * .72, h, 4), townMat(color, .78));
+  m.rotation.y = Math.PI / 4; m.position.set(x, y, z); m.castShadow = true; return m;
+}
+function townTree(x, z, s = 1) {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.15*s, .22*s, 1.2*s, 6), townMat(0x86613e, 1));
+  trunk.position.y = .6*s; g.add(trunk);
+  const crown = new THREE.Mesh(new THREE.ConeGeometry(.95*s, 2.2*s, 7), townMat(0x6f9f63, .95));
+  crown.position.y = 2.1*s; crown.castShadow = true; g.add(crown);
+  g.position.set(x, .08, z); return g;
+}
+function townWin(g, x, y, z, w = .55, h = .7, c = 0x35566f) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, .1), townMat(c, .35, .08));
+  m.position.set(x, y, z); g.add(m);
+}
+function townDoor(g, x, z, c = 0x75543b) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(.7, 1.25, .12), townMat(c));
+  m.position.set(x, .68, z); g.add(m);
+}
+function townBench(g, x, z, ry = 0) {
+  const b = new THREE.Group();
+  b.add(townBox(1.8, .12, .55, 0x9a744a, 0, .42, 0));
+  b.add(townBox(1.8, .45, .12, 0x9a744a, 0, .68, -.24));
+  for (const dx of [-.65, .65]) b.add(townBox(.12, .45, .12, 0x6f5942, dx, .22, 0));
+  b.position.set(x, 0, z); b.rotation.y = ry; g.add(b);
+}
+function buildTown(places) {
+  const key = JSON.stringify((places || []).map(p => [p.id, p.x, p.y]));
+  if (key === townKey) return;
+  townKey = key;
+  townGroup.clear();
+  for (const p of (places || [])) {
+    const v = toWorld(p.x, p.y);
+    const g = new THREE.Group();
+    const off = TOWN_OFFSETS[p.id] || [0, 0, 0];
+    g.position.set(v.x + off[0], .02, v.z + off[2]);
+    g.add(townBox(4.6, .16, 4.0, 0xcab693, 0, .08, 0));
+    const id = p.id;
+    if (id === 'home') {
+      g.add(townBox(4.2, 2.2, 3.6, 0xe5d3b5, 0, 1.1, 0));
+      g.add(townRoof(4.2, 1.8, 3.6, 0x8e5d4b, 0, 3.0, 0));
+      g.add(townBox(.28, 1.7, .28, 0x9a7a58, 1.15, 3.2, -.5));
+      townDoor(g, -.65, 1.84);
+      townWin(g, 1.1, 1.5, 1.86); townWin(g, -.9, 1.5, -1.86);
+      for (let i = 0; i < 2; i++) g.add(townTree(-2.5 + i * 5.2, 2.2 + i, .8));
+    } else if (id === 'school') {
+      g.add(townBox(7.4, 4.2, 5.4, 0xe6d9c0, 0, 2.1, 0));
+      g.add(townRoof(7.4, 2.0, 5.4, 0x587b99, 0, 5.3, 0));
+      g.add(townBox(3.8, 1.8, 1.8, 0xdfd2b8, -4.8, 1.0, .8));
+      g.add(townBox(1.6, 5.6, 1.6, 0xf2e8d5, 0, 2.8, 2.6));
+      const clock = new THREE.Mesh(new THREE.CircleGeometry(.4, 20), townMat(0x465e74, .4));
+      clock.position.set(0, 4.6, 3.42); g.add(clock);
+      for (let i = 0; i < 6; i++) { const x = -2.5 + (i % 3) * 2.5; townWin(g, x, 1.8 + Math.floor(i / 3) * 1.5, 2.72, .8, .8, 0x507693); }
+      g.add(townTree(-4.5, -3.2, 1)); g.add(townTree(4.5, -3.2, 1));
+    } else if (id === 'library') {
+      g.add(townBox(5.2, 3.4, 4.2, 0xe3dbc9, 0, 1.7, 0));
+      g.add(townRoof(5.2, 1.6, 4.2, 0x70859e, 0, 4.1, 0));
+      for (const x of [-1.8, 1.8]) g.add(townBox(.45, 2.4, .45, 0xd8c7a5, x, 1.2, 2.05));
+      townDoor(g, 0, 2.12);
+      g.add(townTree(-3.2, 1.5, .85));
+    } else if (id === 'cafe') {
+      g.add(townBox(3.9, 2.6, 3.4, 0xe6cfb2, 0, 1.3, 0));
+      g.add(townRoof(3.9, 1.4, 3.4, 0xa55e4f, 0, 3.1, 0));
+      g.add(townBox(3.0, .18, .95, 0xc98d72, 0, 2.0, 2.15));
+      townDoor(g, -.8, 1.92);
+      for (const x of [1.3, -1.4]) { const table = new THREE.Mesh(new THREE.CylinderGeometry(.55, .55, .1, 16), townMat(0xf2e8d8)); table.position.set(x, .78, 2.8); g.add(table); }
+    } else if (id === 'park') {
+      const fountain = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.6, .35, 24), townMat(0x9ec8d8, .5));
+      fountain.position.y = .22; g.add(fountain);
+      const water = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, .12, 24), townMat(0x72b6cf, .3));
+      water.position.y = .42; g.add(water);
+      for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; g.add(townTree(Math.cos(a) * 3.8, Math.sin(a) * 3.8, .9 + (i % 2) * .2)); }
+      townBench(g, -4.2, .5, Math.PI / 2); townBench(g, 4.2, .5, -Math.PI / 2);
+    } else if (id === 'canteen') {
+      for (let i = 0; i < 3; i++) {
+        const x = -2.5 + i * 2.5;
+        g.add(townBox(2.2, 1.4, 1.8, 0xe6d0aa, x, .7, 0));
+        g.add(townRoof(2.2, .9, 1.8, i === 1 ? 0xd27e5e : 0x90a56d, x, 1.9, 0));
+        townDoor(g, x, .94);
+      }
+      g.add(townBox(3.2, .18, 1.2, 0xc49a68, 0, .7, 2.0));
+    } else if (id === 'market') {
+      for (let i = 0; i < 2; i++) {
+        const x = -2.2 + i * 4.4;
+        g.add(townBox(3.2, 1.2, 2.1, 0xe0c49d, x, .6, 0));
+        g.add(townRoof(3.2, 1.0, 2.1, i ? 0x8c9f75 : 0xc37c63, x, 1.8, 0));
+        g.add(townBox(3.4, .18, 1.0, 0xf0e3cb, x, 1.45, 1.35));
+      }
+      g.add(townBox(1.2, .7, 1.2, 0xa7754f, 2.9, .35, .2)); g.add(townBox(1.2, .7, 1.2, 0x9b805b, -2.9, .35, .2));
+    } else if (id === 'hospital') {
+      g.add(townBox(5.8, 3.4, 4.6, 0xf0ebe2, 0, 1.7, 0));
+      g.add(townBox(6.2, .22, 5.0, 0xb8ccd4, 0, 3.5, 0));
+      g.add(townBox(1.0, .24, .1, 0xc25552, 0, 2.5, 2.36));
+      g.add(townBox(.24, 1.0, .1, 0xc25552, 0, 2.5, 2.36));
+      townDoor(g, 0, 2.34, 0x59727d);
+      for (const x of [-1.8, 1.8]) townWin(g, x, 2.0, 2.33, .7, .8);
+    } else if (id === 'bank') {
+      g.add(townBox(4.8, 4.0, 4.2, 0xe9dfd0, 0, 2.0, 0));
+      g.add(townBox(5.3, .28, 4.6, 0xb69b6d, 0, 4.15, 0));
+      g.add(townBox(4.8, .4, .5, 0xd8bd91, 0, 4.5, 2.2));
+      for (const x of [-2.4, 2.4]) g.add(townBox(.35, 3.0, .35, 0xd8c4a2, x, 1.5, 2.2));
+      townDoor(g, 0, 2.42, 0x786044);
+    } else if (id === 'mall') {
+      g.add(townBox(7.0, 5.0, 5.4, 0xc8d1c7, 0, 2.5, 0));
+      g.add(townBox(7.4, .24, 5.8, 0x7f9394, 0, 5.1, 0));
+      g.add(townBox(4.4, .9, .15, 0x557d8a, 0, 3.8, 2.73));
+      for (let i = 0; i < 4; i++) townWin(g, -2.4 + i * 1.6, 2.0, 2.72, .9, 1.0, 0x7095a1);
+      townDoor(g, 0, 2.76, 0x4f6670);
+    } else if (id === 'station') {
+      g.add(townBox(8.4, .3, 5.2, 0xc7b89d, 0, .15, 0));
+      g.add(townBox(8.8, .25, 5.6, 0x4f7d93, 0, 3.1, -1.0));
+      for (const x of [-3.6, 3.6]) g.add(townBox(.16, 3.0, .16, 0x50606a, x, 1.55, -1.0));
+      for (const z of [-2.8, 2.8]) g.add(townBox(8.2, .16, .18, 0x9d8c72, 0, .32, z));
+      townBench(g, -2.5, 1.5); townBench(g, 2.5, 1.5);
+    } else if (id === 'riverside') {
+      for (let i = 0; i < 6; i++) g.add(townTree(-3 + i * 1.2, -2 + (i % 3) * 2.2, .8 + (i % 2) * .25));
+      townBench(g, -2, .2, .4); townBench(g, 2.2, -.2, -.4);
+    } else if (id === 'bookstore') {
+      g.add(townBox(4.4, 2.8, 3.8, 0xd9d0bc, 0, 1.4, 0));
+      g.add(townRoof(4.4, 1.4, 3.8, 0x7b8c9b, 0, 3.2, 0));
+      g.add(townBox(2.8, .28, .15, 0x8d6a45, 0, 2.4, 2.12));
+      townDoor(g, 0, 2.02);
+      townWin(g, 1.2, 1.6, 1.96, .6, .7);
+    } else {
+      g.add(townBox(4.2, 2.4, 3.8, 0xe2d2b8, 0, 1.2, 0));
+      g.add(townRoof(4.2, 1.9, 3.8, 0x9a5d4d, 0, 2.95, 0));
+    }
+    const signColors = { bank: 0xd4b26a, cafe: 0xc97a5d, market: 0x9cb07b, mall: 0x6e8e9c, bookstore: 0x8b7ac4, hospital: 0xe4e0d7, school: 0x5d7fa8, library: 0x7d8da0, station: 0x4f7d93, canteen: 0xd27e5e, home: 0x9a5d4d };
+    if (signColors[id]) g.add(townBox(1.9, .36, .12, signColors[id], 0, 3.35, 2.17));
+    if (id === 'library') {
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(1.0, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), townMat(0x7d8da0, .8));
+      dome.position.y = 4.8; g.add(dome);
+    }
+    if (id === 'cafe') {
+      for (const x of [1.3, -1.4]) {
+        const umb = new THREE.Mesh(new THREE.ConeGeometry(.9, .55, 10), townMat(0xe0a45f, .8)); umb.position.set(x, 1.55, 2.8); g.add(umb);
+      }
+    }
+    if (id === 'station') {
+      for (const z of [-2.9, 2.9]) g.add(townBox(10.5, .16, .34, 0x4e5556, 0, .36, z));
+    }
+    townGroup.add(g);
+  }
+}
+
+// 官方 3D 地面：海岛、河、路、海岸细节
+let terrainGroup = new THREE.Group();
+scene.add(terrainGroup);
+let terrainKey = '';
+function worldP(u, v) { return new THREE.Vector3((u - .5) * WORLD_W, 0, (v - .5) * WORLD_H); }
+function ribbon(points, width, color, y, rough = .9, opacity = 1) {
+  const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(p.x, y, p.z)));
+  const n = Math.max(10, Math.floor(curve.getLength() / 3));
+  const pos = [], idx = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, p = curve.getPoint(t), tan = curve.getTangent(t);
+    const nx = -tan.z, nz = tan.x, len = Math.hypot(nx, nz) || 1;
+    pos.push(p.x + nx * width / 2, y, p.z + nz * width / 2);
+    pos.push(p.x - nx * width / 2, y, p.z - nz * width / 2);
+    if (i < n) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  const m = new THREE.MeshStandardMaterial({ color, roughness: rough, side: THREE.DoubleSide, transparent: opacity < 1, opacity });
+  const mesh = new THREE.Mesh(g, m); mesh.receiveShadow = true; return mesh;
+}
+const MARKERS_ONLY = true;
+function buildOfficialTerrain(map) {
+  const places = map.places || [];
+  const key = JSON.stringify(places.map(p => [p.id, p.x, p.y])) + JSON.stringify(map.vehicles || {}) + JSON.stringify(map.roads || []);
+  if (key === terrainKey) return;
+  terrainKey = key;
+  terrainGroup.clear();
+  if (basePlane) basePlane.visible = false;
+  if (ground) ground.visible = false;
+  if (grid) grid.visible = false;
+  for (const r of roadMeshes || []) r.visible = false;
+
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(240, 180), new THREE.MeshStandardMaterial({ color: 0x4f9fb8, roughness: .32, metalness: .04 }));
+  sea.rotation.x = -Math.PI / 2; sea.position.y = -1.0; sea.receiveShadow = true; terrainGroup.add(sea);
+
+  const boundary = [[.015,.16],[.08,.045],[.24,.02],[.42,.035],[.58,.05],[.72,.10],[.84,.20],[.91,.36],[.87,.55],[.78,.72],[.66,.86],[.50,.93],[.32,.90],[.16,.80],[.05,.64],[.01,.42]];
+  const landShape = new THREE.Shape();
+  boundary.forEach(([u,v], i) => { const w = worldP(u,v); if (i === 0) landShape.moveTo(w.x, w.z); else landShape.lineTo(w.x, w.z); });
+  landShape.closePath();
+  const sandShape = new THREE.Shape();
+  boundary.forEach(([u,v], i) => { const w = worldP(.5 + (u-.5)*1.035, .5 + (v-.5)*1.035); if (i===0) sandShape.moveTo(w.x,w.z); else sandShape.lineTo(w.x,w.z); });
+  sandShape.closePath();
+  const sand = new THREE.Mesh(new THREE.ExtrudeGeometry(sandShape, { depth: .85, bevelEnabled: false }), townMat(0xe5d2a5, .95));
+  sand.rotation.x = Math.PI / 2; sand.position.y = -.06; sand.receiveShadow = true; terrainGroup.add(sand);
+  const land = new THREE.Mesh(new THREE.ExtrudeGeometry(landShape, { depth: .8, bevelEnabled: false }), townMat(0x9cbd7e, .98));
+  land.rotation.x = Math.PI / 2; land.position.y = 0.02; land.receiveShadow = true; terrainGroup.add(land);
+
+  const riverPts = [[.02,.20],[.10,.27],[.18,.32],[.25,.40],[.26,.50],[.31,.59],[.39,.66],[.47,.71],[.56,.75],[.68,.79]].map(([u,v]) => worldP(u,v));
+  terrainGroup.add(ribbon(riverPts, 3.8, 0xd5c39b, .12));
+  terrainGroup.add(ribbon(riverPts, 2.5, 0x69b6cb, .15, .28));
+  const riverSamples = [];
+  { const rc = new THREE.CatmullRomCurve3(riverPts); for (let i = 0; i <= 48; i++) riverSamples.push(rc.getPoint(i/48)); }
+
+  // 建筑和地形先定型；道路不在 3D 里自动生成，等用户在 2D 地图上画
+  const userRoads = Array.isArray(map.roads) ? map.roads : [];
+  function drawUserRoad(points) {
+    if (!points || points.length < 2) return;
+    terrainGroup.add(ribbon(points, 2.35, 0xb99c71, .185, .9));
+    terrainGroup.add(ribbon(points, 1.55, 0xe0cfa9, .20, .95));
+    terrainGroup.add(ribbon(points, .10, 0xf1e5ce, .205, .8));
+  }
+  const userRoadPaths = [];
+  for (const line of userRoads) {
+    if (!Array.isArray(line) || line.length < 2) continue;
+    const pts = line.map((pt) => worldP(Number(pt[0]), Number(pt[1]))).filter((p) => !isNaN(p.x) && !isNaN(p.z));
+    if (pts.length < 2) continue;
+    drawUserRoad(pts); userRoadPaths.push(pts);
+  }
+  // 用户画的路跨河时自动补桥
+  function segInter(a, b, c, d) {
+    const r = { x: b.x-a.x, z: b.z-a.z }, s = { x: d.x-c.x, z: d.z-c.z };
+    const den = r.x*s.z - r.z*s.x; if (Math.abs(den) < 1e-6) return null;
+    const t = ((c.x-a.x)*s.z - (c.z-a.z)*s.x) / den;
+    const u = ((c.x-a.x)*r.z - (c.z-a.z)*r.x) / den;
+    if (t < -.02 || t > 1.02 || u < -.02 || u > 1.02) return null;
+    return { x: a.x + r.x*t, z: a.z + r.z*t };
+  }
+  const bridgePts = [];
+  for (const path of userRoadPaths) for (let i = 0; i < path.length-1; i++) {
+    for (let j = 0; j < riverSamples.length-1; j++) {
+      const hit = segInter(path[i], path[i+1], riverSamples[j], riverSamples[j+1]);
+      if (!hit || bridgePts.some(q => Math.hypot(q.x-hit.x, q.z-hit.z) < 9)) continue;
+      bridgePts.push(hit);
+      const dx = path[i+1].x-path[i].x, dz = path[i+1].z-path[i].z;
+      const br = new THREE.Group(); br.position.set(hit.x, .34, hit.z); br.rotation.y = -Math.atan2(dz, dx);
+      br.add(townBox(5.2, .18, 3.2, 0x9a744a, 0, 0, 0));
+      for (const z of [-1.45, 1.45]) br.add(townBox(5.5, .10, .14, 0x7c5a3d, 0, .65, z));
+      for (const x of [-2.3, 2.3]) br.add(townBox(.14, .8, 3.2, 0x6f5238, x, .2, 0));
+      terrainGroup.add(br);
+    }
+  }
+
+  // 不妨碍道路和建筑的空地装饰：树、灌木、花、石头
+  function landAt(x, z) {
+    const u = .5 + x / WORLD_W, v = .5 + z / WORLD_H;
+    let c = false;
+    for (let i = 0, j = boundary.length - 1; i < boundary.length; j = i++) {
+      const xi = boundary[i][0], yi = boundary[i][1], xj = boundary[j][0], yj = boundary[j][1];
+      if (((yi > v) !== (yj > v)) && (u < (xj - xi) * (v - yi) / (yj - yi) + xi)) c = !c;
+    }
+    return c;
+  }
+  const decorFoot = { home:[5.2,4.8], school:[10,7.6], library:[7,6.2], cafe:[6.2,5.2], canteen:[9,4.2], market:[9,5.2], hospital:[7.6,6.4], bank:[6.8,6.2], mall:[9,7.4], station:[11,7.2], bookstore:[6.2,5.4] };
+  function nearPlace(x, z, pad) {
+    for (const p of places) {
+      if (!decorFoot[p.id]) continue;
+      const w = worldP(p.x, p.y), f = decorFoot[p.id];
+      if (Math.abs(x-w.x) < f[0]/2 + pad && Math.abs(z-w.z) < f[1]/2 + pad) return true;
+    }
+    return false;
+  }
+  function nearUserRoad(x, z, pad) {
+    for (const path of userRoadPaths) for (let i = 0; i < path.length-1; i++) {
+      const a = path[i], b = path[i+1];
+      const dx = b.x-a.x, dz = b.z-a.z, len2 = dx*dx+dz*dz || 1;
+      const t = Math.max(0, Math.min(1, ((x-a.x)*dx + (z-a.z)*dz) / len2));
+      const px = a.x+dx*t, pz = a.z+dz*t;
+      if (Math.hypot(x-px, z-pz) < pad) return true;
+    }
+    return false;
+  }
+  function nearRiver(x, z, pad) {
+    for (let i = 0; i < riverPts.length-1; i++) {
+      const a = riverPts[i], b = riverPts[i+1];
+      const dx = b.x-a.x, dz = b.z-a.z, len2 = dx*dx+dz*dz || 1;
+      const t = Math.max(0, Math.min(1, ((x-a.x)*dx + (z-a.z)*dz) / len2));
+      if (Math.hypot(x-(a.x+dx*t), z-(a.z+dz*t)) < pad) return true;
+    }
+    return false;
+  }
+  const decorSpots = [];
+  for (let gx = -48; gx <= 48; gx += 7) for (let gz = -28; gz <= 28; gz += 6) {
+    const jitterX = ((gx*13 + gz*7) % 5) - 2, jitterZ = ((gx*5 + gz*11) % 5) - 2;
+    const x = gx + jitterX, z = gz + jitterZ;
+    if (!landAt(x, z)) continue;
+    if (nearPlace(x, z, 4.5) || nearUserRoad(x, z, 3.8) || nearRiver(x, z, 3.2)) continue;
+    decorSpots.push({ x, z });
+  }
+  let di = 0;
+  for (const s of decorSpots) {
+    if (di % 3 === 0) terrainGroup.add(townTree(s.x, s.z, .62 + (di % 4) * .08));
+    else if (di % 3 === 1) {
+      const bush = new THREE.Mesh(new THREE.ConeGeometry(.55, .95, 6), townMat(0x5f8f5a, .95));
+      bush.position.set(s.x, .38, s.z); terrainGroup.add(bush);
+    } else {
+      const fl = new THREE.Mesh(new THREE.SphereGeometry(.14, 6, 5), townMat([0xe6a3b6,0xf1d17a,0xd98776][di % 3], .85));
+      fl.position.set(s.x, .26, s.z); terrainGroup.add(fl);
+    }
+    di++;
+    if (di > 46) break;
+  }
+  for (let i = 0; i < 5; i++) {
+    const s = decorSpots[(i + 9) % Math.max(1, decorSpots.length)];
+    if (!s) break;
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(.5, 0), townMat(0x8d8b80, .95));
+    rock.position.set(s.x, .3, s.z); rock.scale.setScalar(.7 + i * .05); terrainGroup.add(rock);
+  }
+
+  if (MARKERS_ONLY) return; // 只留地点建筑与标签，去掉装饰、树木、渔船和码头
+  const pier = new THREE.Group();
+  pier.position.copy(worldP(.86,.41));
+  pier.add(townBox(8, .22, 2.2, 0x9c7b56, 0, .4, 0));
+  for (const x of [-3.4, 0, 3.4]) pier.add(townBox(.22, .7, .22, 0x6d523b, x, .05, -.8));
+  for (const x of [-3.4, 0, 3.4]) pier.add(townBox(.22, .7, .22, 0x6d523b, x, .05, .8));
+  terrainGroup.add(pier);
+  const lighthouse = new THREE.Group(); lighthouse.position.copy(worldP(.90,.27));
+  lighthouse.add(new THREE.Mesh(new THREE.CylinderGeometry(.75, .95, 4, 10), townMat(0xece3d2, .8)));
+  const lhRoof = new THREE.Mesh(new THREE.ConeGeometry(1.0, 1.2, 10), townMat(0xb45d54, .7)); lhRoof.position.y = 2.6; lighthouse.add(lhRoof);
+  terrainGroup.add(lighthouse);
+
+  for (const [u, v] of [[.10,.50],[.13,.58],[.21,.44],[.28,.36],[.35,.30],[.56,.46],[.60,.57],[.66,.65],[.73,.58],[.27,.70],[.33,.78],[.70,.30]]) {
+    const w = worldP(u, v); terrainGroup.add(townTree(w.x, w.z, .85 + ((u * 7 + v * 11) % 3) * .12));
+  }
+
+  // 海岸与街道细节：灌木、花、礁石、路灯、小船
+  const bushMat = townMat(0x5f8f5a, .95);
+  const flowerMats = [townMat(0xe6a3b6, .85), townMat(0xf1d17a, .85), townMat(0xd98776, .85)];
+  const bushGeo = new THREE.ConeGeometry(.7, 1.1, 6);
+  for (const [u,v,s] of [[.10,.30,.8],[.14,.72,.7],[.21,.24,.8],[.28,.78,.7],[.35,.22,.7],[.39,.69,.8],[.56,.25,.75],[.62,.73,.8],[.71,.64,.7],[.76,.38,.7],[.06,.52,.75],[.48,.18,.7]]) {
+    const w = worldP(u,v);
+    const bush = new THREE.Mesh(bushGeo, bushMat); bush.position.set(w.x, .55*s, w.z); bush.scale.setScalar(s); bush.castShadow = true; terrainGroup.add(bush);
+  }
+  for (let i = 0; i < 26; i++) {
+    const a = i * 2.13, r = 7 + (i % 7) * 3.2;
+    const w = worldP(.50 + Math.cos(a) * .018 * r, .52 + Math.sin(a) * .018 * r);
+    const flower = new THREE.Mesh(new THREE.SphereGeometry(.16, 6, 5), flowerMats[i % flowerMats.length]);
+    flower.position.set(w.x, .28, w.z); terrainGroup.add(flower);
+  }
+  const lampMat = townMat(0x4e5556, .7, .2);
+  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffe0a3 });
+  for (const [u,v] of [[.25,.52],[.34,.45],[.47,.36],[.58,.39],[.62,.58],[.39,.70]]) {
+    const w = worldP(u,v);
+    const lamp = new THREE.Group(); lamp.position.set(w.x, .18, w.z);
+    lamp.add(townBox(.13, 2.0, .13, 0x4e5556, 0, 1.0, 0));
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(.18, 8, 6), bulbMat); bulb.position.y = 2.05; lamp.add(bulb);
+    terrainGroup.add(lamp);
+  }
+  const boat = new THREE.Group(); boat.position.copy(worldP(.80,.58));
+  boat.add(townBox(2.8, .45, 1.1, 0x9a6f48, 0, .18, 0));
+  boat.add(townBox(2.2, .2, .8, 0x6e9db1, 0, .43, 0));
+  const mast = townBox(.08, 2.4, .08, 0x7c5a3d, .4, 1.2, 0); boat.add(mast);
+  terrainGroup.add(boat);
+
+    // 空白处补村庄、田地和果园
+  function cottage(u, v, s = 1, ry = 0) {
+    const w = worldP(u, v); const c = new THREE.Group(); c.position.set(w.x, .02, w.z); c.rotation.y = ry;
+    c.add(townBox(2.8*s, 1.5*s, 2.4*s, 0xe0cfb4, 0, .75*s, 0));
+    c.add(townRoof(2.8*s, 1.15*s, 2.4*s, 0x9a5f4d, 0, 1.95*s, 0));
+    c.add(townBox(.2*s, 1.1*s, .2*s, 0x8b6a45, 0, .55*s, 1.0*s));
+    c.add(townBox(.5*s, .07*s, .5*s, 0x75573d, .9*s, 1.8*s, -.25*s));
+    terrainGroup.add(c);
+  }
+  function field(u, v, w, d, ry, color) {
+    const p = worldP(u, v); const f = new THREE.Group(); f.position.set(p.x, .06, p.z); f.rotation.y = ry;
+    f.add(townBox(w, .10, d, color, 0, 0, 0));
+    for (let i = 0; i < Math.floor(d / 1.4); i++) f.add(townBox(w * .92, .12, .28, 0x7d8d58, 0, .04, -d/2 + .8 + i*1.4));
+    terrainGroup.add(f);
+  }
+  field(.12,.34, 4.0, 4.5, .1, 0xc9c17b);
+  field(.20,.56, 3.2, 3.6, -.2, 0xb6c17b);
+  field(.54,.66, 3.8, 3.2, .35, 0xc7bd76);
+  field(.73,.25, 3.2, 3.0, -.15, 0xb9c479);
+  for (let i = 0; i < 4; i++) { const w = worldP(.13 + i*.7, .47); terrainGroup.add(townTree(w.x, w.z, .7)); }
+
+
+}
+
+
+// 默认低模汽车 / 自行车；支持通过 map.vehicles 换成用户模型（/models/*.glb）
+function vehicleCar() {
+  const g = new THREE.Group();
+  g.add(townBox(3.4, .7, 1.7, 0xc96f5b, 0, .65, 0));
+  g.add(townBox(1.75, .55, 1.4, 0xe6d7bd, -.15, 1.2, 0));
+  g.add(townBox(3.0, .16, 1.55, 0x7c3e35, 0, .98, 0));
+  for (const x of [-1.05, 1.05]) for (const z of [-.72, .72]) {
+    const wh = new THREE.Mesh(new THREE.CylinderGeometry(.34, .34, .22, 12), townMat(0x30383b, .75));
+    wh.rotation.z = Math.PI / 2; wh.position.set(x, .34, z); g.add(wh);
+  }
+  for (const z of [-.6, .6]) g.add(townBox(.14, .16, .28, 0xffe2a8, 1.6, .75, z));
+  return g;
+}
+function vehicleBike() {
+  const g = new THREE.Group();
+  const dark = townMat(0x3b4148, .65), metal = townMat(0x9da7aa, .4, .4), seat = townMat(0x6a4b38, .9);
+  for (const z of [-.72, .72]) {
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(.5, .055, 6, 16), metal);
+    wheel.rotation.y = Math.PI / 2; wheel.position.set(0, .5, z); g.add(wheel);
+  }
+  function tube(a, b, r, mat) {
+    const av = new THREE.Vector3(...a), bv = new THREE.Vector3(...b);
+    const d = bv.clone().sub(av); const len = d.length();
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 6), mat || dark);
+    m.position.copy(av.clone().add(bv).multiplyScalar(.5));
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()); g.add(m);
+  }
+  tube([0,.5,-.72],[0,.62,.25],.045); tube([0,.62,.25],[0,.5,.72],.045); tube([0,.5,.72],[0,.5,.15],.045);
+  tube([0,.62,.25],[0,.95,.12],.04); tube([-.25,.95,.12],[.25,.95,.12],.035);
+  g.add(townBox(.28,.06,.38,seat,0,.98,-.08));
+  return g;
+}
+// 载具只在角色出行时出现，平时隐藏；模型可由 map.vehicles 替换
+let vehicleGroup = new THREE.Group(); scene.add(vehicleGroup);
+let carGroup = null, bikeGroup = null, vehiclesKey = '';
+function ensureVehicles(map) {
+  const key = JSON.stringify(map.vehicles || {});
+  if (key === vehiclesKey) return;
+  vehiclesKey = key;
+  vehicleGroup.clear();
+  const cfg = map.vehicles || {};
+  const makeGroup = (kind) => {
+    const g = new THREE.Group(); g.visible = false;
+    const c = cfg[kind];
+    if (c && c.url) {
+      new GLTFLoader().load(c.url, (gltf) => {
+        const obj = gltf.scene;
+        obj.scale.setScalar(Number(c.scale) || 1);
+        obj.rotation.y = Number(c.rotationY) || 0;
+        obj.position.y = .12;
+        g.add(obj);
+      }, undefined, () => { g.add(kind === 'car' ? vehicleCar() : vehicleBike()); });
+    } else {
+      g.add(kind === 'car' ? vehicleCar() : vehicleBike());
+    }
+    const tag = labelSprite(kind === 'car' ? '汽车' : '自行车', '');
+    tag.scale.set(3.4, 1.7, 1); tag.position.set(0, kind === 'car' ? 3.3 : 2.6, 0); g.add(tag);
+    vehicleGroup.add(g); return g;
+  };
+  carGroup = makeGroup('car');
+  bikeGroup = makeGroup('bicycle');
+  vehicleGroup.visible = false;
 }
 
 // 角色
 let charGroup = new THREE.Group(); scene.add(charGroup);
 let charKind = '', charUrl = '', mixer = null, charModel = null;
+let charActions = [], activeCharAction = null, desiredCharClip = 'Idle';
+let charClipOverride = '', charClipOverrideUntil = 0;
+function playCharClip(name, manual) {
+  if (manual) { charClipOverride = String(name || ''); charClipOverrideUntil = Date.now() + 8000; desiredCharClip = String(name || 'Idle'); }
+  const want = String(name || desiredCharClip || 'Idle').toLowerCase();
+  if (!charActions || !charActions.length) { desiredCharClip = String(name || desiredCharClip || 'Idle'); return; }
+  let action = charActions.find((a) => String(a.getClip && a.getClip().name || '').toLowerCase() === want);
+  if (!action) action = charActions.find((a) => String(a.getClip && a.getClip().name || '').toLowerCase() === 'idle') || charActions[0];
+  if (!action || action === activeCharAction) return;
+  if (activeCharAction) activeCharAction.fadeOut(0.18);
+  action.reset().fadeIn(0.18).play();
+  activeCharAction = action;
+}
+window.playCharClip = playCharClip;
 let spriteTex = null, spritePlane = null, fallbackBody = null, shadowBlob = null;
 function clearChar() {
   charGroup.clear();
   if (mixer) { mixer.stopAllAction(); mixer = null; }
   if (spriteTex) { spriteTex.dispose(); spriteTex = null; }
-  spritePlane = null; charModel = null; fallbackBody = null;
+  spritePlane = null; charModel = null; fallbackBody = null; charActions = []; activeCharAction = null;
+}
+function buildChibi(character) {
+  const g = new THREE.Group();
+  const cp = (character && character.chibi) || {};
+  const dressCol = Number(cp.dress) || 0x7fa9df, hairCol = Number(cp.hair) || 0x5d7fc4, skinCol = Number(cp.skin) || 0xffe4cf, accentCol = Number(cp.accent) || 0x4f72b8;
+  const blue = townMat(dressCol, .8), hair = townMat(hairCol, .85), skin = townMat(skinCol, .9);
+  const dress = new THREE.Mesh(new THREE.ConeGeometry(1.05, 1.8, 12), blue);
+  dress.position.y = 1.0; dress.castShadow = true; g.add(dress);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(.78, 16, 12), skin);
+  head.position.y = 2.35; head.castShadow = true; g.add(head);
+  const hairCap = new THREE.Mesh(new THREE.SphereGeometry(.86, 16, 12), hair);
+  hairCap.position.y = 2.58; hairCap.scale.y = .82; g.add(hairCap);
+  for (const s of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(.28, .8, 6), townMat(accentCol, .8));
+    ear.position.set(s * .9, 2.25, -.05); ear.rotation.z = s * .55; g.add(ear);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(.09, 8, 6), townMat(0x273a5a, .4));
+    eye.position.set(s * .28, 2.38, .72); g.add(eye);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(.09, .12, .85, 8), skin);
+    arm.position.set(s * .72, 1.55, .1); arm.rotation.z = s * .35; g.add(arm);
+  }
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(.36, 1.1, 8), townMat(hairCol, .75));
+  tail.position.set(0, .95, -1.0); tail.rotation.x = 1.0; g.add(tail);
+  const tag = labelSprite((character && character.name) || '小鲸', '');
+  tag.scale.set(5.5, 2.75, 1); tag.position.set(0, 4.6, 0); g.add(tag);
+  g.scale.setScalar(1.25);
+  return g;
 }
 async function buildChar(character) {
   const model = character.model || { type: 'none', url: '', scale: 1 };
-  const kindKey = model.type + '|' + (model.url || '') + '|' + (model.scale || 1);
+  const kindKey = model.type + '|' + (model.url || '') + '|' + (model.scale || 1) + '|' + (character.id || '') + '|' + JSON.stringify(character.chibi || {});
   if (kindKey === charKind) return;
   charKind = kindKey;
   clearChar();
@@ -171,10 +701,6 @@ async function buildChar(character) {
     head.position.y = 7.2; fallbackBody.add(head);
     charGroup.add(fallbackBody);
   };
-  const nameTag = labelSprite(character.name || '她', '');
-  nameTag.scale.set(11, 5.5, 1);
-  nameTag.position.set(0, 26, 0);
-  charGroup.add(nameTag);
   const blob = new THREE.Mesh(new THREE.CircleGeometry(3.2, 24), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32 }));
   blob.rotation.x = -Math.PI / 2; blob.position.y = 0.02; charGroup.add(blob); shadowBlob = blob;
   const ring = new THREE.Mesh(new THREE.RingGeometry(3.4, 4.2, 32), new THREE.MeshBasicMaterial({ color: 0x59a6ff, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
@@ -185,20 +711,29 @@ async function buildChar(character) {
       gltf.scene.traverse((o) => { if (o.isMesh) o.castShadow = true; });
       charModel = gltf.scene;
       charModel.scale.setScalar(scale);
+      charModel.rotation.y = Number(model.rotationY) || 0;
       const box = new THREE.Box3().setFromObject(charModel);
       charModel.position.y = -box.min.y;
       charGroup.add(charModel);
-      if (gltf.animations && gltf.animations.length) { mixer = new THREE.AnimationMixer(charModel); mixer.clipAction(gltf.animations[0]).play(); }
+      const clips = gltf.animations || [];
+      charActions = clips.map((clip) => new THREE.AnimationMixer(charModel).clipAction(clip));
+      if (charActions.length) { mixer = new THREE.AnimationMixer(charModel); charActions = clips.map((clip) => mixer.clipAction(clip)); playCharClip(desiredCharClip || 'Idle'); }
     } catch (e) { makeFallback(); }
   } else if ((model.type === 'sprite' || model.type === 'live2d') && model.url) {
-    await makeSprite(model.url, 20 * scale);
+    await makeSprite(model.url, 9 * scale);
     if (!spritePlane) makeFallback();
   } else if (character.avatar) {
-    await makeSprite(character.avatar, 20 * scale);
+    await makeSprite(character.avatar, 9 * scale);
+    // 3D 视图里头像贴图会变成一块大白板，先用位置标记代替，保持画面干净
+    if (spritePlane) spritePlane.visible = false;
     if (!spritePlane) makeFallback();
   } else {
     makeFallback();
   }
+  if (fallbackBody) fallbackBody.visible = false;
+  if (spritePlane) spritePlane.visible = false;
+  // 3D/GLB 模型已经加载时不要再叠一个程序化小人，否则会出现两个小鲸
+  if (!charModel) charGroup.add(buildChibi(character));
 }
 
 // 路径线
@@ -246,6 +781,12 @@ function characterWorldPos() {
 }
 function apply() {
   if (!stage) return;
+  if (!stage.map || stage.map.has3d !== true) {
+    const ld = document.getElementById('loading');
+    if (ld) { ld.style.display = 'flex'; ld.innerHTML = '<div style="max-width:520px;padding:28px 36px;border:1px solid rgba(120,160,220,.35);border-radius:18px;background:rgba(10,20,35,.86);text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.45)"><div style="font-size:22px;font-weight:600;color:#dce9fb;margin-bottom:8px">这张地图没有 3D 资源</div><div style="font-size:13px;color:#8fa8c4;line-height:1.7">当前地图只提供了 2D 底图和地点标<br>可以打开 2D 舞台查看</div></div>'; }
+    return;
+  }
+  const ld0 = document.getElementById('loading'); if (ld0) ld0.style.display = 'none';
   const loc = stage.location, ch = stage.character;
   document.getElementById('loading').style.display = 'none';
   document.getElementById('hName').textContent = ch.name || '她';
@@ -271,10 +812,49 @@ function apply() {
   hemi.intensity = phase === 'day' ? 1.0 : phase === 'night' ? 0.35 : 0.68;
   ambient.intensity = phase === 'day' ? 0.65 : phase === 'night' ? 0.22 : 0.45;
   dir.intensity = (wxKind === 'rain' || wxKind === 'snow' ? 1.5 : (wxKind === 'sunny' ? 2.4 : 2.0)) * dayFactor;
-  buildGround(stage.map.theme, stage.map.image && stage.map.image.url ? stage.map.image.url : '');
+  const mapImageUrl = stage.map.image && stage.map.image.url ? stage.map.image.url : '';
+  const official3d = String(mapImageUrl).includes('official-map');
+  buildGround(stage.map.theme, official3d ? '' : mapImageUrl);
   buildEnv(stage.map);
+  buildTown(stage.map.places);
+  if (official3d) {
+    terrainGroup.visible = true;
+    townGroup.visible = true;
+    buildOfficialTerrain(stage.map);
+    if (ground) ground.visible = false;
+    if (grid) grid.visible = false;
+    if (basePlane) basePlane.visible = false;
+    try { roadMeshes.forEach((rm) => { rm.visible = false; }); } catch (e) {}
+  } else {
+    terrainGroup.clear(); terrainKey = '';
+    terrainGroup.visible = false;
+    if (ground) ground.visible = true;
+    if (basePlane) basePlane.visible = true;
+    townGroup.visible = !mapImageUrl;
+  }
   buildPlaces(stage.map.places);
+  if (charClipOverride && Date.now() > charClipOverrideUntil) charClipOverride = '';
+  desiredCharClip = charClipOverride || (loc.state === 'traveling' ? 'Walk' : 'Idle');
+  playCharClip(desiredCharClip);
   buildChar(ch).catch(() => {});
+  ensureVehicles(stage.map);
+  const travelMode = String((loc.traveling && loc.traveling.mode) || '');
+  const carMode = loc.state === 'traveling' && /car|taxi|drive|auto/.test(travelMode);
+  const bikeMode = loc.state === 'traveling' && /bike|bicycle|cycle/.test(travelMode);
+  const previewVehicles = new URLSearchParams(location.search).get('previewVehicles') === '1';
+  if (previewVehicles && carGroup && bikeGroup) {
+    carGroup.visible = true; bikeGroup.visible = true;
+    carGroup.scale.setScalar(1.25); bikeGroup.scale.setScalar(1.4);
+    carGroup.position.set(-8.0, 0, 3.8); bikeGroup.position.set(8.0, 0, 3.6);
+    carGroup.rotation.y = -.35; bikeGroup.rotation.y = .35;
+    vehicleGroup.visible = true;
+    charGroup.visible = false;
+  } else {
+    if (carGroup) { carGroup.visible = carMode; carGroup.position.set(0,0,0); carGroup.rotation.y = 0; carGroup.scale.setScalar(1); }
+    if (bikeGroup) { bikeGroup.visible = bikeMode; bikeGroup.position.set(0,0,0); bikeGroup.rotation.y = 0; bikeGroup.scale.setScalar(1); }
+    vehicleGroup.visible = carMode || bikeMode;
+    charGroup.visible = !(carMode || bikeMode);
+  }
   drawPath(loc.state === 'traveling' && loc.traveling ? loc.traveling.path : null);
 }
 
@@ -308,7 +888,7 @@ async function buildEnv(map) {
 
 // 相机：跟随 + 拖拽旋转 + 滚轮缩放
 let camTarget = new THREE.Vector3(0, 0, 0);
-let yaw = 0.9, pitch = 0.72, dist = 105;
+let yaw = 0.9, pitch = 0.72, dist = 100;
 let dragging = false, lastX = 0, lastY = 0;
 renderer.domElement.addEventListener('pointerdown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
 window.addEventListener('pointerup', () => { dragging = false; });
@@ -325,7 +905,10 @@ renderer.domElement.addEventListener('wheel', (e) => {
 function animate() {
   requestAnimationFrame(animate);
   const p = characterWorldPos();
-  camTarget.lerp(p, 0.08);
+  // 站在建筑前侧，避免小鲸被地点建筑盖住
+  p.x += 1.6; p.z += 2.6;
+  const focus = p.clone().multiplyScalar(0.35);
+  camTarget.lerp(focus, 0.08);
   const cx = camTarget.x + Math.sin(yaw) * Math.cos(pitch) * dist;
   const cz = camTarget.z + Math.cos(yaw) * Math.cos(pitch) * dist;
   const cyv = camTarget.y + 6 + Math.sin(pitch) * dist;
@@ -333,6 +916,7 @@ function animate() {
   camera.lookAt(camTarget.x, camTarget.y + 5, camTarget.z);
   const prev = charGroup.position.clone();
   charGroup.position.lerp(p, 0.12);
+  vehicleGroup.position.copy(charGroup.position);
   if (spritePlane) spritePlane.lookAt(camera.position);
   for (const c of charGroup.children) { if (c.isSprite && c.position.y > 20) c.lookAt(camera.position); }
   const st = stage && stage.location ? stage.location : null;

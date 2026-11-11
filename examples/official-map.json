@@ -1,0 +1,139 @@
+{
+  "name": "小鱼镇",
+  "image": {
+    "url": "/official-map.jpg"
+  },
+  "widthMeters": 2000,
+  "places": [
+    {
+      "id": "home",
+      "name": "家",
+      "icon": "🏠",
+      "x": 0.17,
+      "y": 0.62,
+      "desc": "她自己的小窝，床、桌子和一堆衣服",
+      "feel": "在这里最放松，可以随便躺",
+      "image": null
+    },
+    {
+      "id": "school",
+      "name": "学校",
+      "icon": "🏫",
+      "x": 0.425,
+      "y": 0.43,
+      "desc": "上课的地方",
+      "feel": "有点烦，但不去不行",
+      "image": null
+    },
+    {
+      "id": "library",
+      "name": "图书馆",
+      "icon": "📚",
+      "x": 0.31,
+      "y": 0.17,
+      "desc": "安静看书、补作业",
+      "feel": "能安静下来，适合发呆",
+      "image": null
+    },
+    {
+      "id": "cafe",
+      "name": "咖啡店",
+      "icon": "☕",
+      "x": 0.53,
+      "y": 0.27,
+      "desc": "偶尔坐一下午",
+      "feel": "有点小贵，但氛围好",
+      "image": null
+    },
+    {
+      "id": "park",
+      "name": "公园",
+      "icon": "🌳",
+      "x": 0.64,
+      "y": 0.52,
+      "desc": "散步发呆",
+      "feel": "晚上散步很舒服",
+      "image": null
+    },
+    {
+      "id": "canteen",
+      "name": "食堂",
+      "icon": "🍚",
+      "x": 0.61,
+      "y": 0.35,
+      "desc": "吃白饭的地方",
+      "feel": "人多，但饭好吃",
+      "image": null
+    },
+    {
+      "id": "market",
+      "name": "超市",
+      "icon": "🛒",
+      "x": 0.66,
+      "y": 0.3,
+      "desc": "买吃的和日用品",
+      "feel": "总忍不住多买零食",
+      "image": null
+    },
+    {
+      "id": "hospital",
+      "name": "医院",
+      "icon": "🏥",
+      "x": 0.45,
+      "y": 0.55,
+      "desc": "看病拿药的地方",
+      "feel": "一进来就不太舒服，希望少来",
+      "image": null
+    },
+    {
+      "id": "bank",
+      "name": "银行",
+      "icon": "🏦",
+      "x": 0.51,
+      "y": 0.24,
+      "desc": "办卡取钱",
+      "feel": "排队很无聊",
+      "image": null
+    },
+    {
+      "id": "mall",
+      "name": "商场",
+      "icon": "🏬",
+      "x": 0.36,
+      "y": 0.19,
+      "desc": "逛吃逛吃",
+      "feel": "容易冲动消费，要克制",
+      "image": null
+    },
+    {
+      "id": "station",
+      "name": "车站",
+      "icon": "🚉",
+      "x": 0.45,
+      "y": 0.79,
+      "desc": "坐车去别处",
+      "feel": "人挤人，但有点旅行感",
+      "image": null
+    },
+    {
+      "id": "riverside",
+      "name": "河边",
+      "icon": "🏞️",
+      "x": 0.17,
+      "y": 0.38,
+      "desc": "沿河走一走",
+      "feel": "风很舒服，适合放空",
+      "image": null
+    },
+    {
+      "id": "bookstore",
+      "name": "书店",
+      "icon": "📖",
+      "x": 0.35,
+      "y": 0.35,
+      "desc": "逛书店",
+      "feel": "安静，一逛就很久",
+      "image": null
+    }
+  ]
+}
