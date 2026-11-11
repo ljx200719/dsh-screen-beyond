@@ -31,14 +31,14 @@
 
 ## 安装
 
-当前版本：0.5.6。
+当前版本：0.5.7。
 
 ### 纯聊天：独立运行（不需要 DSH）
 
 需要 **Node.js 18+** 和一个 **DeepSeek API Key**（也可在启动后的 设置 → 模型 里填）。
 
 1. 解压本包到任意目录
-2. 双击 `start-pure-chat.cmd`（或命令行运行 `node runtime/server.mjs`）
+2. Windows 双击 `start-pure-chat.cmd`；Linux/macOS 运行 `sh start-pure-chat.sh`（或命令行运行 `node runtime/server.mjs`）
 3. 浏览器打开 `http://127.0.0.1:8900/`
 
 此时只有聊天、人设、记忆、日记、生活、地图/舞台等页面；她的虚拟屏幕和手机等完整环境需要下面的 DSH 安装。
@@ -49,12 +49,11 @@
 插件依赖 DSH 0.2.x（桌面/网页均可）。
 
 ```bash
-# 从本地目录安装（开发）
+# 从本地目录安装（当前推荐）
 dsh plugin --profile <profile> add link:<插件目录>
-
-# 或从 npm/市场安装（发布后）
-dsh plugin --profile <profile> add dsh-screen-beyond
 ```
+
+> `dsh-screen-beyond` 尚未发布到 npm；在发布前，`dsh plugin add dsh-screen-beyond` 会失败，请先用上面的本地 `link:` 方式，或下载 GitHub Release 的压缩包。
 
 装好后重启一次 DSH，左侧栏出现「屏幕彼端」。
 
