@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>看屏幕 · 屏幕彼端</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:#060b14;color:#e9f0fb;font:13px/1.6 "Segoe UI","Microsoft YaHei",sans-serif;display:flex;flex-direction:column;height:100vh}
+header{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid rgba(130,175,255,.14);background:linear-gradient(180deg,rgba(16,27,45,.92),rgba(10,17,29,.88));flex-wrap:wrap}
+header h1{font-size:15px;margin:0;font-weight:600}
+header .btn{background:rgba(22,35,55,.85);border:1px solid rgba(130,175,255,.3);color:#e9f0fb;border-radius:10px;padding:5px 12px;font:inherit;cursor:pointer;font-size:12.5px}
+header .btn.on{background:linear-gradient(135deg,#4f8dff,#7b6bff);border-color:transparent;box-shadow:0 6px 18px rgba(79,141,255,.35)}
+header .spacer{flex:1}
+header a{color:#8fbf7f;text-decoration:none;font-size:12px;padding:5px 11px;border:1px solid rgba(130,175,255,.25);border-radius:10px}
+#view{flex:1;position:relative;overflow:hidden;background:#060b14}
+#view iframe,#view img{position:absolute;inset:0;width:100%;height:100%;border:0;object-fit:contain;background:#060b14}
+#hint{padding:6px 16px;font-size:11.5px;color:#8ea4c4;border-top:1px solid rgba(130,175,255,.12);background:rgba(10,17,29,.9)}
+#msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#8ea4c4;font-size:13px;padding:20px;text-align:center}
+</style></head><body>
+<header>
+  <h1>👁️ 看屏幕</h1>
+  <button class="btn on" id="bSpace" onclick="show('space')">她自己的屏幕</button>
+  <button class="btn" id="bPc" onclick="show('pc')">你的电脑</button>
+  <button class="btn" id="bPhone" onclick="show('phone')">她的手机</button>
+  <span class="spacer"></span>
+  <button class="btn" id="btnSpacePower" onclick="togglePower('space')">关闭她的屏幕</button>
+  <button class="btn" id="btnPhonePower" onclick="togglePower('phone')">关闭她的手机</button>
+  <a href="/" target="_blank">回到聊天</a>
+</header>
+<div id="view"><div id="msg">加载中…</div></div>
+<div id="hint">她的屏幕可以直接在上面点鼠标、敲键盘（noVNC 交互）· 快捷键 Alt+S 从聊天页打开这里</div>
+<script>
+const $ = (s) => document.querySelector(s);
+let timer = null, mode = 'space', spaceTimer = null;
+async function checkSpace(){
+  const dot = document.getElementById('spaceDot'), txt = document.getElementById('spaceText');
+  if (!dot || !txt) return;
+  try {
+    const r = await (await fetch('/api/screen/space/status')).json();
+    if (r.http) { dot.style.background = '#22c55e'; txt.textContent = '已连接'; }
+    else if (!r.vm) { dot.style.background = '#ef4444'; txt.innerHTML = '她的屏幕没开 <button onclick="ensureSpace()" style="margin-left:6px;background:#2563eb;color:#fff;border:0;border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer">启动</button>'; }
+    else { dot.style.background = '#f59e0b'; txt.innerHTML = '连接掉了 <button onclick="ensureSpace()" style="margin-left:6px;background:#2563eb;color:#fff;border:0;border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer">修复屏幕</button>'; }
+  } catch (e) { dot.style.background = '#ef4444'; txt.textContent = '运行时连不上'; }
+}
+async function ensureSpace(){
+  const txt = document.getElementById('spaceText');
+  if (txt) txt.textContent = '正在修复…';
+  try {
+    await fetch('/api/screen/space/ensure', { method: 'POST', headers: {'content-type':'application/json'}, body: '{}' });
+  } catch (e) {}
+  const f = document.getElementById('spaceFrame');
+  if (f) f.src = 'http://127.0.0.1:6081/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=2000&resize=scale&t=' + Date.now();
+  setTimeout(checkSpace, 1500);
+}
+function clearView(){ const v=$('#view'); [...v.children].forEach(c=>{ if(c.id!=='msg') c.remove(); }); if(timer){clearInterval(timer);timer=null;} if(spaceTimer){clearInterval(spaceTimer);spaceTimer=null;} }
+function setOn(id){ for(const k of ['bSpace','bPc','bPhone']) $('#'+k).classList.toggle('on', k===id); }
+function msg(text){ const m=$('#msg'); m.style.display='flex'; m.textContent=text; }
+function hideMsg(){ $('#msg').style.display='none'; }
+function show(which){
+  mode = which; clearView();
+  setOn(which==='space'?'bSpace':which==='pc'?'bPc':'bPhone');
+  if (which === 'space') {
+    hideMsg();
+    const f = document.createElement('iframe');
+    f.id = 'spaceFrame';
+    f.src = 'http://127.0.0.1:6081/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=2000&resize=scale';
+    f.title = '她的屏幕';
+    $('#view').appendChild(f);
+    const bar = document.createElement('div');
+    bar.id = 'spaceBar';
+    bar.style.cssText = 'position:absolute;left:50%;top:10px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;background:rgba(10,18,31,.9);border:1px solid rgba(130,175,255,.3);border-radius:10px;padding:6px 12px;font-size:12px;z-index:3';
+    bar.innerHTML = '<span id="spaceDot" style="width:8px;height:8px;border-radius:50%;background:#f59e0b"></span><span id="spaceText">连接中…</span>';
+    $('#view').appendChild(bar);
+    checkSpace();
+    if (spaceTimer) clearInterval(spaceTimer);
+    spaceTimer = setInterval(checkSpace, 8000);
+    $('#hint').textContent = '这是她自己的 Linux 屏幕（noVNC，可直接操作）；断开会自动重连。屏幕虚拟机约占用 2~6 GB 内存，不用时可点右上角关闭。';
+    return;
+  }
+  hideMsg();
+  const img = document.createElement('img');
+  img.id = 'snap';
+  if (which === 'pc') { img.src = '/api/screen/pc?t=' + Date.now(); img.alt = '你的电脑屏幕'; $('#hint').textContent = '这是你的电脑屏幕（只读截图，自动刷新）；要操作请让她用 pc 工具。'; }
+  else {
+    const box = document.createElement('div');
+    box.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;text-align:center;padding:24px;color:#bcd2ee';
+    box.innerHTML = '<div style="font-size:34px">📱</div><div>她的手机是 Waydroid，运行在她的屏幕里（GNOME 桌面上的窗口）。</div><div style="color:#8ea4c4;font-size:12px">点左边「她自己的屏幕」就能看到她手机，还能直接点。</div>';
+    const b = document.createElement('button');
+    b.className = 'btn on';
+    b.textContent = '打开她的屏幕';
+    b.onclick = () => show('space');
+    b.style.cssText = 'background:linear-gradient(135deg,#4f8dff,#7b6bff);border:0;border-radius:10px;padding:8px 16px;color:#fff;cursor:pointer';
+    box.appendChild(b);
+    $('#view').appendChild(box);
+    hideMsg();
+    $('#hint').textContent = '手机在她的屏幕里，直接看她屏幕即可。';
+    return;
+  }
+  img.onerror = () => msg('截不到画面：' + (which === 'pc' ? '桌面内核没运行' : '手机/模拟器没启动'));
+  img.onload = hideMsg;
+  $('#view').appendChild(img);
+  timer = setInterval(() => {
+    const el = document.getElementById('snap');
+    if (el) el.src = '/api/screen/' + (mode === 'pc' ? 'pc' : 'phone') + '?t=' + Date.now();
+  }, which === 'pc' ? 2500 : 3000);
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.close(); });
+async function togglePower(kind){
+  const label = kind === 'space' ? '她的屏幕' : '她的手机';
+  try {
+    const r = await (await fetch('/api/resources')).json();
+    const running = !!r[kind];
+    if (running && !confirm('关掉' + label + '？关掉后她就不能看/用这个环境了（屏幕约 2~6GB、手机约 2~4GB 内存会释放）。')) return;
+    const act = running ? 'stop' : 'start';
+    const out = await (await fetch('/api/' + kind + '/' + act, { method: 'POST', headers: {'content-type':'application/json'}, body: '{}' })).json();
+    const tip = act === 'stop' ? ('已关闭' + label + '，释放了内存') : ('正在启动' + label + '（约 1 分钟）');
+    if (r.http && running) { /* space 关闭时同步更新状态 */ }
+    $('#hint').textContent = (out && out.message) || tip;
+    if (kind === 'space' && running) { const f = document.getElementById('spaceFrame'); if (f) f.src = 'about:blank'; }
+    if (kind === 'phone' && running) { const img = document.getElementById('snap'); if (img) img.src = ''; }
+    setTimeout(checkSpace, 1500);
+  } catch (e) { $('#hint').textContent = '操作失败：' + e.message; }
+}
+show(new URLSearchParams(location.search).get('v') || 'space');
+</script></body></html>

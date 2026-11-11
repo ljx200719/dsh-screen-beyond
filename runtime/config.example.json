@@ -1,0 +1,93 @@
+{
+  "life": {
+    "enabled": true,
+    "heartbeatMin": 50,
+    "proactive": 3,
+    "quietStart": 2,
+    "quietEnd": 7,
+    "diaryHour": 22,
+    "diaryAuto": true,
+    "schedules": [
+      {
+        "time": "07:20",
+        "label": "起床",
+        "days": "每天"
+      },
+      {
+        "time": "08:00 - 17:30",
+        "label": "上班 / 上课（按自己情况写）",
+        "days": "工作日"
+      },
+      {
+        "time": "12:00 - 13:00",
+        "label": "午饭",
+        "days": "每天"
+      },
+      {
+        "time": "18:30 - 19:30",
+        "label": "晚饭",
+        "days": "每天"
+      },
+      {
+        "time": "01:30",
+        "label": "睡觉",
+        "days": "每天"
+      }
+    ],
+    "activities": [
+      {
+        "name": "刷 B 站 / 看视频",
+        "window": "",
+        "weight": 35,
+        "minMin": 10,
+        "maxMin": 40
+      },
+      {
+        "name": "玩手机",
+        "window": "",
+        "weight": 25,
+        "minMin": 5,
+        "maxMin": 20
+      },
+      {
+        "name": "看小说",
+        "window": "22:00-01:30",
+        "weight": 20,
+        "minMin": 15,
+        "maxMin": 60
+      },
+      {
+        "name": "玩游戏",
+        "window": "19:00-23:00",
+        "weight": 15,
+        "minMin": 10,
+        "maxMin": 30
+      },
+      {
+        "name": "发呆 / 收拾屋子",
+        "window": "",
+        "weight": 5,
+        "minMin": 5,
+        "maxMin": 15
+      }
+    ]
+  },
+  "env": {
+    "pc": "gui",
+    "space": "gui",
+    "phone": "gui",
+    "confirmDanger": true
+  },
+  "model": {
+    "name": "deepseek-flash",
+    "reasoningEffort": "low",
+    "temperature": 0.9,
+    "maxTokens": 900
+  },
+  "context": {
+    "historyMode": "full",
+    "memoryInject": 8
+  },
+  "mode": "full",
+  "activeCharacter": "default"
+}

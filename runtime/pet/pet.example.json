@@ -1,0 +1,49 @@
+{
+  "image": "avatar",
+  "size": 180,
+  "opacity": 1,
+  "statusText": true,
+  "alwaysOnTop": true,
+  "gestures": [
+    {
+      "id": "pat",
+      "label": "摸摸头",
+      "hit": {
+        "x": 0.15,
+        "y": 0.08,
+        "w": 0.7,
+        "h": 0.42
+      },
+      "prompt": "（你摸了摸她的头）",
+      "bubble": "唔…"
+    },
+    {
+      "id": "poke",
+      "label": "戳一下",
+      "hit": {
+        "x": 0.3,
+        "y": 0.5,
+        "w": 0.4,
+        "h": 0.32
+      },
+      "prompt": "（你戳了戳她的脸）",
+      "bubble": "干嘛啦"
+    }
+  ],
+  "buttons": [
+    {
+      "id": "chat",
+      "label": "",
+      "action": "chat",
+      "title": "和她说话",
+      "icon": "chat-line"
+    },
+    {
+      "id": "look",
+      "label": "",
+      "action": "look",
+      "title": "看看我的屏幕",
+      "icon": "eye-line"
+    }
+  ]
+}

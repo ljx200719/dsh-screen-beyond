@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>地图 · 屏幕彼端</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;height:100vh;display:flex;flex-direction:column;background:#0b0f14;color:#d7dee8;font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif}
+header{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid #1d242e;background:#11161d;flex-wrap:wrap}
+header h1{font-size:15px;margin:0;font-weight:600}
+header .now{font-size:13px;color:#8fc1ff}
+header select,header input{background:#0b1118;border:1px solid #2a3745;color:#d7dee8;border-radius:8px;padding:5px 8px;font:inherit}
+header .spacer{flex:1}
+header a,header button{color:#93a1b1;text-decoration:none;font-size:13px;padding:5px 12px;border:1px solid #2a3745;border-radius:8px;background:transparent;cursor:pointer}
+header a:hover,header button:hover{color:#e8eef6;border-color:#3b82f6}
+header button.primary{background:#2563eb;border-color:#2563eb;color:#fff}
+main{flex:1;display:flex;gap:14px;padding:12px 16px;min-height:0}
+#mapCol{flex:1;display:flex;flex-direction:column;gap:10px;min-width:0}
+#mapWrap{position:relative;flex:1;min-height:0;border-radius:14px;overflow:hidden;border:1px solid #26333f;background:#0d1319}
+#mapPins{position:absolute;inset:0;z-index:4}
+#routeLayer{position:absolute;inset:0;pointer-events:none}
+#mePin{position:absolute;z-index:5;transform:translate(-50%,-100%);pointer-events:none;display:none;text-align:center;filter:drop-shadow(0 3px 6px rgba(0,0,0,.65))}
+#mePin .avatar{width:38px;height:38px;border-radius:50%;border:2px solid #8fc1ff;background:#16202b center/cover;display:flex;align-items:center;justify-content:center;font-size:18px;margin:0 auto;font-weight:600}
+#mePin .tag{font-size:11px;background:#16304f;border:1px solid #2f6bd8;color:#cfe0f7;padding:0 6px;border-radius:8px;white-space:nowrap;margin-top:2px}
+#scaleBar{position:absolute;left:14px;bottom:14px;background:rgba(8,13,20,.78);border:1px solid #2a3745;border-radius:8px;padding:6px 10px;font-size:11px;color:#9fb3c8;user-select:none}
+#scaleBar .bar{height:6px;border:1px solid #9fb3c8;border-top:0;margin-top:4px}
+#bigTravel{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(6,10,16,.72);backdrop-filter:blur(2px)}
+#bigTravel .box{background:#101b29;border:1px solid #2f6bd8;border-radius:16px;padding:22px 34px;text-align:center;min-width:300px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+#bigTravel .icon{font-size:52px;line-height:1.1}
+#bigTravel .title{font-size:18px;font-weight:600;margin:8px 0 4px}
+#bigTravel .sub{font-size:12px;color:#9fb3c8}
+#bigTravel .prog{height:6px;background:#1a2431;border-radius:99px;margin-top:14px;overflow:hidden}
+#bigTravel .prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,#2563eb,#22c55e);transition:width .5s linear}
+.hint{font-size:12px;color:#5a6878}
+aside{width:370px;display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto}
+.card{background:#101720;border:1px solid #1c2733;border-radius:12px;padding:12px 13px}
+.card h2{font-size:13px;margin:0 0 9px;color:#93a6bd;font-weight:600}
+.fact{border:1px solid #1c2733;border-radius:10px;padding:8px 9px;margin-bottom:8px;background:#0d141c}
+.row{display:flex;gap:7px;align-items:center;margin:5px 0}
+.row label{color:#8496ab;font-size:12px;flex:0 0 62px}
+input[type=text],select{background:#0b1118;border:1px solid #26333f;color:#d7dee8;border-radius:8px;padding:5px 8px;font:inherit;font-size:13px;outline:none;width:100%}
+header select{width:auto;min-width:120px}
+header #mapSel{min-width:190px}
+input:focus,select:focus{border-color:#2563eb}
+.btn{background:#1b2430;color:#cfdae8;border:1px solid #2a3745;border-radius:8px;padding:5px 10px;font:inherit;cursor:pointer;font-size:12px}
+.btn.primary{background:#2563eb;border-color:#2563eb;color:#fff}
+.btn.danger{background:#3a1d1d;border-color:#5a2a2a;color:#ff9c9c}
+.btn:hover{filter:brightness(1.12)}
+.small{font-size:12px;color:#7d8fa5}
+#tod{position:absolute;inset:0;pointer-events:none;z-index:2;transition:background .8s}
+#tod.dawn{background:linear-gradient(180deg, rgba(255,170,120,.28), rgba(120,90,160,.12) 55%, rgba(255,140,90,.10))}
+#tod.day{background:rgba(255,240,200,.04)}
+#tod.dusk{background:linear-gradient(180deg, rgba(255,120,60,.22), rgba(90,40,90,.20) 60%, rgba(20,10,40,.30))}
+#tod.night{background:rgba(4,8,26,.52)}
+#tod.night::after{content:'';position:absolute;inset:0;background-image:radial-gradient(1.5px 1.5px at 20% 18%, rgba(255,255,255,.9) 50%, transparent 51%),radial-gradient(1.5px 1.5px at 42% 8%, rgba(255,255,255,.75) 50%, transparent 51%),radial-gradient(2px 2px at 68% 24%, rgba(255,255,255,.85) 50%, transparent 51%),radial-gradient(1.2px 1.2px at 84% 12%, rgba(255,255,255,.7) 50%, transparent 51%),radial-gradient(1.4px 1.4px at 30% 36%, rgba(255,255,255,.55) 50%, transparent 51%);background-size:320px 220px;animation:twinkle 4s ease-in-out infinite alternate}
+@keyframes twinkle{from{opacity:.55}to{opacity:1}}
+#wx{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:3}
+#toast{position:fixed;right:20px;bottom:20px;background:#1f6feb;color:#fff;padding:9px 16px;border-radius:8px;opacity:0;transition:.2s;z-index:9}
+.chip{font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid #2a3745;color:#93a1b1}
+#iconPalette{position:fixed;z-index:20;background:#101b29;border:1px solid #2f6bd8;border-radius:10px;padding:8px;display:none;grid-template-columns:repeat(8,1fr);gap:4px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+#iconPalette button{font-size:18px;background:transparent;border:0;padding:3px;cursor:pointer;border-radius:6px}
+#iconPalette button:hover{background:#16304f}
+</style>
+<link rel="stylesheet" href="/theme.css"></head>
+<body>
+<header>
+  <h1>🗺️ <span id="mapName">地图</span></h1>
+  <select id="mapSel" onchange="switchMap(this.value)"></select>
+  <select id="longMode" title="换地图时的交通方式">
+    <option value="auto">自动选长途</option>
+    <option value="coach">🚌 长途汽车</option>
+    <option value="rail">🚄 高铁</option>
+    <option value="plane">✈️ 飞机</option>
+  </select>
+  <button onclick="renameMap()">改名</button>
+  <button onclick="newMap()">+ 新地图</button>
+  <button onclick="delMap()">删地图</button>
+  <span class="now" id="nowPlace">…</span>
+  <div class="spacer"></div>
+  <a href="/screen" target="_blank">屏幕</a>
+  <a href="/">聊天</a>
+  <a href="/settings">设置</a>
+  <button class="primary" onclick="saveMap()">保存地图</button>
+</header>
+<main>
+  <div id="mapCol">
+    <div id="mapWrap">
+      <div id="tod" class="day"></div>
+      <div id="wx" style="position:absolute;inset:0;pointer-events:none;overflow:hidden"></div>
+      <div id="mapBg" style="position:absolute;inset:0;display:none"><img id="mapBgImg" alt="" style="width:100%;height:100%;object-fit:fill;display:block"></div>
+      <div id="mapPins"></div>
+      <div id="roadLayer" style="position:absolute;inset:0;pointer-events:none"></div>
+      <div id="routeLayer"></div>
+      <div id="roadBar" style="position:absolute;left:12px;top:12px;display:none;gap:6px;align-items:center;background:rgba(8,13,20,.88);border:1px solid #2f6bd8;border-radius:10px;padding:6px 10px;font-size:12px;z-index:6">
+        <span style="color:#bfd4ef">画道路：点地图加点</span>
+        <button class="btn" onclick="roadNew()">新道路</button>
+        <button class="btn" onclick="roadUndo()">撤销一点</button>
+        <button class="btn" onclick="roadClear()">清空</button>
+        <button class="btn primary" onclick="roadSave()">保存道路</button>
+        <button class="btn" onclick="toggleRoadEditor()">结束</button>
+      </div>
+      <div id="mePin"><div class="avatar" id="meAva">🐟</div><div class="tag" id="meTag">…</div></div>
+      <div id="scaleBar"><span id="scaleText">…</span><div class="bar" id="scaleLine"></div></div>
+      <div id="bigTravel"><div class="box">
+        <div class="icon" id="bigIcon">🚄</div>
+        <div class="title" id="bigTitle">坐高铁中</div>
+        <div class="sub" id="bigSub"></div>
+        <div class="prog"><i id="bigProg"></i></div>
+        <div class="sub" id="bigEta" style="margin-top:6px"></div>
+      </div></div>
+    </div>
+    <div class="hint">拖动图钉调整位置 · 她出门会沿道路走，速度按交通方式算 · 换地图 = 长途旅行</div>
+  </div>
+  <aside>
+    <div class="card"><h2>当前</h2>
+      <div class="row" style="align-items:center;gap:12px;margin:0"><div id="curIcon" style="font-size:34px">📍</div><div style="flex:1">
+        <div id="curName" style="font-weight:600;font-size:15px">…</div>
+        <div class="small" id="curDesc"></div></div></div>
+      <div class="small" id="curFeel" style="margin-top:6px;color:#9fb3c8"></div>
+      <div id="travelCard" style="margin-top:6px;padding:8px 10px;border:1px solid #2f6bd8;background:#0f1825;border-radius:8px;font-size:12px;color:#bfd4ef"></div>
+      <div class="small" id="curMoney" style="margin-top:4px"></div>
+      <div class="row" style="margin-top:8px;justify-content:space-between"><span class="small" id="curSince"></span>
+        <label class="small" style="display:flex;align-items:center;gap:6px;flex:0 0 auto"><input type="checkbox" id="freeWalk" onchange="toggleFreeWalk()"> 让她自由走动</label></div>
+    </div>
+    <div class="card"><h2>地图设置</h2>
+      <div class="row"><label>地图全宽</label><input type="text" id="widthMeters" placeholder="例如 2000" style="width:90px"><span class="small">米</span></div>
+      <div class="row"><label>交通方式</label><select id="transport"><option value="auto">自动</option><option value="walk">🚶 步行</option><option value="bike">🚲 骑车</option><option value="bus">🚌 公交</option><option value="car">🚗 自驾</option><option value="metro">🚇 地铁</option></select></div>
+      <div class="row"><label>地图风格</label><select id="theme"><option value="town">🏘️ 小镇</option><option value="coast">🌊 海边</option><option value="city">🏙️ 城市</option><option value="forest">🌲 森林</option></select></div>
+      <div class="row"><label>天气来源</label><select id="weatherMode" onchange="saveWeatherMode()"><option value="manual">手动选择</option><option value="real">真实天气（按设备定位）</option></select></div>
+      <div class="row"><label>天气</label><select id="weather" onchange="saveWeather()"><option value="sunny">☀️ 晴天</option><option value="cloudy">☁️ 多云</option><option value="rain">🌧️ 下雨</option><option value="snow">❄️ 下雪</option><option value="hot">🥵 热</option><option value="cold">🧣 冷</option><option value="windy">💨 大风</option></select></div>
+      <div class="small" id="realWeatherInfo"></div>
+      <div class="row"><button class="btn" onclick="relocateWeather()">重新定位并刷新天气</button></div>
+      <div class="row"><label>体力</label><div style="flex:1"><div class="bar" style="height:8px;background:#1a2431;border-radius:99px;overflow:hidden"><i id="energyBar" style="display:block;height:100%;width:0;background:linear-gradient(90deg,#22c55e,#f59e0b)"></i></div><span class="small" id="energyText">…</span></div></div>
+      <div id="capsLine" class="small" style="margin-top:4px;color:#9fb3c8"></div>
+      <div class="row"><label>路线</label><button class="btn" onclick="toggleRoadEditor()">✏️ 画道路（自定义路线）</button></div>
+      <div class="small">画完道路后，她出门会沿你画的路线走（不画就沿默认道路）</div>
+      <div class="row"><label>地图视图</label><select id="displayMode" onchange="saveDisplayMode()"><option value="2d">2D 平面</option><option value="3d">3D 模型</option></select></div>
+      <div class="row"><label>2D 底图</label><button class="btn" onclick="document.getElementById('mapImgFile').click()">上传图片</button><input type="file" id="mapImgFile" accept="image/*" style="display:none" onchange="uploadMapImage(this)"><button class="btn danger" style="margin-left:6px" onclick="clearMapImage()">清除</button></div>
+      <div class="row"><label>底图地址</label><input type="text" id="mapImgUrl" placeholder="/models/xxx.png（或留空）"></div>
+      <div class="row"><label>地图模型</label><input type="text" id="mmUrl" placeholder="/models/demo-town.gltf 或 .glb 地址"></div>
+      <div class="row"><label>模型缩放</label><input type="number" id="mmScale" step="0.1" placeholder="1" style="width:80px"><span class="small">倍</span></div>
+      <div class="row"><label>模型旋转</label><input type="number" id="mmRot" placeholder="0" style="width:80px"><span class="small">度</span></div>
+      <div class="row"><label>高度偏移</label><input type="number" id="mmYoff" step="0.5" placeholder="0" style="width:80px"></div>
+      <div class="row"><button class="btn primary" onclick="saveMapModel()">应用地图模型</button><button class="btn" onclick="window.open('/model','_blank')">预览 3D</button></div>
+      <div class="small" id="modelHint"></div>
+      <div class="small">导入 3D 地图：把 .glb/.gltf 放 models/ 目录，填 /models/xxx.glb，然后打开 3D 舞台 /model 查看</div>
+      <div class="small">地图全宽决定比例尺和通勤时间；换地图是长途，按右上角"长途交通"选择</div>
+    </div>
+    <div class="card"><h2>不会做地图/建模？ <span class="chip">也能用</span></h2>
+      <div class="small" style="line-height:1.9">
+        内置 3D 小镇和角色只是占位示例（能用但不好看），不用自己做也能直接用；想要好看的请看教程 #3 的资源清单。<br>
+        想换的话：<br>
+        · 地图 → 上传 2D 底图，或填 3D 模型地址（.glb/.gltf）<br>
+        · 地点 → 「导入地点」支持 JSON / CSV / 每行一个名字<br>
+        · 图标 → 每个地点可「换图标图」<br>
+        实在不会做也没关系：用内置场景，只改地点名字和描述就行。
+      </div>
+      <div class="row" style="margin-top:8px"><button class="btn" onclick="useBuiltinScene()">用内置 3D 场景</button><button class="btn" onclick="window.open('/settings#tutorial','_blank')">看导入教程</button></div>
+    </div>
+    <div class="card"><h2>地点列表 <span class="chip">点图标可换</span></h2>
+      <div class="row"><button class="btn" onclick="document.getElementById('placeImportFile').click()">导入地点</button>
+        <input type="file" id="placeImportFile" accept=".json,.csv,.txt,text/plain,application/json" style="display:none" onchange="importPlacesFile(this)">
+        <button class="btn" onclick="exportPlaces()">导出地点</button>
+        <span class="small">支持 JSON / CSV / 每行一个名字</span></div>
+      <div id="placeList"></div>
+      <div class="row"><input type="text" id="newPlaceName" placeholder="新地点名字"><button class="btn" onclick="addPlace()">+ 添加</button></div>
+    </div>
+    <div class="card"><h2>她的时段习惯 <span class="chip">可编辑权重</span></h2>
+      <div class="row" style="margin:0 0 8px"><label class="small" style="display:flex;align-items:center;gap:6px;flex:0 0 auto"><input type="checkbox" id="smartRoutine" onchange="saveRoutineHandler()"> 智能权重</label>
+        <span class="small" style="flex:1">开启后：随记忆/天气/体力/最近习惯自动微调</span></div>
+      <div class="small" id="visitInfo" style="margin-bottom:6px"></div>
+      <div class="small" style="margin-bottom:6px">每个时段她想待在哪：数字是权重（0=不去，越大越常去）</div>
+      <div id="routineList"></div>
+      <div class="flex" style="display:flex;gap:8px;margin-top:6px"><button class="btn" onclick="addRoutineBand()">+ 时段</button><button class="btn primary" onclick="saveRoutineHandler()">保存习惯</button></div>
+    </div>
+    <div class="card"><h2>习惯参考（不锁死）</h2><div class="small" style="margin-bottom:6px">作息只是她的倾向，去不去由她自己定</div><div id="schedList"></div></div>
+  </aside>
+</main>
+<div id="toast"></div>
+<div id="iconPalette"></div>
+<script src="/wx.js"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+let DATA = null, PLACES = [], SCHEDULES = [], CURRENT = null, TRANSPORTS = {}, TIMER = null, PALETTE_TARGET = null, CAPS = {}, WEATHERS = {}, ENERGY = 80, ROUTINE = null, RPLACES = [], VISITS = {}, ROADS = [], EDITING_ROADS = false, ROAD_CUR = [], WXFX = {};
+const EMOJIS = ['🏠','🏫','🏢','📚','🌳','☕','🍚','🛒','🏥','🏦','🚉','✈️','🎬','🏬','🏋️','📖','💻','🌉','🏞️','⛰️','🍜','🍰','🍺','🎮','🎤','🧺','🛏️','🚿','🌇','🌃','🏪','💊','🐟','🐳','⭐','📍','🎪','🚏','🌲'];
+function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function toast(t){ const el=$('#toast'); el.textContent=t; el.style.opacity=1; setTimeout(()=>el.style.opacity=0,1600); }
+async function api(path, opts){ const r = await fetch(path, opts); if(!r.ok) throw new Error('HTTP '+r.status); return await r.json(); }
+async function saveJson(path, obj){ return await api(path, {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)}); }
+function fmtDist(m){ return m >= 1000 ? (m/1000).toFixed(2).replace(/0$/,'') + ' km' : Math.round(m)+' m'; }
+function fmtEta(sec){ if (sec < 60) return '不到 1 分钟'; if (sec < 3600) return Math.ceil(sec/60) + ' 分钟'; return Math.floor(sec/3600) + ' 小时 ' + Math.ceil((sec%3600)/60) + ' 分'; }
+function guessIcon(name){
+  const s = String(name||'');
+  const map = [['家|宿舍|卧室', '🏠'],['学校|教室|课', '🏫'],['公司|办公', '🏢'],['图书馆|自习', '📚'],['公园|花园', '🌳'],['咖啡', '☕'],['食堂|饭|餐厅|吃', '🍚'],['超市|商场|购物', '🛒'],['医院|诊所', '🏥'],['银行', '🏦'],['车站|地铁站', '🚉'],['机场', '✈️'],['电影', '🎬'],['健身', '🏋️'],['书店', '📖'],['网吧|电脑', '💻'],['桥', '🌉'],['河|湖|海', '🏞️'],['山', '⛰️'],['酒吧', '🍺'],['游戏', '🎮'],['KTV|唱歌', '🎤']];
+  for (const [re, ic] of map) if (new RegExp(re).test(s)) return ic;
+  return EMOJIS[Math.floor(Math.random()*EMOJIS.length)];
+}
+function themeSvg(theme){
+  const t = theme || 'town';
+  const base = '<defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0e1a2b"/><stop offset="100%" stop-color="#122334"/></linearGradient>'
+    + '<linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#16302b"/><stop offset="100%" stop-color="#1d3a33"/></linearGradient></defs>'
+    + '<rect width="1000" height="640" fill="url(#g1)"/>';
+  let bg = '<rect y="26" width="1000" height="614" fill="url(#g2)"/>';
+  if (t === 'coast') bg += '<rect y="360" width="1000" height="280" fill="#10304a"/><path d="M0 380 Q 125 360 250 380 T 500 380 T 750 380 T 1000 380" fill="none" stroke="#2a6f96" stroke-width="8" opacity=".8"/><path d="M0 440 Q 125 420 250 440 T 500 440 T 750 440 T 1000 440" fill="none" stroke="#2a6f96" stroke-width="6" opacity=".55"/>'
+    + '<ellipse cx="160" cy="300" rx="120" ry="40" fill="#2b3f33" opacity=".6"/>';
+  if (t === 'city') bg += '<g fill="#1c2b36" stroke="#33475a" stroke-width="2">'
+    + '<rect x="120" y="140" width="90" height="190"/><rect x="230" y="90" width="70" height="240"/><rect x="330" y="170" width="110" height="160"/><rect x="620" y="120" width="80" height="210"/><rect x="720" y="180" width="120" height="150"/><rect x="860" y="100" width="70" height="230"/></g>'
+    + '<g fill="#7fb2e8" opacity=".55">' + Array.from({length: 26}).map((_,i)=>'<rect x="'+(140+(i%6)*14)+'" y="'+(158+Math.floor(i/6)*26)+'" width="6" height="10"/>').join('') + '</g>';
+  if (t === 'forest') bg += '<g fill="#1e4637" stroke="#2d6b52" stroke-width="3">'
+    + Array.from({length: 16}).map((_,i)=>'<circle cx="'+(70+(i%5)*210)+'" cy="'+(150+Math.floor(i/5)*150)+'" r="'+(26+(i%3)*8)+'"/>').join('') + '</g>'
+    + '<path d="M-20 500 C 200 470, 400 540, 620 500 C 800 470, 900 520, 1020 490" fill="none" stroke="#174266" stroke-width="16" opacity=".8"/>';
+  const roads = '<path d="M-20 300 C 180 240, 320 330, 520 300 C 720 270, 820 330, 1020 290" fill="none" stroke="#2a3a44" stroke-width="46" stroke-linecap="round"/>'
+    + '<path d="M-20 300 C 180 240, 320 330, 520 300 C 720 270, 820 330, 1020 290" fill="none" stroke="#3a4f5c" stroke-width="8" stroke-dasharray="26 22" opacity=".7"/>'
+    + '<path d="M500 320 C 505 400, 470 520, 505 640" fill="none" stroke="#2a3a44" stroke-width="34" stroke-linecap="round"/>'
+    + '<path d="M500 320 C 505 400, 470 520, 505 640" fill="none" stroke="#3a4f5c" stroke-width="6" stroke-dasharray="18 16" opacity=".7"/>';
+  const trees = '<g fill="#1e4637" stroke="#2d6b52" stroke-width="3">' + [[80,420],[180,520],[880,260],[900,520],[640,540],[300,560],[150,200],[720,540]].map(([x,y]) => '<g><circle cx="'+x+'" cy="'+y+'" r="16"/><circle cx="'+x+'" cy="'+y+'" r="6" fill="#2d6b52"/></g>').join('') + '</g>';
+  return '<svg viewBox="0 0 1000 640" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%" xmlns="http://www.w3.org/2000/svg">' + base + bg + roads + trees + '</svg>';
+}
+function drawTheme(){ const wrap = document.getElementById('mapWrap'); const old = document.getElementById('themeSvg'); if (old) old.remove(); wrap.insertAdjacentHTML('afterbegin', '<div id="themeSvg">' + themeSvg(DATA.map.theme) + '</div>'); document.getElementById('themeSvg').style.cssText='position:absolute;inset:0'; }
+function placeEl(p){
+  const el = document.createElement('div');
+  el.className = 'pin';
+  el.style.cssText = 'position:absolute;left:'+(p.x*100)+'%;top:'+(p.y*100)+'%;transform:translate(-50%,-100%);cursor:grab;user-select:none;text-align:center;filter:drop-shadow(0 3px 4px rgba(0,0,0,.5))';
+  const iconHtml = p.image
+    ? '<img src="'+esc(p.image)+'" alt="" style="width:28px;height:28px;object-fit:contain;display:inline-block">'
+    : '<span style="font-size:24px">'+esc(p.icon)+'</span>';
+  el.innerHTML = '<div>'+iconHtml+'</div>'
+    + '<div style="font-size:11px;color:#d7e3ee;background:#14202c;padding:1px 7px;border-radius:8px;border:1px solid #2a3a4a;white-space:nowrap">'+esc(p.name)+'</div>'
+    + '<div style="width:2px;height:8px;background:#2a3a4a;margin:0 auto"></div>';
+  el.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    const box = document.getElementById('mapWrap').getBoundingClientRect();
+    const move = (e) => {
+      p.x = Math.max(0.05, Math.min(0.95, (e.clientX - box.left) / box.width));
+      p.y = Math.max(0.08, Math.min(0.92, (e.clientY - box.top) / box.height));
+      el.style.left = (p.x*100)+'%'; el.style.top = (p.y*100)+'%';
+    };
+    const up = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  });
+  return el;
+}
+function renderPins(){
+  const wrap = document.getElementById('mapPins');
+  wrap.innerHTML = '';
+  PLACES.forEach((p) => wrap.appendChild(placeEl(p)));
+}
+function pathPoints(){ const tv = CURRENT && CURRENT.traveling; return (tv && Array.isArray(tv.path) && tv.path.length > 1) ? tv.path : null; }
+function pointAt(path, progress){
+  let total = 0; const segs = [];
+  for (let i=0;i<path.length-1;i++){ const a=path[i],b=path[i+1]; const d=Math.hypot(a.x-b.x,a.y-b.y); segs.push(d); total+=d; }
+  let target = total * progress;
+  for (let i=0;i<segs.length;i++){ if (target <= segs[i] || i===segs.length-1){ const a=path[i],b=path[i+1]; const r=segs[i]?target/segs[i]:0; return {x:a.x+(b.x-a.x)*Math.min(1,Math.max(0,r)), y:a.y+(b.y-a.y)*Math.min(1,Math.max(0,r))}; } target -= segs[i]; }
+  return path[path.length-1];
+}
+function drawRoute(){
+  const layer = document.getElementById('routeLayer');
+  layer.innerHTML = '';
+  const path = pathPoints();
+  if (!path) return;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 100 100'); svg.setAttribute('preserveAspectRatio', 'none');
+  svg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%';
+  const pl = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+  pl.setAttribute('points', path.map(p => (p.x*100)+','+(p.y*100)).join(' '));
+  pl.setAttribute('fill', 'none'); pl.setAttribute('stroke', '#3b82f6'); pl.setAttribute('stroke-width', '0.5');
+  pl.setAttribute('stroke-dasharray', '1.6 1.2'); pl.setAttribute('opacity', '.85');
+  svg.appendChild(pl); layer.appendChild(svg);
+}
+function renderMe(){
+  const pin = document.getElementById('mePin');
+  if (!CURRENT) { pin.style.display='none'; return; }
+  const path = pathPoints();
+  let x, y;
+  if (path) {
+    const prog = Math.min(1, Math.max(0, (Date.now() - CURRENT.traveling.startedAt) / Math.max(1, CURRENT.traveling.durationMs)));
+    const pt = pointAt(path, prog);
+    x = pt.x; y = pt.y;
+    document.getElementById('meTag').textContent = CURRENT.traveling.modeIcon + ' ' + CURRENT.traveling.modeLabel + '中';
+    document.getElementById('meAva').textContent = CURRENT.avatar ? '' : '🐟';
+    document.getElementById('meAva').style.backgroundImage = CURRENT.avatar ? 'url('+CURRENT.avatar+')' : '';
+  } else if (CURRENT.intercity) {
+    pin.style.display='none'; return;
+  } else {
+    const p = PLACES.find(p => p.id === CURRENT.placeId);
+    if (!p) { pin.style.display='none'; return; }
+    x = p.x; y = p.y;
+    document.getElementById('meTag').textContent = '在这里';
+    document.getElementById('meAva').textContent = CURRENT.avatar ? '' : ((CAPS.name||'她')).slice(0,1);
+    document.getElementById('meAva').style.backgroundImage = CURRENT.avatar ? 'url('+CURRENT.avatar+')' : '';
+  }
+  pin.style.display = 'block';
+  pin.style.left = (x*100)+'%'; pin.style.top = (y*100)+'%';
+}
+function renderScale(){
+  const wrap = document.getElementById('mapWrap');
+  const width = Number(DATA && DATA.map && DATA.map.widthMeters) || 2000;
+  const px = Math.max(80, Math.round(wrap.clientWidth * 0.22));
+  document.getElementById('scaleLine').style.width = px + 'px';
+  document.getElementById('scaleText').textContent = '比例尺：' + fmtDist(width * (px / Math.max(1, wrap.clientWidth))) + '（地图全宽 ' + fmtDist(width) + '）';
+}
+function renderPlaceList(){
+  document.getElementById('placeList').innerHTML = PLACES.map((p, i) => '<div class="fact">'
+    + '<div class="row" style="margin:0"><button class="btn" style="width:40px;font-size:16px" onclick="pickIcon(event,'+i+')">'+esc(p.icon)+'</button>'
+    + '<input type="text" value="'+esc(p.name)+'" oninput="PLACES['+i+'].name=this.value">'
+    + '<button class="btn danger" onclick="delPlace('+i+')">✕</button></div>'
+    + '<div class="row"><label>描述</label><input type="text" value="'+esc(p.desc||'')+'" placeholder="这里是什么地方" oninput="PLACES['+i+'].desc=this.value"></div>'
+    + '<div class="row"><label>她的感受</label><input type="text" value="'+esc(p.feel||'')+'" placeholder="她来这里会有什么感觉" oninput="PLACES['+i+'].feel=this.value"></div>'
+    + '<div class="row" style="justify-content:flex-end">'
+    + '<button class="btn" onclick="document.getElementById(\'placeImgFile-'+i+'\').click()">换图标图</button>'
+    + '<input type="file" id="placeImgFile-'+i+'" accept="image/*" style="display:none" onchange="uploadPlaceImage('+i+', this)">'
+    + (p.image ? '<button class="btn danger" onclick="clearPlaceImage('+i+')">清图标图</button>' : '')
+    + '<button class="btn" onclick="goHere('+i+')">让她来这里</button></div></div>').join('');
+}
+async function loadRoutine(){
+  try {
+    const r = await api('/api/routine');
+    ROUTINE = r.routine; RPLACES = r.places || []; VISITS = r.visits || {};
+    const smart = document.getElementById('smartRoutine');
+    if (smart) smart.checked = ROUTINE.smart === true;
+    renderRoutine(); renderVisitInfo();
+  } catch(e) { const host = document.getElementById('routineList'); if (host) host.innerHTML = '<div class="small">习惯加载失败：'+esc(e.message)+'</div>'; }
+}
+function renderVisitInfo(){
+  const el = document.getElementById('visitInfo');
+  if (!el) return;
+  const list = Object.entries(VISITS || {}).map(([id, v]) => {
+    const p = RPLACES.find(x => x.id === id);
+    return { name: p ? p.icon + p.name : id, count: (v && v.count) || 0, lastAt: (v && v.lastAt) || 0 };
+  }).filter(x => x.count > 0).sort((a, b) => b.lastAt - a.lastAt).slice(0, 4);
+  el.textContent = list.length ? ('她最近去过：' + list.map(x => x.name + '×' + x.count).join('、')) : '她还没怎么出过门';
+}
+function currentHour(){ const d = new Date(); return d.getHours() + d.getMinutes()/60; }
+function renderRoutine(){
+  const host = document.getElementById('routineList');
+  if (!host || !ROUTINE) return;
+  const h = currentHour();
+  host.innerHTML = ROUTINE.bands.map((b, i) => {
+    const active = (b.start <= b.end) ? (h >= b.start && h < b.end) : (h >= b.start || h < b.end);
+    return '<div class="fact" style="' + (active ? 'border-color:#2f6bd8;background:#0f1825;' : '') + '">'
+      + '<div class="row" style="margin:0">'
+      + '<input type="number" min="0" max="24" step="0.5" value="'+b.start+'" style="width:64px" onchange="ROUTINE.bands['+i+'].start=Number(this.value)">'
+      + '<span class="small">点到</span>'
+      + '<input type="number" min="0" max="24" step="0.5" value="'+b.end+'" style="width:64px" onchange="ROUTINE.bands['+i+'].end=Number(this.value)">'
+      + '<label class="small" style="display:flex;align-items:center;gap:4px;flex:0 0 auto"><input type="checkbox" '+ (b.allowed !== false ? 'checked' : '') +' onchange="ROUTINE.bands['+i+'].allowed=this.checked"> 出门逛</label>'
+      + '<button class="btn danger" style="margin-left:auto" onclick="delRoutineBand('+i+')">✕</button></div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">'
+      + RPLACES.map(p => {
+          const w = (b.weights && b.weights[p.id]) || 0;
+          return '<label class="small" style="display:flex;align-items:center;gap:2px;flex:0 0 auto"><span>'+esc(p.icon)+'</span>'
+            + '<input type="number" min="0" max="100" value="'+w+'" style="width:52px" onchange="setWeight('+i+',\''+p.id+'\',this.value)"></label>';
+        }).join('')
+      + '</div></div>';
+  }).join('');
+}
+function setWeight(i, pid, val){
+  const b = ROUTINE.bands[i];
+  const v = Math.max(0, Math.min(100, Number(val) || 0));
+  if (v > 0) b.weights[pid] = v; else delete b.weights[pid];
+}
+function addRoutineBand(){
+  ROUTINE.bands.push({ start: 0, end: 24, allowed: true, weights: {} });
+  renderRoutine();
+}
+function delRoutineBand(i){ ROUTINE.bands.splice(i,1); renderRoutine(); }
+async function saveRoutineHandler(){
+  const smart = document.getElementById('smartRoutine').checked;
+  const r = await saveJson('/api/routine', { bands: ROUTINE.bands, smart });
+  if (r.ok) { ROUTINE = r.routine; renderRoutine(); renderVisitInfo(); toast(smart ? '智能权重已开启' : '习惯已保存'); }
+}
+
+function renderSchedList(){
+  const host = document.getElementById('schedList');
+  if (!SCHEDULES.length) { host.innerHTML = '<div class="small">还没有作息，去设置→生活加几条</div>'; return; }
+  host.innerHTML = SCHEDULES.map((s, i) => '<div class="row"><span class="small" style="flex:1">'+esc(s.time)+' '+esc(s.label)+'</span>'
+    + '<select style="width:120px" onchange="SCHEDULES['+i+'].place=this.value">'
+    + PLACES.map(p => '<option value="'+esc(p.id)+'"'+(s.place===p.id?' selected':'')+'>'+esc(p.icon+' '+p.name)+'</option>').join('') + '</select></div>').join('');
+}
+function renderCurrent(cur){
+  CURRENT = cur || {};
+  const tc = document.getElementById('travelCard');
+  const big = document.getElementById('bigTravel');
+  if (cur.intercity) {
+    const ic = cur.intercity;
+    document.getElementById('curIcon').textContent = ic.modeIcon;
+    document.getElementById('curName').textContent = ic.modeLabel + '中 · 前往「' + ic.toMapName + '」';
+    document.getElementById('curDesc').textContent = ic.fromMapName + ' → ' + ic.toMapName;
+    document.getElementById('curFeel').textContent = '';
+    document.getElementById('curSince').textContent = '';
+    tc.style.display = 'none';
+    big.style.display = 'flex';
+    document.getElementById('bigIcon').textContent = ic.modeIcon;
+    document.getElementById('bigTitle').textContent = '坐' + ic.modeLabel + '中';
+    document.getElementById('bigSub').textContent = ic.fromMapName + ' → ' + ic.toMapName + ' · ' + ic.distanceKm + ' 公里';
+    document.getElementById('bigProg').style.width = Math.round(ic.progress*100) + '%';
+    document.getElementById('bigEta').textContent = '还有约 ' + fmtEta(ic.etaSec);
+    document.getElementById('nowPlace').textContent = ic.modeIcon + ' 前往 ' + ic.toMapName;
+  } else {
+    big.style.display = 'none';
+    document.getElementById('curIcon').textContent = cur.icon || '📍';
+    document.getElementById('curName').textContent = cur.traveling ? ('去「' + cur.name + '」的路上') : (cur.name + ' · ' + (cur.mapName || ''));
+    document.getElementById('curDesc').textContent = cur.traveling ? '' : (cur.desc || '');
+    document.getElementById('curFeel').textContent = (!cur.traveling && cur.feel) ? '她对这里的感受：' + cur.feel : '';
+    document.getElementById('curSince').textContent = (!cur.traveling && cur.minutes > 0) ? '已待约 ' + cur.minutes + ' 分钟' : '';
+
+
+    document.getElementById('nowPlace').textContent = cur.traveling ? ('🚶 前往 ' + cur.name) : (cur.icon + ' ' + cur.name);
+    if (cur.traveling) {
+      const t = cur.traveling;
+      tc.style.display = 'block';
+      tc.innerHTML = '正在从 <b>' + esc(t.fromName) + '</b> 去 <b>' + esc(t.toName) + '</b><br>' + t.modeIcon + ' ' + t.modeLabel + ' · ' + fmtDist(t.distanceMeters) + ' · 还有约 ' + fmtEta(t.etaSec);
+    } else tc.style.display = 'none';
+  }
+  document.getElementById('mapName').textContent = cur.mapName || '地图';
+  drawRoute(); renderMe();
+}
+function startTicker(){
+  if (TIMER) clearInterval(TIMER);
+  TIMER = setInterval(async () => {
+    if (!CURRENT) return;
+    if (CURRENT.traveling || CURRENT.intercity) {
+      renderMe();
+      if (CURRENT.intercity) {
+        const ic = CURRENT.intercity;
+        const prog = Math.min(1, (Date.now() - (CURRENT.since||Date.now())) / Math.max(1, ic.durationMs|| 1));
+      }
+      const t = CURRENT.traveling;
+      if (t) {
+        const left = Math.max(0, Math.round((t.durationMs - (Date.now() - t.startedAt)) / 1000));
+        const tc = document.getElementById('travelCard');
+        if (tc.style.display !== 'none') tc.innerHTML = '正在从 <b>' + esc(t.fromName) + '</b> 去 <b>' + esc(t.toName) + '</b><br>' + t.modeIcon + ' ' + t.modeLabel + ' · ' + fmtDist(t.distanceMeters) + ' · 还有约 ' + fmtEta(left);
+      }
+      const ic = CURRENT.intercity;
+      if (ic) {
+        const left = Math.max(0, Math.round(ic.etaSec - (Date.now() - CURRENT.since)/1000));
+        document.getElementById('bigEta').textContent = '还有约 ' + fmtEta(Math.max(0,left));
+        const prog = Math.min(1, (Date.now() - CURRENT.since) / Math.max(1, (ic.etaSec*1000 + (Date.now()-CURRENT.since) - ic.etaSec*1000)));
+        document.getElementById('bigProg').style.width = Math.round(ic.progress*100) + '%';
+      }
+      if ((t && Date.now() - t.startedAt >= t.durationMs) || (ic && ic.progress >= 1)) {
+        try { const loc = await api('/api/location'); await loadMapData(); renderCurrent(loc.location); } catch(e){}
+      }
+    }
+  }, 150);
+}
+async function loadMapData(){
+  DATA = await api('/api/map');
+  PLACES = DATA.map.places.map(p => ({...p}));
+  SCHEDULES = DATA.schedules || [];
+  TRANSPORTS = DATA.transports || {};
+  CAPS = DATA.capabilities || {};
+  WEATHERS = DATA.weathers || {};
+  ENERGY = Number(DATA.energy) || 0;
+  const wsel = document.getElementById('weather');
+  if (wsel && DATA.weather) wsel.value = DATA.weather;
+  renderCaps();
+  document.getElementById('mapSel').innerHTML = DATA.maps.map(m => '<option value="'+esc(m.id)+'"'+(m.id===DATA.activeMapId?' selected':'')+'>'+esc(m.name)+'（'+m.placeCount+' 个地点）</option>').join('');
+  document.getElementById('widthMeters').value = DATA.map.widthMeters || 2000;
+  document.getElementById('transport').value = DATA.map.transport || 'auto';
+  document.getElementById('theme').value = DATA.map.theme || 'town';
+  const dm = document.getElementById('displayMode'); if (dm) dm.value = DATA.map.displayMode || '2d';
+  const mImg = DATA.map.image || {};
+  if (document.getElementById('mapImgUrl')) document.getElementById('mapImgUrl').value = mImg.url || '';
+  const bg = document.getElementById('mapBg'), bgImg = document.getElementById('mapBgImg'), themeSvgEl = document.getElementById('themeSvg');
+  if (bg && bgImg) {
+    if (mImg.url) { bg.style.display = 'block'; bgImg.src = mImg.url; if (themeSvgEl) themeSvgEl.style.display = 'none'; }
+    else { bg.style.display = 'none'; bgImg.src = ''; if (themeSvgEl) themeSvgEl.style.display = ''; }
+  }
+  const mModel = DATA.map.model || {};
+  if (document.getElementById('mmUrl')) document.getElementById('mmUrl').value = mModel.url || '';
+  if (document.getElementById('mmScale')) document.getElementById('mmScale').value = mModel.scale || 1;
+  if (document.getElementById('mmRot')) document.getElementById('mmRot').value = mModel.rotationY || 0;
+  if (document.getElementById('mmYoff')) document.getElementById('mmYoff').value = mModel.yOffset || 0;
+  document.getElementById('mapName').textContent = DATA.map.name;
+  ROADS = (DATA.map.roads || []).map(l => l.map(pt => ({ x: Number(pt[0]), y: Number(pt[1]) })));
+  renderRoads();
+  renderCurrent(DATA.location);
+  loadMoneyLine();
+  renderPlaceList(); renderSchedList(); renderPins(); drawTheme(); renderScale();
+  loadWeatherData();
+  startTicker();
+}
+function pickIcon(ev, i){
+  ev.preventDefault(); ev.stopPropagation();
+  const pal = document.getElementById('iconPalette');
+  PALETTE_TARGET = i;
+  pal.innerHTML = EMOJIS.map(e => '<button onclick="setIcon(\'' + e + '\')">' + e + '</button>').join('');
+  const r = ev.currentTarget.getBoundingClientRect();
+  pal.style.display = 'grid';
+  pal.style.left = Math.min(window.innerWidth-330, r.left) + 'px';
+  pal.style.top = (r.bottom + 6) + 'px';
+}
+function setIcon(e){
+  if (PALETTE_TARGET != null) { PLACES[PALETTE_TARGET].icon = e; renderPlaceList(); renderPins(); }
+  document.getElementById('iconPalette').style.display = 'none';
+}
+document.addEventListener('click', (e) => { if (!e.target.closest('#iconPalette')) document.getElementById('iconPalette').style.display='none'; });
+document.getElementById('mapWrap').addEventListener('click', (e) => {
+  if (!EDITING_ROADS) return;
+  if (e.target.closest('#roadBar') || e.target.closest('.pin')) return;
+  const box = document.getElementById('mapWrap').getBoundingClientRect();
+  const x = Math.max(0, Math.min(1, (e.clientX - box.left) / box.width));
+  const y = Math.max(0, Math.min(1, (e.clientY - box.top) / box.height));
+  ROAD_CUR.push({ x, y });
+  renderRoads();
+});
+async function saveMap(){
+  const r = await saveJson('/api/map', {
+    mapId: DATA.map.id, name: DATA.map.name, places: PLACES,
+    widthMeters: Number(document.getElementById('widthMeters').value) || 2000,
+    transport: document.getElementById('transport').value || 'auto',
+    theme: document.getElementById('theme').value || 'town',
+    schedules: SCHEDULES.map((s,i)=>({ index: s.index !== undefined ? s.index : i, place: s.place })),
+  });
+  if (r.ok) { toast('已保存'); await loadMapData(); }
+}
+function addPlace(){
+  const inp = document.getElementById('newPlaceName');
+  const name = (inp.value || '').trim(); if (!name) return;
+  PLACES.push({ id: 'p-'+Date.now().toString(36), name, icon: guessIcon(name), x: 0.25 + Math.random()*0.5, y: 0.2 + Math.random()*0.6, desc: '', feel: '' });
+  inp.value = ''; renderPlaceList(); renderSchedList(); renderPins();
+}
+function delPlace(i){ PLACES.splice(i,1); renderPlaceList(); renderSchedList(); renderPins(); }
+function renderCaps(){
+  const el = document.getElementById('capsLine');
+  if (!el) return;
+  const parts = [];
+  if (CAPS.age) parts.push('她 ' + CAPS.age + ' 岁' + (CAPS.minor ? '（未成年）' : ''));
+  parts.push(CAPS.license ? '有驾照' : '没有驾照');
+  if (CAPS.pref === 'cheap') parts.push('出行省钱优先');
+  if (CAPS.pref === 'fast') parts.push('出行赶时间优先');
+  applyTimeOfDay();
+  applyWeatherFx(DATA.weather);
+  const w = WEATHERS[DATA.weather] || {};
+  if (w.label) parts.push('今天' + w.icon + w.label);
+  parts.push('体力 ' + ENERGY + '/100');
+  el.textContent = '她的情况：' + parts.join(' · ');
+  const bar = document.getElementById('energyBar');
+  if (bar) bar.style.width = Math.min(100, Math.max(0, ENERGY)) + '%';
+  const et = document.getElementById('energyText');
+  if (et) et.textContent = ENERGY < 25 ? '很累，走不动远路' : ENERGY < 50 ? '有点累' : '精神不错';
+  const sel = document.getElementById('transport');
+  const carOpt = sel && sel.querySelector('option[value="car"]');
+  if (carOpt) { carOpt.disabled = !CAPS.license; if (!CAPS.license && sel.value === 'car') sel.value = 'auto'; }
+}
+async function goHere(i){
+  const p = PLACES[i];
+  const modeSel = document.getElementById('transport').value || 'auto';
+  const body = { mapId: DATA.map.id, placeId: p.id, mode: modeSel === 'auto' ? undefined : modeSel };
+  let r = await saveJson('/api/location', body);
+  if (r.refused && r.needsConfirm) {
+    if (!confirm(r.reason + '\n\n（确定就让她去，她会跟你报备）')) { renderCurrent(r.location); return; }
+    body.confirmNight = true;
+    r = await saveJson('/api/location', body);
+  }
+  if (r.ok) { renderCurrent(r.location); toast('她出门了：前往「' + p.name + '」'); }
+  else if (r.refused) { toast('她不去：「' + r.reason + '」'); renderCurrent(r.location); }
+  else { toast(r.error || '出行失败'); }
+}
+function dayPhase(h){
+  if (h >= 5 && h < 7) return 'dawn';
+  if (h >= 7 && h < 17) return 'day';
+  if (h >= 17 && h < 19.5) return 'dusk';
+  return 'night';
+}
+function applyTimeOfDay(){
+  const el = document.getElementById('tod');
+  if (!el) return;
+  const d = new Date();
+  el.className = dayPhase(d.getHours() + d.getMinutes() / 60);
+}
+function applyWeatherFx(kind){
+  const el = document.getElementById('wx');
+  if (!el || !window.CompanionWeatherFx) return;
+  CompanionWeatherFx.set(el, kind, WXFX);
+}
+async function loadMoneyLine(){
+  try {
+    const r = await api('/api/economy');
+    const w = r.wallet || {}; const el = document.getElementById('curMoney');
+    if (el) el.textContent = '💰 ' + (w.spendable !== undefined ? w.spendable : w.balance) + ' 元 · 🪙 剩余 token ' + Number(w.remainingTokens || 0).toLocaleString() + (w.tokenMode ? '（钱=token）' : '');
+  } catch (e) {}
+}
+async function loadWeatherData(){
+  try {
+    const w = await api('/api/weather');
+    const modeSel = document.getElementById('weatherMode');
+    const wSel = document.getElementById('weather');
+    if (modeSel) modeSel.value = w.mode || 'manual';
+    if (wSel) { wSel.value = (w.mode === 'real' ? (w.kind || 'sunny') : (w.manual || w.kind || 'sunny')); wSel.disabled = (w.mode === 'real'); }
+    const info = document.getElementById('realWeatherInfo');
+    if (info) {
+      info.textContent = w.mode === 'real'
+        ? ('真实天气：' + w.icon + ' ' + w.label + (w.temp !== null && w.temp !== undefined ? ' · ' + w.temp + '°C' : '') + (w.city ? ' · ' + w.city : '') + (w.source === 'fallback' ? '（获取失败，用手动值）' : ''))
+        : '手动模式：按你选的天气算';
+    }
+    if (w.weathers) WEATHERS = w.weathers;
+    WXFX = w.fx || {};
+    applyWeatherFx(w.kind);
+  } catch(e) {}
+}
+async function uploadMapImage(input){
+  const f = input.files && input.files[0];
+  if (!f) return;
+  if (f.size > 12 * 1024 * 1024) { toast('图片太大（<12MB）'); return; }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const r = await saveJson('/api/map/image', { mapId: DATA.map.id, dataUrl: reader.result });
+    if (r.ok) { toast('底图已上传'); await loadMapData(); }
+  };
+  reader.readAsDataURL(f);
+}
+async function clearMapImage(){
+  const r = await saveJson('/api/map/image', { mapId: DATA.map.id, dataUrl: '' });
+  if (r.ok) { toast('底图已清除'); await loadMapData(); }
+}
+async function importPlacesFile(input){
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const text = await f.text();
+  input.value = '';
+  if (!text.trim()) { toast('文件是空的'); return; }
+  const r = await saveJson('/api/map/import', { mapId: DATA.map.id, content: text });
+  if (r.ok) {
+    toast('导入完成：新增 ' + r.added + ' 个地点' + (r.skipped ? '，跳过重名 ' + r.skipped + ' 个' : ''));
+    await loadMapData();
+  } else { toast(r.error || '导入失败'); }
+}
+function exportPlaces(){
+  const data = { map: DATA.map.name, places: PLACES.map(p => ({ name: p.name, icon: p.icon, image: p.image || null, x: p.x, y: p.y, desc: p.desc, feel: p.feel })), roads: ROADS.map(l => l.map(pt => [pt.x, pt.y])) };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (DATA.map.name || 'places') + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('已导出 ' + PLACES.length + ' 个地点');
+}
+function renderRoads(){
+  const layer = document.getElementById('roadLayer');
+  if (!layer) return;
+  const lines = ROADS.map(l => l.map(pt => [pt.x, pt.y]));
+  if (ROAD_CUR.length) lines.push(ROAD_CUR.map(pt => [pt.x, pt.y]));
+  if (!lines.length) { layer.innerHTML = ''; return; }
+  const svg = '<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">'
+    + lines.map((l) => '<polyline points="' + l.map(pt => (pt[0]*100)+','+(pt[1]*100)).join(' ') + '" fill="none" stroke="#22c55e" stroke-width="0.6" stroke-dasharray="1.4 0.8" opacity=".9"/>').join('')
+    + lines.map((l) => l.map(pt => '<circle cx="'+(pt[0]*100)+'" cy="'+(pt[1]*100)+'" r="0.7" fill="#86efac"/>').join('')).join('')
+    + '</svg>';
+  layer.innerHTML = svg;
+}
+function toggleRoadEditor(){
+  EDITING_ROADS = !EDITING_ROADS;
+  const bar = document.getElementById('roadBar');
+  if (bar) bar.style.display = EDITING_ROADS ? 'flex' : 'none';
+  if (EDITING_ROADS && !ROAD_CUR.length) ROAD_CUR = [];
+  renderRoads();
+  toast(EDITING_ROADS ? '画道路模式：点地图加点，点「保存道路」生效' : '已退出画道路');
+}
+function roadNew(){
+  if (ROAD_CUR.length >= 2) ROADS.push(ROAD_CUR);
+  ROAD_CUR = []; renderRoads();
+}
+function roadUndo(){ ROAD_CUR.pop(); renderRoads(); }
+function roadClear(){ ROADS = []; ROAD_CUR = []; renderRoads(); toast('已清空道路（记得保存）'); }
+async function roadSave(){
+  if (ROAD_CUR.length >= 2) { ROADS.push(ROAD_CUR); ROAD_CUR = []; }
+  const roads = ROADS.map(l => l.map(pt => [Number(pt.x.toFixed(4)), Number(pt.y.toFixed(4))]));
+  const r = await saveJson('/api/map', { mapId: DATA.map.id, roads });
+  if (r.ok) { toast('道路已保存（' + roads.length + ' 条）'); await loadMapData(); }
+  else toast(r.error || '保存失败');
+}
+async function uploadPlaceImage(i, input){
+  const f = input.files && input.files[0];
+  if (!f) return;
+  if (f.size > 6 * 1024 * 1024) { toast('图片太大（<6MB）'); return; }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const r = await saveJson('/api/place/image', { mapId: DATA.map.id, placeId: PLACES[i].id, dataUrl: reader.result });
+    if (r.ok) { toast('图标已换'); await loadMapData(); }
+  };
+  reader.readAsDataURL(f);
+}
+async function clearPlaceImage(i){
+  const r = await saveJson('/api/place/image', { mapId: DATA.map.id, placeId: PLACES[i].id, dataUrl: '' });
+  if (r.ok) { toast('已恢复 emoji 图标'); await loadMapData(); }
+}
+async function useBuiltinScene(){
+  const r = await saveJson('/api/map', {
+    mapId: DATA.map.id,
+    displayMode: '3d',
+    model: { url: '/models/demo-town2.gltf', scale: 1, rotationY: 0, yOffset: 0 },
+  });
+  if (r.ok) { toast('已切到内置 3D 场景（打开 3D 舞台查看）'); await loadMapData(); }
+  else toast(r.error || '切换失败');
+}
+async function saveDisplayMode(){
+  const mode = document.getElementById('displayMode').value;
+  const r = await saveJson('/api/map', { mapId: DATA.map.id, displayMode: mode });
+  if (r.ok) { toast(mode === '3d' ? '已切到 3D 视图（打开 /model 查看）' : '已切到 2D 平面视图'); await loadMapData(); }
+}
+async function saveMapImageUrl(){
+  const url = document.getElementById('mapImgUrl').value.trim();
+  await saveJson('/api/map', { mapId: DATA.map.id, image: url ? { url } : null });
+  await loadMapData(); toast(url ? '底图地址已设置' : '底图已清除');
+}
+async function saveMapModel(){
+  const dm = document.getElementById('displayMode') ? document.getElementById('displayMode').value : (DATA.map.displayMode || '2d');
+  const hint = document.getElementById('modelHint');
+  if (hint) hint.textContent = dm === '3d' ? '已应用：这些参数只影响 3D 舞台（/model）' : '注意：当前是 2D 视图，模型参数只在切到 3D 视图后才看得出效果';
+  const url = document.getElementById('mmUrl').value.trim();
+  const model = url ? {
+    url,
+    scale: Number(document.getElementById('mmScale').value) || 1,
+    rotationY: Number(document.getElementById('mmRot').value) || 0,
+    yOffset: Number(document.getElementById('mmYoff').value) || 0,
+  } : null;
+  const r = await saveJson('/api/map', { mapId: DATA.map.id, model });
+  if (r.ok) { toast(model ? '地图模型已设置，打开 /model 查看' : '已清除地图模型'); await loadMapData(); }
+}
+async function saveWeatherMode(){
+  const mode = document.getElementById('weatherMode').value;
+  await saveJson('/api/weather', { mode });
+  await loadWeatherData(); await loadMapData(); toast(mode === 'real' ? '已切换真实天气' : '已切换手动天气');
+}
+async function relocateWeather(){
+  await saveJson('/api/weather', { mode: 'real', refresh: true });
+  await loadWeatherData(); toast('已重新定位并刷新天气');
+}
+async function saveWeather(){
+  const w = document.getElementById('weather').value;
+  await saveJson('/api/weather', { mode: 'manual', manual: w });
+  await loadWeatherData(); await loadMapData(); toast('天气已切换');
+}
+async function toggleFreeWalk(){
+  const val = document.getElementById('freeWalk').checked;
+  await saveJson('/api/life', { locationFree: val });
+  toast(val ? '已开启：她可以自由走动' : '已关闭：她会待着不动');
+}
+async function switchMap(id){
+  if (!DATA || id === DATA.activeMapId) return;
+  const mode = document.getElementById('longMode').value || 'auto';
+  const target = DATA.maps.find(m => m.id === id);
+  if (!confirm('让她坐长途去「' + (target ? target.name : id) + '」？')) { await loadMapData(); return; }
+  let r = await saveJson('/api/map/activate', { id, mode: mode === 'auto' ? undefined : mode });
+  if (r.refused && r.needsConfirm) {
+    if (!confirm(r.reason + '\n\n（确定就让她去，她会跟你报备）')) { await loadMapData(); return; }
+    r = await saveJson('/api/map/activate', { id, mode: mode === 'auto' ? undefined : mode, confirmNight: true });
+  }
+  if (r.refused) { toast('她不去：「' + r.reason + '」'); await loadMapData(); return; }
+  await loadMapData(); await loadMapData();
+  toast('她出发去长途了');
+}
+async function renameMap(){
+  const name = prompt('这张地图叫什么？', DATA.map.name);
+  if (!name || !name.trim()) return;
+  DATA.map.name = name.trim();
+  await saveJson('/api/map', { mapId: DATA.map.id, name: DATA.map.name, places: PLACES });
+  await loadMapData();
+}
+async function newMap(){
+  const name = prompt('新地图叫什么？', '新小镇');
+  if (!name || !name.trim()) return;
+  await saveJson('/api/map/create', { name: name.trim() });
+  await loadMapData();
+}
+async function delMap(){
+  if (DATA.maps.length <= 1) { toast('至少保留一张地图'); return; }
+  if (!confirm('确定删除「' + DATA.map.name + '」这张地图？')) return;
+  await saveJson('/api/map/delete', { id: DATA.map.id });
+  await loadMapData();
+}
+window.addEventListener('resize', renderScale);
+setInterval(applyTimeOfDay, 60000);
+(async function init(){
+  try {
+    await loadMapData();
+    await loadRoutine();
+    try { const life = await api('/api/life'); document.getElementById('freeWalk').checked = life.life.locationFree !== false; } catch(e){}
+  } catch(e) {
+    document.getElementById('mapWrap').insertAdjacentHTML('beforeend', '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ff9c9c">地图加载失败：'+esc(e.message)+'</div>');
+  }
+})();
+</script>
+</body></html>

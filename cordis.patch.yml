@@ -1,0 +1,6 @@
+- insert:
+    - id: dsh-screen-beyond
+      name: dsh-screen-beyond
+      config:
+        port: 8900
+        autoStart: true

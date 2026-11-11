@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>2D 舞台 · 屏幕彼端</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;height:100vh;background:#0b0f14;color:#d7dee8;font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #1d242e;background:#11161d;font-size:13px}
+header .name{font-weight:600;font-size:15px}
+header .chip{border:1px solid #2a3745;border-radius:99px;padding:1px 8px;font-size:11px;color:#93a1b1}
+header .spacer{flex:1}
+#stage{flex:1;position:relative;overflow:hidden}
+#stage svg{position:absolute;inset:0;width:100%;height:100%}
+#pins{z-index:4}
+.pin{position:absolute;transform:translate(-50%,-100%);text-align:center;filter:drop-shadow(0 3px 4px rgba(0,0,0,.5))}
+.pin .icon{font-size:22px}
+.pin .label{font-size:11px;background:#14202c;border:1px solid #2a3a4a;border-radius:8px;padding:0 6px;white-space:nowrap;color:#d7e3ee}
+#me{position:absolute;z-index:5;transform:translate(-50%,-100%);display:none;text-align:center;filter:drop-shadow(0 4px 8px rgba(0,0,0,.6))}
+#me .ava{width:44px;height:44px;border-radius:50%;border:2px solid #8fc1ff;background:#16202b center/cover;display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto}
+#me .tag{font-size:11px;background:#16304f;border:1px solid #2f6bd8;color:#cfe0f7;border-radius:8px;padding:0 6px;margin-top:2px;white-space:nowrap}
+#status{position:absolute;left:14px;bottom:14px;background:rgba(8,13,20,.8);border:1px solid #2a3745;border-radius:8px;padding:6px 10px;font-size:11px;color:#9fb3c8}
+#tod{position:absolute;inset:0;pointer-events:none;z-index:2;transition:background .8s}
+#tod.dawn{background:linear-gradient(180deg, rgba(255,170,120,.28), rgba(120,90,160,.12) 55%, rgba(255,140,90,.10))}
+#tod.day{background:rgba(255,240,200,.04)}
+#tod.dusk{background:linear-gradient(180deg, rgba(255,120,60,.22), rgba(90,40,90,.20) 60%, rgba(20,10,40,.30))}
+#tod.night{background:rgba(4,8,26,.52)}
+#tod.night::after{content:'';position:absolute;inset:0;background-image:radial-gradient(1.5px 1.5px at 20% 18%, rgba(255,255,255,.9) 50%, transparent 51%),radial-gradient(1.5px 1.5px at 42% 8%, rgba(255,255,255,.75) 50%, transparent 51%),radial-gradient(2px 2px at 68% 24%, rgba(255,255,255,.85) 50%, transparent 51%),radial-gradient(1.2px 1.2px at 84% 12%, rgba(255,255,255,.7) 50%, transparent 51%),radial-gradient(1.4px 1.4px at 30% 36%, rgba(255,255,255,.55) 50%, transparent 51%);background-size:320px 220px;animation:twinkle 4s ease-in-out infinite alternate}
+@keyframes twinkle{from{opacity:.55}to{opacity:1}}
+#wx{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:3}
+#docs{position:absolute;right:14px;bottom:14px;background:rgba(8,13,20,.8);border:1px solid #2a3745;border-radius:8px;padding:6px 10px;font-size:11px;color:#7d8fa5;max-width:360px}
+</style>
+<link rel="stylesheet" href="/theme.css"></head><body>
+<header>
+  <span class="name" id="name">…</span>
+  <span class="chip" id="where">…</span>
+  <span class="chip" id="weather">…</span>
+  <span class="chip" id="energy">…</span>
+  <span class="chip" id="money">…</span>
+  <span class="chip" id="token">🪙 …</span>
+  <span class="spacer"></span><a href="/screen" target="_blank" style="color:#59a6ff;text-decoration:none;font-size:12px">屏幕</a>
+  <a href="/model" style="color:#59a6ff;text-decoration:none;font-size:12px">3D 舞台</a>
+  <span style="color:#5a6878;font-size:11px">想换小人：设置→角色→模型类型选「2D 精灵图」+ 填图片地址 · 数据接口见下方说明</span>
+</header>
+<div id="stage">
+  <div id="tod" class="day"></div>
+  <div id="wx" style="position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1"></div>
+  <div id="bgLayer" style="position:absolute;inset:0;display:none"><img id="bgImg" alt="" style="width:100%;height:100%;object-fit:fill;display:block"></div>
+  <div id="pins"></div>
+  <div id="me"><img id="meSprite" style="display:none;width:96px;height:auto;margin:0 auto" alt=""><div class="ava" id="meAva">🐟</div><div class="tag" id="meTag">…</div></div>
+  <div id="status">加载中…</div>
+  <div id="docs">GET /api/stage（当前状态）· GET /api/stage/stream（SSE 每秒推送）· 字段：map.places[].x/y（0~1 归一化）、location.state（stationary/traveling/intercity）、location.traveling.path、character.model{type,url,scale}</div>
+</div>
+<script src="/wx.js"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+let DATA = null, THEME = null;
+function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function themeSvg(theme){
+  const base = '<svg viewBox="0 0 1000 640" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">'
+    + '<defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0e1a2b"/><stop offset="100%" stop-color="#122334"/></linearGradient>'
+    + '<linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#16302b"/><stop offset="100%" stop-color="#1d3a33"/></linearGradient></defs>'
+    + '<rect width="1000" height="640" fill="url(#s)"/><rect y="26" width="1000" height="614" fill="url(#g)"/>';
+  let extra = '';
+  if (theme === 'coast') extra = '<rect y="360" width="1000" height="280" fill="#10304a"/><path d="M0 380 Q 125 360 250 380 T 500 380 T 750 380 T 1000 380" fill="none" stroke="#2a6f96" stroke-width="8" opacity=".8"/>';
+  if (theme === 'city') extra = '<g fill="#1c2b36" stroke="#33475a" stroke-width="2"><rect x="120" y="140" width="90" height="190"/><rect x="330" y="170" width="110" height="160"/><rect x="720" y="180" width="120" height="150"/></g>';
+  if (theme === 'forest') extra = '<g fill="#1e4637" stroke="#2d6b52" stroke-width="3">' + Array.from({length: 14}).map((_,i)=>'<circle cx="'+(80+(i%5)*210)+'" cy="'+(150+Math.floor(i/5)*150)+'" r="'+(26+(i%3)*8)+'"/>').join('') + '</g>';
+  const road = '<path d="M-20 300 C 180 240, 320 330, 520 300 C 720 270, 820 330, 1020 290" fill="none" stroke="#2a3a44" stroke-width="46" stroke-linecap="round"/>'
+    + '<path d="M500 320 C 505 400, 470 520, 505 640" fill="none" stroke="#2a3a44" stroke-width="34" stroke-linecap="round"/>';
+  return base + extra + road + '</svg>';
+}
+function render(payload){
+  DATA = payload;
+  const ch = payload.character, map = payload.map, loc = payload.location;
+  $('#name').textContent = ch.name || '她';
+  const where = loc.state === 'intercity' ? ('前往 ' + (loc.intercity && loc.intercity.toMapName))
+    : loc.state === 'traveling' ? ('去 ' + (loc.traveling && loc.traveling.toName) + ' 的路上')
+    : (loc.icon + ' ' + loc.placeName + ' · ' + map.name);
+  $('#where').textContent = where;
+  $('#weather').textContent = payload.weather.icon + ' ' + payload.weather.label + (payload.weather.temp !== null && payload.weather.temp !== undefined ? ' ' + payload.weather.temp + '°C' : '');
+  $('#energy').textContent = '体力 ' + payload.energy;
+  const wm = payload.wallet;
+  const moneyEl = document.getElementById('money');
+  const tokenEl = document.getElementById('token');
+  if (tokenEl) tokenEl.textContent = wm ? ('🪙 剩余 ' + Number(wm.remainingTokens || 0).toLocaleString() + ' token') : '';
+  if (moneyEl) moneyEl.textContent = wm
+    ? (wm.tokenMode ? ('🪙 剩余 token ' + (wm.remainingTokens || 0) + '（≈' + wm.spendable + ' 元）') : ('💰 ' + (wm.spendable !== undefined ? wm.spendable : wm.balance) + ' 元'))
+    : '';
+
+  $('#me').style.display = 'block';
+  let x, y, tag;
+  if (loc.state === 'stationary') {
+    const p = map.places.find(pp => pp.id === loc.placeId);
+    if (p) { x = p.x; y = p.y; } else { x = 0.5; y = 0.5; }
+    tag = '在这里';
+  } else if (loc.state === 'traveling' && loc.traveling) {
+    const t = loc.traveling, path = t.path || [];
+    let pt = { x: 0.5, y: 0.5 };
+    if (path.length > 1) {
+      const prog = Math.min(1, Math.max(0, (Date.now() - t.startedAt) / Math.max(1, t.durationMs)));
+      let total = 0; const segs = [];
+      for (let i = 0; i < path.length - 1; i++) { const d = Math.hypot(path[i].x - path[i+1].x, path[i].y - path[i+1].y); segs.push(d); total += d; }
+      let target = total * prog;
+      for (let i = 0; i < segs.length; i++) { if (target <= segs[i] || i === segs.length - 1) { const r = segs[i] ? target / segs[i] : 0; pt = { x: path[i].x + (path[i+1].x - path[i].x) * Math.min(1, Math.max(0, r)), y: path[i].y + (path[i+1].y - path[i].y) * Math.min(1, Math.max(0, r)) }; break; } target -= segs[i]; }
+    }
+    x = pt.x; y = pt.y; tag = t.modeIcon + ' ' + t.modeLabel + '中';
+  } else if (loc.state === 'intercity' && loc.intercity) {
+    x = 0.5; y = 0.08; tag = loc.intercity.modeIcon + ' ' + loc.intercity.modeLabel + '中';
+  }
+  $('#me').style.left = (x * 100) + '%';
+  $('#me').style.top = (y * 100) + '%';
+  $('#meTag').textContent = tag;
+  const model = ch.model || { type: 'none', url: '', scale: 1 };
+  const sprite = document.getElementById('meSprite');
+  const ava = document.getElementById('meAva');
+  if (model.type === 'sprite' && model.url) {
+    // 2D 精灵图：直接显示图片
+    sprite.style.display = 'block';
+    sprite.src = model.url;
+    sprite.style.height = Math.round(96 * (Number(model.scale) || 1)) + 'px';
+    sprite.style.width = 'auto';
+    ava.style.display = 'none';
+  } else {
+    sprite.style.display = 'none';
+    ava.style.display = 'flex';
+    const size = Math.round(44 * (Number(model.scale) || 1));
+    ava.style.width = size + 'px'; ava.style.height = size + 'px';
+    if (ch.avatar) {
+      // 2D 舞台优先用头像（即使角色模型设了 3D/Live2D）
+      ava.style.backgroundImage = 'url(' + ch.avatar + ')';
+      ava.textContent = '';
+      ava.style.backgroundSize = 'cover';
+      ava.style.backgroundPosition = 'center';
+    } else if (model.type === 'live2d') { ava.textContent = 'L2D'; ava.style.backgroundImage = ''; }
+    else if (model.type === '3d') { ava.textContent = '3D'; ava.style.backgroundImage = ''; }
+    else { ava.style.backgroundImage = ''; ava.textContent = (ch.name || '她').slice(0, 1); }
+  }
+  // pins
+  const todEl = document.getElementById('tod');
+  if (todEl) {
+    const d2 = new Date();
+    todEl.className = (function(h){ if (h>=5&&h<7) return 'dawn'; if (h>=7&&h<17) return 'day'; if (h>=17&&h<19.5) return 'dusk'; return 'night'; })(d2.getHours() + d2.getMinutes()/60);
+  }
+  const wxEl = document.getElementById('wx');
+  if (wxEl && window.CompanionWeatherFx) {
+    CompanionWeatherFx.set(wxEl, payload.weather && payload.weather.kind, (payload.weather && payload.weather.fx) || {});
+  }
+  const dm = map.displayMode || '2d';
+  let dmBar = document.getElementById('displayModeBar');
+  if (!dmBar) {
+    dmBar = document.createElement('div');
+    dmBar.id = 'displayModeBar';
+    dmBar.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(16,27,41,.9);border:1px solid #2f6bd8;border-radius:10px;padding:6px 14px;font-size:12px;color:#bfd4ef;z-index:5';
+    document.getElementById('stage').appendChild(dmBar);
+  }
+  dmBar.innerHTML = dm === '3d'
+    ? '当前地图设为 <b>3D 视图</b> · <a href="/model" style="color:#59a6ff">打开 3D 舞台 →</a>'
+    : '当前地图设为 <b>2D 平面</b> · <a href="/model" style="color:#59a6ff">也可看 3D →</a>';
+  const bgLayer = document.getElementById('bgLayer'), bgImg = document.getElementById('bgImg'), themeEl = document.getElementById('themeSvg');
+  const mapImg = map.image && map.image.url ? map.image.url : '';
+  if (bgLayer && bgImg) {
+    if (mapImg) { bgLayer.style.display = 'block'; bgImg.src = mapImg; if (themeEl) themeEl.style.display = 'none'; }
+    else { bgLayer.style.display = 'none'; bgImg.src = ''; if (themeEl) themeEl.style.display = ''; }
+  }
+  const pins = document.getElementById('pins');
+  pins.innerHTML = '';
+  map.places.forEach(p => {
+    const el = document.createElement('div');
+    el.className = 'pin';
+    el.style.left = (p.x * 100) + '%'; el.style.top = (p.y * 100) + '%';
+    const iconHtml = p.image ? '<img src="' + esc(p.image) + '" alt="" style="width:24px;height:24px;object-fit:contain">' : esc(p.icon);
+    el.innerHTML = '<div class="icon">' + iconHtml + '</div><div class="label">' + esc(p.name) + '</div>';
+    pins.appendChild(el);
+  });
+  if (THEME !== map.theme) {
+    THEME = map.theme;
+    const old = document.getElementById('themeSvg'); if (old) old.remove();
+    const holder = document.createElement('div');
+    holder.id = 'themeSvg';
+    holder.style.cssText = 'position:absolute;inset:0';
+    holder.innerHTML = themeSvg(THEME);
+    $('#stage').insertBefore(holder, $('#stage').firstChild);
+  }
+  const t = loc.traveling;
+  $('#status').textContent = loc.state === 'traveling'
+    ? ('正在从 ' + t.fromName + ' 去 ' + t.toName + ' · ' + t.modeLabel + ' · ' + Math.round(t.distanceMeters) + ' m · 剩 ' + Math.max(1, Math.ceil(t.etaSec / 60)) + ' 分钟')
+    : loc.state === 'intercity'
+      ? ('跨城：' + loc.intercity.fromMapName + ' → ' + loc.intercity.toMapName + ' · ' + loc.intercity.modeLabel + ' · 约 ' + Math.max(1, Math.ceil(loc.intercity.etaSec / 60)) + ' 分钟')
+      : ('她现在在「' + loc.placeName + '」' + (loc.minutes > 0 ? '（已待 ' + loc.minutes + ' 分钟）' : '') + ' · ' + payload.animationHint);
+}
+async function poll(){
+  try { const r = await fetch('/api/stage'); render(await r.json()); }
+  catch(e) { $('#status').textContent = '连接断开：' + e.message; }
+}
+poll(); setInterval(poll, 1000);
+</script></body></html>

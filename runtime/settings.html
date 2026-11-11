@@ -1,0 +1,1015 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>屏幕彼端 · 设置</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0f14;color:#d7dee8;font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif}
+.app{display:flex;height:100vh}
+.side{width:200px;background:#0e131a;border-right:1px solid #1b2530;display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:10px;padding:16px 14px;border-bottom:1px solid #1b2530}
+.ava{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#22c55e);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:15px;background-size:cover;background-position:center}
+.nm{font-weight:600;font-size:15px}
+.st{font-size:11px;color:#5fbf7f}
+.nav{padding:10px 8px;display:flex;flex-direction:column;gap:2px}
+.nav a{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:8px;color:#93a1b1;text-decoration:none;font-size:13px;cursor:pointer}
+.nav a:hover{background:#141b23;color:#d7dee8}
+.nav a.on{background:#16202b;color:#e8eef6;box-shadow:inset 2px 0 0 #3b82f6}
+.sidefoot{margin-top:auto;padding:12px 14px;font-size:11px;color:#55637a;border-top:1px solid #1b2530}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.top{display:flex;align-items:center;gap:12px;padding:13px 20px;border-bottom:1px solid #1b2530;background:#0d1319}
+.top h1{font-size:16px;margin:0;font-weight:600}
+.top .sub{font-size:12px;color:#66768c}
+.spacer{flex:1}
+.btn{background:#1b2430;color:#cfdae8;border:1px solid #2a3745;border-radius:8px;padding:7px 14px;font:inherit;cursor:pointer;font-size:13px}
+.btn.primary{background:#2563eb;border-color:#2563eb;color:#fff}
+.btn.danger{background:#3a1d1d;border-color:#5a2a2a;color:#ff9c9c}
+.btn.ghost{background:transparent}
+.btn:hover{filter:brightness(1.12)}
+.btn.sm{padding:4px 9px;font-size:12px}
+.body{flex:1;overflow:auto;padding:20px 22px 40px}
+.wrap{max-width:1060px;display:flex;gap:18px;align-items:flex-start}
+.col{flex:1;min-width:0;display:flex;flex-direction:column;gap:16px}
+.col.side2{flex:0 0 300px}
+.card{background:#101720;border:1px solid #1c2733;border-radius:12px;padding:15px 16px}
+.card h2{font-size:13px;margin:0 0 12px;color:#93a6bd;font-weight:600}
+.card h2 .tag{font-size:10px;color:#5f6d81;margin-left:8px;font-weight:400}
+.row{display:flex;gap:12px;align-items:center;margin:9px 0}
+.row label{width:88px;flex:0 0 auto;color:#8496ab;font-size:12.5px}
+input[type=text],input[type=number],textarea,select{background:#0b1118;border:1px solid #26333f;color:#d7dee8;border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;outline:none;width:100%}
+input:focus,textarea:focus{border-color:#2563eb}
+textarea{resize:vertical;line-height:1.65}
+textarea.big{min-height:190px}
+.hint{font-size:11px;color:#5a6878;margin-top:5px}
+.chip{background:#131c26;border:1px solid #223041;color:#9fb0c3;border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer}
+.chip.on{background:#16304f;border-color:#2f6bd8;color:#cfe0f7}
+.fact{border:1px solid #1c2733;border-radius:10px;padding:11px 13px;margin-bottom:9px;background:#0d141c}
+.fact .t{font-size:13px;color:#cfdae8}
+.fact .meta{display:flex;align-items:center;gap:9px;margin-top:7px;font-size:11px;color:#65748a;flex-wrap:wrap}
+.bar{height:5px;background:#1a2431;border-radius:999px;overflow:hidden;width:130px}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#22c55e)}
+.pill{font-size:10.5px;padding:1px 8px;border-radius:999px;border:1px solid #2a3745;color:#93a1b1}
+.pill.core{border-color:#2f6bd8;color:#8fc1ff;background:#142238}
+.pill.faint{border-color:#4a3a2a;color:#d8a86a}
+.example{background:#0b1118;border-left:2px solid #2563eb;padding:7px 11px;border-radius:4px;color:#9fb0c3;font-size:12.5px;margin:6px 0}
+.stat{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.stat .s{background:#0d141c;border:1px solid #1c2733;border-radius:10px;padding:11px 13px}
+.stat .s .n{font-size:19px;font-weight:600;color:#e8eef6}
+.stat .s .l{font-size:11px;color:#6b7a8e}
+.small{font-size:12px;color:#7d8fa5}
+.slider{display:flex;align-items:center;gap:8px;flex:1}
+input[type=range]{flex:1;accent-color:#2563eb}
+.hidden{display:none}
+.mode-banner{background:linear-gradient(135deg,#101c2e,#0e1725);border:1px solid #2f6bd8;border-radius:12px;padding:14px 16px;margin-bottom:16px;box-shadow:0 0 0 1px rgba(47,107,216,.15) inset}
+#toast{position:fixed;right:20px;bottom:20px;background:#1f6feb;color:#fff;padding:9px 16px;border-radius:8px;opacity:0;transition:.2s;z-index:9}
+.avatar{width:64px;height:64px;border-radius:50%;background:#16202b;display:flex;align-items:center;justify-content:center;font-size:22px;color:#9fb0c3;background-size:cover;background-position:center}
+  .flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .wrap{width:100%;flex-wrap:wrap}
+  .col.side2{flex:1 1 300px;min-width:280px;max-width:360px}
+  .card{min-width:0;overflow:hidden}
+  .row{flex-wrap:wrap;row-gap:8px}
+  .row > input, .row > select, .row > textarea{max-width:100%}
+  .fact .meta{flex-wrap:wrap;row-gap:6px}
+  .fact .t{overflow-wrap:anywhere}
+  @media (max-width:900px){ .wrap{flex-direction:column} .col.side2{flex:1 1 auto;width:100%;max-width:none} }
+</style>
+<link rel="stylesheet" href="/theme.css"></head>
+<body><div class="app">
+  <aside class="side">
+    <div class="brand"><div class="ava" id="navAva">?</div><div><div class="nm" id="navName">角色</div><div class="st">● 在线</div></div></div>
+    <nav class="nav">
+      <a href="#role" data-tab="role"><span>🎭</span>角色</a>
+      <a href="#life" data-tab="life"><span>🕐</span>生活</a>
+      <a href="#memory" data-tab="memory"><span>🧠</span>记忆</a>
+      <a href="#env" data-tab="env"><span>🖥️</span>环境</a>
+      <a href="#model" data-tab="model"><span>⚙️</span>模型</a>
+      <a href="#data" data-tab="data"><span>💾</span>数据</a>
+      <a href="#tutorial" data-tab="tutorial"><span>📖</span>教程</a>
+    </nav>
+    <div class="sidefoot">v0.5.6 · <span id="sideMode">…</span><br><a href="/screen" target="_blank" style="color:#3b82f6;text-decoration:none;margin-right:10px">看屏幕</a><a href="/" style="color:#3b82f6;text-decoration:none">回到聊天</a></div>
+  </aside>
+
+  <div class="main">
+    <div class="top">
+      <h1 id="tabTitle">角色</h1><span class="sub" id="tabSub"></span>
+      <div class="spacer"></div>
+      <span id="topAction"></span>
+    </div>
+    <div id="modeHost" style="padding:0 22px"></div>
+    <div class="body" id="body"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let PERSONA = null, LIFE = null, MEM = null, CHARS = null;
+let currentTab = 'role';
+const TABS = {
+  role: { title: '角色', sub: '人设卡决定她是谁、怎么说话' },
+  life: { title: '生活', sub: '她的作息、什么时候做什么、空闲时干什么' },
+  memory: { title: '记忆', sub: '她会淡忘，也会越提越深' },
+  env: { title: '环境', sub: '她的电脑/屏幕/手机怎么连' },
+  model: { title: '模型', sub: '用哪个模型、预算多少' },
+  data: { title: '数据', sub: '存哪里、怎么备份' },
+  tutorial: { title: '教程', sub: '怎么给她搭一台自己的电脑' },
+};
+function toast(t){ const el=$('#toast'); el.textContent=t; el.style.opacity=1; setTimeout(()=>el.style.opacity=0,1800); }
+async function api(path, opts){ const r = await fetch(path, opts); if(!r.ok) throw new Error('HTTP '+r.status); return await r.json(); }
+async function saveJson(path, obj){ return await api(path, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj) }); }
+function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function loadPersona(){ PERSONA = await api('/api/persona'); renderNavAva(); }
+async function setSelfStart(v){
+  try { await api('/api/env', { method: 'POST', body: JSON.stringify({ selfStart: v }) }); toast(v === 'allow' ? '已允许她自己开机' : '已限制她自己开机'); }
+  catch (e) { toast('保存失败'); }
+  renderEnv();
+}
+async function envStartAll(){
+  try { const r = await api('/api/env/start-all', { method: 'POST' }); toast(r.message || '正在启动'); }
+  catch(e){ toast('启动失败'); }
+  setTimeout(() => { renderEnv(); }, 3000);
+}
+async function envPower(kind, action){
+  const label = kind === 'space' ? '她的屏幕' : '她的手机';
+  if (action === 'stop' && !confirm('关掉' + label + '？关掉后她就不能看/用这个环境了。')) return;
+  try {
+    const r = await api('/api/' + kind + '/' + action, { method: 'POST' });
+    toast(r.message || (action === 'stop' ? '已关闭' : '启动中…'));
+  } catch (e) { toast('操作失败'); }
+  setTimeout(() => { renderEnv(); }, 1200);
+}
+async function runEnvCheck(){
+  const box = document.getElementById('envCheckBox');
+  if (!box) return;
+  box.textContent = '检查中…';
+  try {
+    const r = await api('/api/env/check');
+    let html = '';
+    for (const c of (r.checks || [])) html += (c.ok ? '✅ ' : '❌ ') + esc(c.label) + '：' + esc(c.detail) + '<br>';
+    if (r.hints && r.hints.length) html += '<div style="margin-top:8px;color:#e0b37a">建议：<br>' + r.hints.map(h => '· ' + esc(h)).join('<br>') + '</div>';
+    box.innerHTML = html || '没有检查项';
+  } catch (e) { box.textContent = '自检失败：' + e.message; }
+}
+async function installAdbKeyboard(){
+  toast('正在安装 ADBKeyboard…');
+  try {
+    const r = await api('/api/env/install-adbkeyboard', { method: 'POST' });
+    toast(r.ok ? '安装成功' : '安装失败');
+    if (r.steps) console.log('ADBKeyboard:', r.steps.join(' | '));
+    runEnvCheck();
+  } catch (e) { toast('安装失败：先确认手机已启动'); }
+}
+async function petRefresh(){
+  const box = document.getElementById('petBox');
+  if (!box) return;
+  try {
+    const r = await api('/api/pet');
+    const p = r.pet || {};
+    box.innerHTML = '状态：' + (r.running ? '🟢 运行中' : '⚪ 未开启') + ' · 形象：' + esc(p.image || 'avatar') + ' · 大小 ' + esc(p.size || 180) + 'px';
+  } catch (e) { box.textContent = '读取失败：' + e.message; }
+}
+async function petToggle(on){
+  try { await saveJson('/api/pet', { enabled: on }); toast(on ? '桌宠已开启' : '桌宠已关闭'); petRefresh(); } catch (e) { toast('操作失败'); }
+}
+async function petRestart(){
+  try { await api('/api/pet/stop', { method: 'POST' }); await api('/api/pet/start', { method: 'POST' }); toast('桌宠已重启'); petRefresh(); } catch (e) { toast('重启失败'); }
+}
+async function petUploadImage(){
+  const el = document.getElementById('petImg');
+  const f = el && el.files && el.files[0];
+  if (!f) { toast('先选一张图片'); return; }
+  const rd = new FileReader();
+  rd.onload = async () => {
+    try {
+      const r = await saveJson('/api/pet/image', { dataUrl: rd.result });
+      toast(r.ok ? '形象已更新' : '上传失败');
+      if (r.ok) await petRestart();
+      petRefresh();
+    } catch (e) { toast('上传失败'); }
+  };
+  rd.readAsDataURL(f);
+}
+async function saveApiKey(){
+  const el = document.getElementById('apiKeyInput');
+  const key = (el && el.value || '').trim();
+  if (!key) { toast('先填 API Key'); return; }
+  try {
+    await saveJson('/api/model/key', { key });
+    if (el) el.value = '';
+    toast('API Key 已保存');
+  } catch (e) { toast('保存失败'); }
+}
+async function setNoParens(on){
+  try { await saveJson('/api/chat-style', { noParens: !!on }); toast(on ? '已开启无括号模式' : '已关闭无括号模式'); } catch (e) { toast('保存失败'); }
+}
+async function switchChar(id){
+  const r = await saveJson('/api/characters', { action: 'switch', id });
+  if (r.ok) { await loadPersona(); await loadChars(); toast('已切换到 ' + (r.character ? r.character.name : id)); go(currentTab); }
+  else toast(r.error || '切换失败');
+}
+async function newChar(){
+  const name = prompt('新角色叫什么？', '新角色');
+  if (!name || !name.trim()) return;
+  const r = await saveJson('/api/characters', { action: 'new', name: name.trim() });
+  if (r.ok) { await loadPersona(); await loadChars(); toast('已创建'); go('role'); }
+  else toast(r.error || '创建失败');
+}
+async function delChar(id){
+  if (!confirm('确定删除这个角色？她的记忆/日记/聊天都会一起删掉。')) return;
+  const r = await saveJson('/api/characters', { action: 'delete', id });
+  if (r.ok) { await loadPersona(); await loadChars(); toast('已删除'); go('role'); }
+  else toast(r.error || '删除失败');
+}
+async function loadChars(){ try { CHARS = await api('/api/characters'); } catch(e){ CHARS = null; } }
+async function loadLife(){ LIFE = (await api('/api/life')).life || {}; }
+async function loadMem(){ MEM = await api('/api/memory'); }
+function renderNavAva(){
+  if(!PERSONA) return;
+  const a = $('#navAva');
+  const av = PERSONA.meta.avatar;
+  if(av){ a.style.backgroundImage = 'url(' + av + ')'; a.textContent = ''; }
+  else { a.style.backgroundImage=''; a.textContent = (PERSONA.meta.name||'?').slice(0,1); }
+  $('#navName').textContent = PERSONA.meta.name || '角色';
+  const sm = document.getElementById('sideMode'); if (sm) sm.textContent = ((window._mode||{}).effective === 'chat' ? '纯聊天' : '完整版');
+}
+
+// ================= 角色 =================
+function renderRole(){
+  const p = PERSONA, m = p.meta;
+  const traits = m.traits || {};
+  const traitNames = Object.keys(traits);
+  $('#topAction').innerHTML = '<button class="btn" onclick="importRole()">导入角色卡</button> <button class="btn" onclick="exportRole()">导出</button> <button class="btn primary" onclick="savePersona()">保存</button>';
+  const chars = (CHARS && CHARS.characters) || [{ id: 'default', name: m.name, avatar: m.avatar }];
+  const activeId = (CHARS && CHARS.active) || 'default';
+  const charChips = chars.map(c => '<button class="btn ' + (c.id === activeId ? 'primary' : 'ghost') + '" style="display:flex;align-items:center;gap:8px" onclick="switchChar(\'' + c.id + '\')">'
+    + '<span class="avatar" style="width:22px;height:22px;font-size:11px;' + (c.avatar ? 'background-image:url(' + c.avatar + ');background-size:cover' : '') + '">' + (c.avatar ? '' : esc((c.name || '?').slice(0, 1))) + '</span>'
+    + esc(c.name) + '</button>').join(' ');
+  $('#body').innerHTML = '<div class="wrap"><div class="col">'
+  + '<div class="card"><h2>角色列表 <span class="tag">多角色：每个角色有自己的记忆、日记和聊天记录</span></h2>'
+  + '<div class="flex" style="gap:8px;flex-wrap:wrap">' + charChips + '</div>'
+  + '<div class="flex" style="margin-top:10px">'
+  + '<button class="btn ghost" onclick="newChar()">+ 新建角色</button>'
+  + (activeId !== 'default' && chars.length > 1 ? '<button class="btn danger" onclick="delChar(\'' + activeId + '\')">删除当前角色</button>' : '')
+  + '</div><div class="hint">切换角色会切换人设、记忆、日记和聊天记录；运行中的聊天页刷新后跟着变</div></div>'
+  + '<div class="card"><h2>基本信息</h2>' 
+  + '<div class="row" style="align-items:flex-start"><label style="width:60px">头像</label><div class="flex">'
+  + '<div class="avatar" id="avatarBox" style="background-image:'+(m.avatar?'url('+m.avatar+')':'none')+'">'+(m.avatar?'':esc((m.name||'芝').slice(0,1)))+'</div>'
+  + '<div><button class="btn sm" onclick="document.getElementById(\'avatarFile\').click()">上传图片</button> <button class="btn sm ghost" onclick="clearAvatar()">用默认</button>'
+  + '<div class="hint">png / jpg / webp</div><input type="file" id="avatarFile" accept="image/*" style="display:none" onchange="uploadAvatar(this)"></div></div></div>'
+  + '<div class="row"><label>名字</label><input type="text" id="pName" value="'+esc(m.name)+'"></div>'
+  + '<div class="row"><label>怎么称呼你</label><input type="text" id="pUser" value="'+esc(m.userCall)+'"></div>'
+  + '<div class="row"><label>关系</label><input type="text" id="pRel" value="'+esc(m.relation)+'"></div>'
+  + '<div class="row"><label>年龄</label><input type="number" id="pAge" value="'+(m.age||'')+'" placeholder="选填，如 17" style="width:100px"></div>'
+  + '<div class="row"><label>有驾照</label><input type="checkbox" id="pLicense" '+(m.license?'checked':'')+' style="width:auto"></div>'
+  + '<div class="row"><label>模型类型</label><select id="pModelType" style="width:160px">'
+  + '<option value="none"'+(m.model&&m.model.type==='none'||!m.model?' selected':'')+'>没有（用头像）</option>'
+  + '<option value="sprite"'+(m.model&&m.model.type==='sprite'?' selected':'')+'>2D 精灵图</option>'
+  + '<option value="live2d"'+(m.model&&m.model.type==='live2d'?' selected':'')+'>Live2D</option>'
+  + '<option value="3d"'+(m.model&&m.model.type==='3d'?' selected':'')+'>3D 模型</option>'
+  + '</select></div>'
+  + '<div class="row"><label>模型地址</label><input type="text" id="pModelUrl" value="'+esc((m.model&&m.model.url)||'')+'" placeholder="模型文件 URL（可留空）"></div>'
+  + '<div class="row"><label>模型缩放</label><input type="number" id="pModelScale" step="0.1" value="'+((m.model&&m.model.scale)||1)+'" style="width:90px"></div>'
+  + '<div class="row"><label>出行偏好</label><select id="pPref" style="width:160px">'
+  + '<option value="auto"'+(m.travelPref==='auto'||!m.travelPref?' selected':'')+'>随便 / 看情况</option>'
+  + '<option value="cheap"'+(m.travelPref==='cheap'?' selected':'')+'>省钱优先</option>'
+  + '<option value="fast"'+(m.travelPref==='fast'?' selected':'')+'>赶时间优先</option>'
+  + '</select></div>'
+  + '</div>'
+  + '<div class="card"><h2>人设正文 <span class="tag">会全部注入，建议 800~1500 字</span></h2>'
+  + '<textarea class="big" id="pBody">'+esc(p.body)+'</textarea>'
+  + '<div class="hint">保存后下一条消息即生效，无需重启</div></div>'
+  + '<div class="card"><h2>说话风格示例</h2>'
+  + (m.examples||[]).map((e,i)=>'<div class="example">“'+esc(e)+'” <span style="float:right;cursor:pointer" onclick="delExample('+i+')">✕</span></div>').join('')
+  + '<div class="flex"><input type="text" id="newExample" placeholder="加一句她会说的话…" style="flex:1"><button class="btn sm" onclick="addExample()">+ 添加示例</button></div></div>'
+  + '</div><div class="col side2">'
+  + '<div class="card"><h2>效果预览</h2><div id="previewBox"></div>'
+  + '<div class="flex" style="margin-top:8px"><input type="text" id="previewIn" placeholder="试一句，比如：今天好累" style="flex:1"><button class="btn sm" onclick="preview()">试</button></div>'
+  + '<div class="hint">用当前人设实时生成（消耗少量 token）</div></div>'
+  + '<div class="card"><h2>性格开关 <span class="tag">软约束，写进人设尾部</span></h2>'
+  + traitNames.map(k=>'<div class="row"><label>'+esc(k)+'</label><div class="slider"><input type="range" min="0" max="10" value="'+(traits[k]??5)+'" id="trait_'+esc(k)+'"></div><span class="small">'+(traits[k]??5)+'</span></div>').join('')
+  + '<div class="flex" style="margin-top:6px"><input type="text" id="newTrait" placeholder="新开关名称" style="width:140px"><button class="btn sm" onclick="addTrait()">+ 添加</button></div></div>'
+  + '<div class="card"><h2>多角色</h2><div class="small">当前：'+esc(m.name)+'</div><div class="hint" style="margin-top:6px">每个角色都有独立的人设、记忆、日记和聊天记录；点上方角色卡切换。</div></div>'
+  + '</div></div>';
+}
+function collectPersona(){
+  const traits = {};
+  document.querySelectorAll('input[id^=trait_]').forEach(el=>{ traits[el.id.slice(6)] = Number(el.value); });
+  const ageVal = Number($('#pAge').value);
+  return {
+    meta: {
+      name: $('#pName').value, userCall: $('#pUser').value, relation: $('#pRel').value,
+      avatar: PERSONA.meta.avatar || '', examples: PERSONA.meta.examples || [], traits,
+      age: ageVal > 0 ? ageVal : null,
+      license: $('#pLicense').checked,
+      travelPref: $('#pPref').value || 'auto',
+      model: { type: $('#pModelType').value || 'none', url: $('#pModelUrl').value.trim(), scale: Number($('#pModelScale').value) || 1 },
+    },
+    body: $('#pBody').value,
+  };
+}
+async function savePersona(){
+  const p = collectPersona();
+  const r = await saveJson('/api/persona', p);
+  if(r.ok){ PERSONA = { meta: r.meta, body: r.body }; renderNavAva(); toast('已保存'); }
+}
+function addExample(){
+  const v = $('#newExample').value.trim(); if(!v) return;
+  if(!PERSONA.meta.examples) PERSONA.meta.examples=[];
+  PERSONA.meta.examples.push(v); renderRole(); toast('已添加，记得保存');
+}
+function delExample(i){ PERSONA.meta.examples.splice(i,1); renderRole(); }
+function addTrait(){
+  const v = $('#newTrait').value.trim(); if(!v) return;
+  PERSONA.meta.traits = PERSONA.meta.traits || {};
+  PERSONA.meta.traits[v] = 5; renderRole(); toast('已添加，记得保存');
+}
+async function preview(){
+  const text = $('#previewIn').value.trim() || '在吗';
+  $('#previewBox').innerHTML = '<div class="small">生成中…</div>';
+  const r = await saveJson('/api/preview', { text });
+  $('#previewBox').innerHTML = '<div class="example">你：'+esc(text)+'</div><div class="example" style="background:#101a24">'+esc(PERSONA.meta.name)+'：'+esc(r.text||'（没生成出来）')+'</div>';
+}
+async function uploadAvatar(input){
+  const f = input.files[0]; if(!f) return;
+  if(f.size > 3*1024*1024){ toast('图片太大（<3MB）'); return; }
+  const reader = new FileReader();
+  reader.onload = async () => { await saveJson('/api/avatar', { dataUrl: reader.result }); await loadPersona(); renderRole(); toast('头像已更新'); };
+  reader.readAsDataURL(f);
+}
+async function clearAvatar(){ await saveJson('/api/avatar', { dataUrl: '' }); await loadPersona(); renderRole(); }
+function exportRole(){
+  const blob = new Blob([JSON.stringify(collectPersona(), null, 2)], {type:'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (PERSONA.meta.name||'persona') + '-角色卡.json'; a.click();
+}
+function importRole(){
+  const inp = document.createElement('input'); inp.type='file'; inp.accept='.json';
+  inp.onchange = async () => {
+    const f = inp.files[0]; if(!f) return;
+    const text = await f.text();
+    try {
+      const j = JSON.parse(text);
+      const isNew = confirm('导入角色卡：\n\n确定 = 新建一个角色\n取消 = 覆盖当前角色');
+      if (isNew) {
+        const nm = (j.meta && j.meta.name) || '导入的角色';
+        const created = await saveJson('/api/characters', { action: 'new', name: nm });
+        if (created && created.ok) { await loadChars(); await loadPersona(); }
+      }
+      if (j.body) await saveJson('/api/persona', j);
+      await loadPersona(); renderRole(); toast('导入成功');
+    } catch(e){ toast('导入失败：不是有效角色卡'); }
+  };
+  inp.click();
+}
+
+// ================= 生活 =================
+function renderLife(){
+  const L = LIFE || {};
+  const schedules = L.schedules || [];
+  const activities = L.activities || [];
+  $('#topAction').innerHTML = '<button class="btn primary" onclick="saveLife()">保存</button>';
+  $('#body').innerHTML = '<div class="wrap"><div class="col">'
+  + '<div class="card"><h2>作息 <span class="tag">每天固定的时间点/时段，可增删</span></h2><div id="scheduleList">'
+  + schedules.map((s,i)=>scheduleRow(s,i)).join('')
+  + '</div><div class="flex" style="margin-top:8px"><input type="text" id="sTime" placeholder="时间，如 31:00 或 21:00-22:00" style="width:150px">'
+  + '<input type="text" id="sLabel" placeholder="做什么（自由填写）" style="flex:1"><button class="btn sm" onclick="addSchedule()">+ 添加作息</button></div>'
+  + '<div class="row"><label>安静时段</label><input type="text" id="quiet" value="'+esc((L.quietStart??2)+':00 - '+(L.quietEnd??7)+':00')+'" disabled><span class="hint">在下面"心跳"里改</span></div>'
+  + '</div>'
+  + '<div class="card"><h2>活动池 <span class="tag">空闲时按权重抽；可限定只在某个时段做</span></h2><div id="activityList">'
+  + activities.map((a,i)=>activityRow(a,i)).join('')
+  + '</div><div class="flex" style="margin-top:8px"><input type="text" id="aName" placeholder="活动名，如 刷 B 站" style="flex:1"><button class="btn sm" onclick="addActivity()">+ 添加活动</button></div>'
+  + '<div class="hint">固定时段的活动只在那个时段被抽到；"空闲随时"任何空档都可能做</div></div>'
+  + '</div><div class="col side2">'
+  + '<div class="card"><h2>💬 主动消息 <span class="tag">她会自己找你说话</span></h2>'
+  + '<div class="row"><label>开启</label><input type="checkbox" id="proEnabled" style="width:auto" ' + (L.proactiveEnabled === true ? 'checked' : '') + '><span class="small">开启后她偶尔会主动发消息</span></div>'
+  + '<div class="row"><label>间隔</label><input type="number" id="proMin" value="' + (L.proactiveMinMin ?? 30) + '" style="width:70px"><span class="small">到</span>'
+  + '<input type="number" id="proMax" value="' + (L.proactiveMaxMin ?? 90) + '" style="width:70px"><span class="small">分钟（随机）</span></div>'
+  + '<div class="hint">只在非安静时段、你没在聊的时候发；不报体力数值；一句话。</div></div>'
+  + '<div class="card"><h2>🐾 桌宠 <span class="tag">把她放到桌面上</span></h2>'
+  + '<div id="petBox" class="small">加载中…</div>'
+  + '<div class="flex" style="margin-top:8px"><button class="btn primary sm" onclick="petToggle(true)">开启桌宠</button><button class="btn sm" onclick="petToggle(false)">关闭</button><button class="btn sm" onclick="petRestart()">重启</button></div>'
+  + '<div class="row" style="margin-top:8px"><label>换形象</label><input type="file" id="petImg" accept="image/png,image/jpeg,image/webp" style="flex:1"><button class="btn sm" onclick="petUploadImage()">应用</button></div>'
+  + '<div class="hint">默认用她的头像。自定义摸头/戳一戳反应：编辑数据目录下 pet.json（image / size / gestures / buttons，结构见 README）。</div></div>'
+  + '<div class="card"><h2>心跳</h2>'
+  + '<div class="row"><label>空闲心跳</label><input type="number" id="hbMin" value="'+(L.heartbeatMin??45)+'" style="width:80px"><span class="small">分钟</span></div>'
+  + '<div class="row"><label>主动找你</label><div class="slider"><input type="range" id="proactive" min="0" max="10" value="'+(L.proactive??3)+'"></div></div>'
+  + '<div class="row"><label>智能安排</label><input type="checkbox" id="smartLife" '+(L.smartLife?'checked':'')+' style="width:auto"></div>'
+  + '<div class="hint">开启后：按天气/体力/记忆自动微调作息和活动池（下雨少出门、累了少安排）</div>'
+  + '<div class="row"><label>启用生活</label><input type="checkbox" id="lifeEnabled" '+(L.enabled!==false?'checked':'')+' style="width:auto"></div>'
+  + '<div class="row"><label>安静开始</label><input type="number" id="qStart" value="'+(L.quietStart??2)+'" style="width:70px"><span class="small">时</span></div>'
+  + '<div class="row"><label>安静结束</label><input type="number" id="qEnd" value="'+(L.quietEnd??7)+'" style="width:70px"><span class="small">时</span></div>'
+  + '</div>'
+  + '<div class="card"><h2>日记</h2>'
+  + '<div class="row"><label>写日记时间</label><input type="number" id="diaryHour" value="'+(L.diaryHour??22)+'" style="width:70px"><span class="small">时</span></div>'
+  + '<div class="row"><label>自动写</label><input type="checkbox" id="diaryAuto" '+(L.diaryAuto!==false?'checked':'')+' style="width:auto"></div>'
+  + '<button class="btn ghost" style="width:100%;margin-top:8px" onclick="genDiary()">现在写今天的日记</button></div>'
+  + '<div class="card"><h2>经济 <span class="tag">她自己的虚拟钱包</span></h2>'
+  + '<div class="row"><label>启用经济</label><input type="checkbox" id="ecoEnabled" style="width:auto"></div>'
+  + '<div class="row"><label>初始余额</label><input type="number" id="ecoInitial" style="width:90px"><span class="small">元（新角色/重置时用）</span></div>'
+  + '<div class="row"><label>每日零花钱</label><input type="number" id="ecoDaily" style="width:90px"><span class="small">元/天</span></div>'
+  + '<div class="row"><label>工作/时薪</label><input type="number" id="ecoWage" style="width:90px"><span class="small">元/小时（上班/工作作息时）</span></div>'
+  + '<div class="row"><label>吃饭开销</label><input type="number" id="ecoMeal" style="width:90px"><span class="small">元/顿</span></div>'
+  + '<div class="row"><label>娱乐开销</label><input type="number" id="ecoEnt" style="width:90px"><span class="small">元/次</span></div>'
+  + '<div class="row"><label>货币类型</label><select id="ecoMoneyType" style="width:200px">'
+  + '<option value="virtual">虚拟货币（自己设数值）</option>'
+  + '<option value="token">Token 实时代币（剩余 token）</option>'
+  + '</select></div>'
+  + '<div class="row"><label>Token 预算</label><input type="number" id="ecoTokenBudget" style="width:120px"><span class="small">tokens</span></div>'
+  + '<div class="row"><label>1 元 = </label><input type="number" id="ecoPerYuan" style="width:90px"><span class="small">tokens</span></div>'
+  + '<div class="row"><label>当前</label><span class="small" id="ecoWallet">读取中…</span><button class="btn ghost" onclick="saveEconomyUi()">保存经济</button></div>'
+  + '<div class="hint">交通/吃饭/娱乐都花她的钱；她可以用 spend_money 工具自己买电影票、游戏等，钱不够会被拒绝</div></div>'
+  + '<div class="card"><h2>天气表现 <span class="tag">可上传图片/GIF/视频</span></h2><div id="weatherFxList"><div class="small">读取中…</div></div>'
+  + '<div class="hint">不传就用内置 canvas 粒子；上传后该天气在地图/舞台/3D 上换成你的素材</div></div>'
+  + '<div class="card"><h2>现在</h2><div class="small" id="lifeNow">读取中…</div><button class="btn ghost" style="width:100%;margin-top:8px" onclick="lifeTick()">立刻叫醒她</button></div>'
+  + '</div></div>';
+  loadLifeNow();
+  loadWeatherFx();
+  loadEconomyUi();
+}
+async function loadEconomyUi(){
+  try {
+    const r = await api('/api/economy');
+    const e = r.economy || {}, w = r.wallet || {};
+    const setV = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    setV('ecoInitial', e.initialBalance); setV('ecoDaily', e.dailyIncome); setV('ecoWage', e.wagePerHour);
+    setV('ecoMeal', e.mealCost); setV('ecoEnt', e.entertainmentCost);
+    setV('ecoTokenBudget', e.tokenBudget); setV('ecoPerYuan', e.tokensPerYuan);
+    const en = document.getElementById('ecoEnabled'); if (en) en.checked = e.enabled !== false;
+    const mt = document.getElementById('ecoMoneyType'); if (mt) mt.value = e.moneyType === 'token' ? 'token' : 'virtual';
+    const wt = document.getElementById('ecoWallet');
+    if (wt) wt.textContent = '余额 ' + (w.spendable !== undefined ? w.spendable : '-') + ' 元 · 剩余 token ' + Number(w.remainingTokens || 0).toLocaleString() + '（已用 ' + Number(w.usedTokens || 0).toLocaleString() + '）' + (w.tokenMode ? ' · 当前用 token 当钱' : '');
+  } catch (err) {}
+}
+async function saveEconomyUi(){
+  const body = {
+    enabled: document.getElementById('ecoEnabled').checked,
+    initialBalance: Number(document.getElementById('ecoInitial').value),
+    dailyIncome: Number(document.getElementById('ecoDaily').value),
+    wagePerHour: Number(document.getElementById('ecoWage').value),
+    mealCost: Number(document.getElementById('ecoMeal').value),
+    entertainmentCost: Number(document.getElementById('ecoEnt').value),
+    moneyType: document.getElementById('ecoMoneyType').value,
+    tokenBudget: Number(document.getElementById('ecoTokenBudget').value),
+    tokensPerYuan: Number(document.getElementById('ecoPerYuan').value),
+  };
+  const r = await saveJson('/api/economy', body);
+  if (r.ok) { toast('经济设置已保存'); loadEconomyUi(); }
+}
+const WX_ROWS = [
+  ['sunny', '☀️ 晴天'], ['cloudy', '☁️ 多云'], ['rain', '🌧️ 下雨'], ['snow', '❄️ 下雪'],
+  ['hot', '🥵 热'], ['cold', '🧣 冷'], ['windy', '💨 大风'],
+];
+let WX_FX = {};
+async function loadWeatherFx(){
+  try {
+    const r = await api('/api/weatherfx');
+    WX_FX = r.fx || {};
+    const host = document.getElementById('weatherFxList');
+    if (!host) return;
+    host.innerHTML = WX_ROWS.map(([k, label]) => {
+      const cfg = WX_FX[k];
+      return '<div class="row" style="margin:4px 0"><label style="flex:0 0 84px">' + label + '</label>'
+        + '<span class="small" style="flex:1;color:' + (cfg ? '#8fc1ff' : '#7d8fa5') + '">' + (cfg ? '自定义' : '内置效果') + '</span>'
+        + '<button class="btn ghost" onclick="document.getElementById(\'wxfx-' + k + '\').click()">上传</button>'
+        + '<input type="file" id="wxfx-' + k + '" accept="image/*,video/mp4,video/webm" style="display:none" onchange="wxUpload(\'' + k + '\', this)">'
+        + (cfg ? '<button class="btn ghost" onclick="wxClear(\'' + k + '\')">恢复内置</button>' : '')
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    const host = document.getElementById('weatherFxList');
+    if (host) host.innerHTML = '<div class="small">读取失败：' + esc(e.message) + '</div>';
+  }
+}
+async function wxUpload(kind, input){
+  const f = input.files && input.files[0];
+  if (!f) return;
+  if (f.size > 20 * 1024 * 1024) { toast('文件太大（<20MB）'); return; }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const r = await saveJson('/api/weatherfx/upload', { kind, dataUrl: reader.result });
+    if (r.ok) { toast('已应用'); loadWeatherFx(); }
+  };
+  reader.readAsDataURL(f);
+}
+async function wxClear(kind){
+  const r = await saveJson('/api/weatherfx', { kind, clear: true });
+  if (r.ok) { toast('已恢复内置效果'); loadWeatherFx(); }
+}
+function scheduleRow(s,i){
+  return '<div class="fact"><div class="t">'+esc(s.time)+'　'+esc(s.label)+'</div>'
+    + '<div class="meta"><span class="pill">'+esc(s.days||'每天')+'</span><span style="margin-left:auto">'
+    + '<button class="btn sm ghost" onclick="editSchedule('+i+')">编辑</button> <button class="btn sm danger" onclick="delSchedule('+i+')">删除</button></span></div></div>';
+}
+function activityRow(a,i){
+  const inWindow = !!a.window;
+  return '<div class="fact"><div class="t">'+esc(a.name)+'</div>'
+    + '<div class="meta">'
+    + '<span class="chip'+(inWindow?'':' on')+'" onclick="toggleActivityWindow('+i+')">'+(inWindow?esc(a.window):'空闲随时')+'</span>'
+    + '<span>权重</span><div class="bar"><i style="width:'+Math.min(100,Number(a.weight)||10)+'%"></i></div><span>'+Number(a.weight||10)+'%</span>'
+    + '<span class="pill">'+(a.minMin||5)+'~'+(a.maxMin||20)+' 分钟</span>'
+    + '<span style="margin-left:auto"><button class="btn sm ghost" onclick="editActivity('+i+')">编辑</button> <button class="btn sm danger" onclick="delActivity('+i+')">删除</button></span>'
+    + '</div></div>';
+}
+function addSchedule(){
+  const time = $('#sTime').value.trim(), label = $('#sLabel').value.trim();
+  if(!time || !label){ toast('时间、内容都要填'); return; }
+  LIFE.schedules = LIFE.schedules || [];
+  LIFE.schedules.push({ time, label, days: '每天' });
+  renderLife();
+}
+function delSchedule(i){ LIFE.schedules.splice(i,1); renderLife(); }
+function editSchedule(i){
+  const s = LIFE.schedules[i];
+  const time = prompt('时间（如 07:20 或 21:00-22:00）', s.time); if(time===null) return;
+  const label = prompt('做什么', s.label); if(label===null) return;
+  const days = prompt('频率（每天/工作日/周末）', s.days||'每天') || '每天';
+  LIFE.schedules[i] = { time, label, days }; renderLife();
+}
+function addActivity(){
+  const name = $('#aName').value.trim(); if(!name){ toast('填活动名'); return; }
+  LIFE.activities = LIFE.activities || [];
+  LIFE.activities.push({ name, window: '', weight: 20, minMin: 5, maxMin: 20 });
+  renderLife();
+}
+function delActivity(i){ LIFE.activities.splice(i,1); renderLife(); }
+function editActivity(i){
+  const a = LIFE.activities[i];
+  const name = prompt('活动名', a.name); if(name===null) return;
+  const weight = prompt('权重（数字，越大越常做）', String(a.weight||20)); if(weight===null) return;
+  const minMin = prompt('最短几分钟', String(a.minMin||5)); if(minMin===null) return;
+  const maxMin = prompt('最长几分钟', String(a.maxMin||20)); if(maxMin===null) return;
+  const win = prompt('限定时间段（留空=空闲随时），如 22:00-01:30', a.window||'');
+  LIFE.activities[i] = { name, window: (win||'').trim(), weight: Number(weight)||10, minMin: Number(minMin)||5, maxMin: Number(maxMin)||20 };
+  renderLife();
+}
+function toggleActivityWindow(i){
+  const a = LIFE.activities[i];
+  const win = prompt('限定时间段（留空=空闲随时），如 22:00-01:30', a.window||'');
+  if(win===null) return;
+  a.window = win.trim(); renderLife();
+}
+async function saveLife(){
+  LIFE.heartbeatMin = Number($('#hbMin').value)||45;
+  LIFE.proactive = Number($('#proactive').value)||0;
+  LIFE.enabled = $('#lifeEnabled').checked;
+  LIFE.smartLife = $('#smartLife').checked;
+  LIFE.quietStart = Number($('#qStart').value)||2;
+  LIFE.quietEnd = Number($('#qEnd').value)||7;
+  LIFE.diaryHour = Number($('#diaryHour').value)||22;
+  LIFE.diaryAuto = $('#diaryAuto').checked;
+  LIFE.proactiveEnabled = $('#proEnabled') ? $('#proEnabled').checked : false;
+  LIFE.proactiveMinMin = Number(($('#proMin')||{}).value)||30;
+  LIFE.proactiveMaxMin = Number(($('#proMax')||{}).value)||90;
+  const r = await saveJson('/api/life', LIFE);
+  if(r.ok){ LIFE = r.life; toast('已保存'); }
+}
+async function loadLifeNow(){
+  try {
+    const st = await api('/api/status');
+    $('#lifeNow').innerHTML = '记忆 '+(st.memory?st.memory.live:0)+' 条 · 今天日记 '+(st.diaryToday?'已写':'还没写');
+  } catch(e){ $('#lifeNow').textContent = '读取失败'; }
+}
+async function genDiary(){
+  const r = await saveJson('/api/diary/generate', {});
+  toast(r.ok ? '日记写好了' : '写失败');
+  if(r.ok) alert('今天的日记：\n\n' + (r.text||''));
+}
+async function lifeTick(){ await saveJson('/api/life-tick', {}); toast('已叫她'); loadLifeNow(); }
+
+// ================= 记忆 =================
+// ================= 地图 =================
+let MAPDATA = null;
+let MAPPLACES = [];
+let MAPSCHEDULES = [];
+async function renderMap(){
+  $('#topAction').innerHTML = '<button class="btn primary" onclick="saveMap()">保存地图</button>';
+  let data;
+  try { data = await api('/api/map'); } catch(e) { $('#body').innerHTML = '<div class="small">地图加载失败：'+esc(e.message)+'</div>'; return; }
+  MAPDATA = data.map; MAPPLACES = data.map.places.map(p => ({...p})); MAPSCHEDULES = data.schedules || [];
+  window._mapCurrent = data.current;
+  $('#body').innerHTML = '<div class="wrap"><div class="col">'
+    + '<div class="card"><h2>小鱼镇 · 地图 <span class="tag">拖动图钉调整位置；点「保存地图」生效</span></h2>'
+    + '<div id="mapWrap" style="position:relative;width:100%;border-radius:12px;overflow:hidden;border:1px solid #26333f;background:#0d1319">'
+    + mapSvg()
+    + '<div id="mapPins" style="position:absolute;inset:0"></div>'
+    + '</div>'
+    + '<div class="hint">提示：位置就是她在镇上的坐标；作息里安排了地点后，她自己会在合适的时间出现在合适的地方。</div></div>'
+    + '<div class="card"><h2>当前 <span class="tag">根据作息自动判断</span></h2>'
+    + '<div class="flex" style="gap:14px;align-items:center">'
+    + '<div style="font-size:36px">'+esc((data.current&&data.current.icon)||'📍')+'</div>'
+    + '<div><div style="font-weight:600;font-size:16px">'+esc((data.current&&data.current.name)||'家')+'</div>'
+    + '<div class="small">'+esc((data.current&&data.current.desc)||'')+(data.current&&data.current.reason?' · 正在：'+esc(data.current.reason):'')+'</div></div></div></div>'
+    + '</div><div class="col side2">'
+    + '<div class="card"><h2>地点列表</h2><div id="placeList"></div>'
+    + '<div class="flex" style="margin-top:8px"><input type="text" id="newPlaceName" placeholder="新地点名字" style="flex:1"><button class="btn sm" onclick="addPlace()">+ 添加</button></div></div>'
+    + '<div class="card"><h2>行程地点</h2><div class="small" style="margin-bottom:8px">把作息对应到地点，她到点就会在那里</div><div id="schedList"></div></div>'
+    + '</div></div>';
+  renderPlaceList(); renderSchedList(); renderPins();
+}
+function mapSvg(){
+  return '<svg viewBox="0 0 1000 640" style="display:block;width:100%" xmlns="http://www.w3.org/2000/svg">'
+  + '<defs>'
+  + '<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0e1a2b"/><stop offset="100%" stop-color="#122334"/></linearGradient>'
+  + '<linearGradient id="grass" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#16302b"/><stop offset="100%" stop-color="#1d3a33"/></linearGradient>'
+  + '</defs>'
+  + '<rect width="1000" height="640" fill="url(#sky)"/>'
+  + '<rect y="70" width="1000" height="570" fill="url(#grass)"/>'
+  + '<ellipse cx="800" cy="470" rx="150" ry="80" fill="#10304a" stroke="#1d5377" stroke-width="4"/>'
+  + '<ellipse cx="780" cy="450" rx="90" ry="40" fill="#174266" opacity=".7"/>'
+  + '<path d="M-20 300 C 180 240, 320 330, 520 300 C 720 270, 820 330, 1020 290" fill="none" stroke="#2a3a44" stroke-width="46" stroke-linecap="round"/>'
+  + '<path d="M-20 300 C 180 240, 320 330, 520 300 C 720 270, 820 330, 1020 290" fill="none" stroke="#3a4f5c" stroke-width="8" stroke-dasharray="26 22" opacity=".7"/>'
+  + '<path d="M500 320 C 505 400, 470 520, 505 640" fill="none" stroke="#2a3a44" stroke-width="34" stroke-linecap="round"/>'
+  + '<path d="M500 320 C 505 400, 470 520, 505 640" fill="none" stroke="#3a4f5c" stroke-width="6" stroke-dasharray="18 16" opacity=".7"/>'
+  + [[80,420],[180,520],[420,150],[500,520],[880,260],[900,520],[640,540],[300,560]].map(([x,y]) =>
+    '<g><circle cx="'+x+'" cy="'+y+'" r="16" fill="#1e4637" stroke="#2d6b52" stroke-width="3"/><circle cx="'+x+'" cy="'+y+'" r="6" fill="#2d6b52"/></g>').join('')
+  + '<text x="30" y="48" font-size="22" fill="#7f9aad" font-family="Microsoft YaHei, sans-serif">小鱼镇 · 生活区</text>'
+  + '</svg>';
+}
+function renderPins(){
+  const wrap = document.getElementById('mapPins');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  MAPPLACES.forEach((p, i) => {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:absolute;left:'+(p.x*100)+'%;top:'+(p.y*100)+'%;transform:translate(-50%,-100%);cursor:grab;user-select:none;text-align:center;filter:drop-shadow(0 3px 4px rgba(0,0,0,.5))';
+    el.innerHTML = '<div style="font-size:22px">'+esc(p.icon)+'</div>'
+      + '<div style="font-size:11px;color:#d7e3ee;background:#14202c;padding:1px 6px;border-radius:8px;border:1px solid #2a3a4a;white-space:nowrap">'+esc(p.name)+'</div>'
+      + '<div style="width:2px;height:8px;background:#2a3a4a;margin:0 auto"></div>';
+    el.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      const box = document.getElementById('mapWrap').getBoundingClientRect();
+      const move = (e) => {
+        const x = Math.max(0.05, Math.min(0.95, (e.clientX - box.left) / box.width));
+        const y = Math.max(0.08, Math.min(0.92, (e.clientY - box.top) / box.height));
+        p.x = x; p.y = y;
+        el.style.left = (x*100)+'%'; el.style.top = (y*100)+'%';
+      };
+      const up = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); };
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', up);
+    });
+    wrap.appendChild(el);
+  });
+}
+function renderPlaceList(){
+  const host = document.getElementById('placeList');
+  if (!host) return;
+  host.innerHTML = MAPPLACES.map((p, i) => '<div class="fact" style="padding:8px 10px"><div class="t" style="display:flex;gap:6px;align-items:center">'
+    + '<input type="text" value="'+esc(p.icon)+'" oninput="MAPPLACES['+i+'].icon=this.value" style="width:44px;text-align:center;padding:3px 4px">'
+    + '<input type="text" value="'+esc(p.name)+'" oninput="MAPPLACES['+i+'].name=this.value" style="flex:1;padding:3px 6px">'
+    + '<button class="btn sm danger" onclick="delPlace('+i+')">✕</button></div>'
+    + '<div class="hint" style="margin-top:4px"><input type="text" value="'+esc(p.desc||'')+'" placeholder="一句话描述" oninput="MAPPLACES['+i+'].desc=this.value" style="width:100%;padding:3px 6px;font-size:12px"></div></div>').join('');
+}
+function renderSchedList(){
+  const host = document.getElementById('schedList');
+  if (!host) return;
+  if (!MAPSCHEDULES.length) { host.innerHTML = '<div class="small">还没有作息，去「生活」页加几条</div>'; return; }
+  host.innerHTML = MAPSCHEDULES.map((s, i) => '<div class="row" style="margin:6px 0"><span class="small" style="flex:1">'+esc(s.time)+' '+esc(s.label)+'</span>'
+    + '<select style="width:110px;padding:3px 6px" onchange="MAPSCHEDULES['+i+'].place=this.value; this.style.color=\"#cfe0f7\"">'
+    + MAPPLACES.map(p => '<option value="'+esc(p.id)+'"'+(s.place===p.id?' selected':'')+'>'+esc(p.icon+' '+p.name)+'</option>').join('')
+    + '</select></div>').join('');
+}
+function addPlace(){
+  const inp = document.getElementById('newPlaceName');
+  const name = (inp && inp.value || '').trim();
+  if (!name) return;
+  MAPPLACES.push({ id: 'p-' + Date.now().toString(36), name, icon: '📍', x: 0.5, y: 0.5, desc: '' });
+  if (inp) inp.value = '';
+  renderPlaceList(); renderSchedList(); renderPins();
+}
+function delPlace(i){
+  MAPPLACES.splice(i, 1);
+  renderPlaceList(); renderSchedList(); renderPins();
+}
+async function saveMap(){
+  const r = await saveJson('/api/map', { name: MAPDATA.name, places: MAPPLACES, schedules: MAPSCHEDULES.map((s, i) => ({ index: s.index !== undefined ? s.index : i, place: s.place })) });
+  if (r.ok) { toast('地图已保存'); window._mapCurrent = r.current; renderMap(); }
+}
+async function renderMemory(){
+  MEM = await api('/api/memory');
+  const st = MEM.stats || {};
+  const facts = MEM.facts || [];
+  const core = facts.filter(f=>f.pinned||(f.strength||0)>=0.85);
+  const normal = facts.filter(f=>!core.includes(f));
+  const params = MEM.params || {};
+  $('#topAction').innerHTML = '<button class="btn" onclick="renderMemory(true)">刷新</button> <button class="btn primary" onclick="saveMemParams()">保存参数</button>';
+  $('#body').innerHTML = '<div class="wrap"><div class="col">'
+  + '<div class="stat">'
+  + '<div class="s"><div class="n">'+(st.live??0)+'</div><div class="l">活着的记忆</div></div>'
+  + '<div class="s"><div class="n">'+(st.core??0)+'</div><div class="l">核心（不遗忘）</div></div>'
+  + '<div class="s"><div class="n">'+(st.archived??0)+'</div><div class="l">已模糊归档</div></div>'
+  + '<div class="s"><div class="n">'+(MEM.diaryCount??0)+'</div><div class="l">日记篇数</div></div>'
+  + '</div>'
+  + '<div class="card"><h2>核心记忆 <span class="tag">永远记得</span></h2>'
+  + (core.length ? core.map(factRow).join('') : '<div class="small">还没有核心记忆。重要的事可以置顶。</div>')
+  + '</div>'
+  + '<div class="card"><h2>普通记忆 <span class="tag">按半衰期淡忘，提到会加深</span></h2>'
+  + (normal.length ? normal.map(factRow).join('') : '<div class="small">暂无</div>')
+  + '</div></div><div class="col side2">'
+  + '<div class="card"><h2>遗忘参数</h2>'
+  + '<div class="row"><label>半衰期</label><input type="number" id="mHalf" value="'+(params.halfLifeDays??5)+'" style="width:80px"><span class="small">天</span></div>'
+  + '<div class="row"><label>遗忘阈值</label><input type="number" id="mThr" value="'+(params.forgetThreshold??0.12)+'" style="width:80px"></div>'
+  + '<div class="row"><label>提到强化</label><input type="number" id="mBoost" value="'+(params.reinforceBoost??0.22)+'" style="width:80px"></div>'
+  + '<div class="row"><label>每轮注入</label><input type="number" id="mMax" value="'+(params.maxInjected??8)+'" style="width:80px"><span class="small">条</span></div>'
+  + '<div class="hint">半衰期越短忘得越快；核心记忆不受影响</div></div>'
+  + '<div class="card"><h2>管理记忆</h2><div class="small">批量删除 · 恢复归档 · 导入导出</div>'
+  + '<button class="btn ghost" style="width:100%;margin-top:8px" onclick="manageArchived()">查看归档（'+(st.archived??0)+'）</button>'
+  + '<button class="btn ghost" style="width:100%;margin-top:8px" onclick="exportMemory()">导出记忆</button></div>'
+  + '<div class="card"><h2>日记</h2><div id="diaryBox" class="small">加载中…</div>'
+  + '<button class="btn ghost" style="width:100%;margin-top:8px" onclick="showDiaryList()">打开日记列表</button>'
+  + '<button class="btn ghost" style="width:100%;margin-top:8px" onclick="showDiaryToHer()">把今天的日记给她看</button></div>'
+  + '</div></div>';
+  loadDiary();
+}
+function factRow(f){
+  const s = Number(f.strength||0);
+  const cls = f.pinned||s>=0.85 ? 'core' : (s<0.2?'faint':'');
+  const label = f.pinned||s>=0.85 ? '核心' : (s<0.2?'快忘了':'');
+  return '<div class="fact"><div class="t">'+esc(f.text)+'</div><div class="meta">'
+    + (label?'<span class="pill '+cls+'">'+label+'</span>':'')
+    + '<span>清晰度</span><div class="bar"><i style="width:'+Math.round(s*100)+'%"></i></div><span>'+Math.round(s*100)+'%</span>'
+    + '<span>提到 '+(f.hitCount||1)+' 次</span>'
+    + '<span style="margin-left:auto">'
+    + '<button class="btn sm ghost" onclick="pinFact('+f.id+')">'+(f.pinned?'取消置顶':'置顶')+'</button> '
+    + '<button class="btn sm danger" onclick="delFact('+f.id+')">删除</button></span>'
+    + '</div></div>';
+}
+async function pinFact(id){ await saveJson('/api/memory/pin', {id}); renderMemory(true); }
+async function delFact(id){ if(!confirm('确定删掉这条记忆？')) return; await saveJson('/api/memory/delete', {id}); renderMemory(true); }
+async function saveMemParams(){
+  const params = { halfLifeDays: Number($('#mHalf').value), forgetThreshold: Number($('#mThr').value), reinforceBoost: Number($('#mBoost').value), maxInjected: Number($('#mMax').value) };
+  const r = await saveJson('/api/memory/params', params);
+  if(r.ok){ toast('参数已保存'); }
+}
+async function loadDiary(){
+  const r = await api('/api/diary');
+  const dates = r.dates || [];
+  $('#diaryBox').innerHTML = dates.length ? '共 '+dates.length+' 篇，最近：'+dates[0] : '还没有日记';
+}
+function showDiaryList(){
+  const dates = (MEM && MEM.diaryDates) || [];
+  api('/api/diary').then(r=>{
+    const list = (r.dates||[]).join('\n');
+    const d = prompt('输入日期查看日记（YYYY-MM-DD）：', (r.dates||[])[0] || '');
+    if(!d) return;
+    api('/api/diary?date='+encodeURIComponent(d)).then(x=>alert(x.text || '没有这篇日记'));
+  });
+}
+async function showDiaryToHer(){
+  const r = await saveJson('/api/diary/show', {});
+  toast(r.ok ? '已给她看了' : (r.error||'失败'));
+}
+function exportMemory(){
+  api('/api/memory').then(m=>{
+    const blob = new Blob([JSON.stringify(m, null, 2)], {type:'application/json'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='memory-export.json'; a.click();
+  });
+}
+function manageArchived(){
+  api('/api/memory').then(m=>{
+    const arch = m.archived||[];
+    if(!arch.length){ alert('归档里是空的'); return; }
+    alert('归档记忆：\n\n' + arch.map(f=>'· '+f.text).join('\n') + '\n\n（恢复功能将在记忆管理器页面里做）');
+  });
+}
+
+// ================= 环境/模型/数据 =================
+async function renderEnv(){
+  $('#topAction').innerHTML = '<button class="btn primary" onclick="saveEnv()">保存</button>';
+  const inChat = ((window._mode||{}).effective === 'chat');
+  let env = { pc: 'gui', space: 'gui', phone: 'gui', confirmDanger: true };
+  let res = { space: false, phone: false, mem: [] };
+  try { const envResp = await api('/api/env'); env = envResp.env || env; res = envResp.resources || res; } catch(e){}
+  window._res = res;
+  window._env = env;
+  const targets = [
+    { k: 'pc', icon: '🖥️', name: '用户的电脑', desc: 'Windows 桌面。她可以截图看屏幕、用鼠标键盘点东西。' },
+    { k: 'space', icon: '💻', name: '她自己的屏幕', desc: 'Linux 虚拟机。她自己的桌面，随便折腾。' },
+    { k: 'phone', icon: '📱', name: '她自己的手机', desc: 'Android 16 模拟器（只验证过 AVD DSH_Phone）。截图、点击、滑动、输入。' },
+  ];
+  const levels = [
+    { v: 'off', label: '关闭', cls: '' },
+    { v: 'gui', label: '仅鼠标键盘', cls: 'ok' },
+    { v: 'code', label: '代码控制（危险）', cls: 'warn' },
+  ];
+  $('#body').innerHTML = '<div class="wrap"><div class="col">'
+    + (inChat ? '<div class="card" style="border-color:#2f6bd8;background:#0f1825"><h2 style="color:#8fc1ff">当前是纯聊天模式</h2><div class="small">这些环境工具不会被启用。想让她有屏幕/手机，切到上方「完整版」。</div></div>' : '')
+    + '<div class="card" style="border-color:#5a3a2a;background:#1a1410"><h2 style="color:#e0b37a">⚠️ 权限分两级</h2>'
+    + '<div class="small" style="color:#c9a97a">「仅鼠标键盘」= 像人一样看屏幕、点鼠标、打字，安全；「代码控制」= 直接执行命令、读写文件，强大但危险，只在你信任时开启。</div></div>'
+    + '<div class="card"><h2>🧪 环境自检 <span class="tag">完整版进不去先点这里</span></h2>'
+    + '<div class="flex"><button class="btn primary sm" onclick="runEnvCheck()">开始自检</button><button class="btn sm" onclick="installAdbKeyboard()">安装 ADBKeyboard</button></div>'
+    + '<div id="envCheckBox" class="small" style="margin-top:10px;line-height:1.8">还没检查。点「开始自检」看看缺什么。</div></div>'
+    + targets.map(tg => '<div class="card"><h2>'+tg.icon+' '+tg.name+' <span class="tag">'+tg.k+'</span></h2>'
+      + '<div class="small" style="margin-bottom:10px">'+tg.desc+'</div>'
+      + '<div class="flex">'
+      + levels.map(lv => '<button class="btn '+(env[tg.k]===lv.v?(lv.v==='code'?'danger':'primary'):'ghost')+'" onclick="setPerm(\''+tg.k+'\',\''+lv.v+'\')">'+lv.label+'</button>').join('')
+      + '</div>'
+      + '<div class="hint">当前：'+({off:'关闭',gui:'仅鼠标键盘',code:'代码控制'}[env[tg.k]]||'仅鼠标键盘')+'</div>'
+      + '</div>').join('')
+    + '</div><div class="col side2">'
+    + '<div class="card"><h2>⚡ 环境开关 <span class="tag">不用时关掉省内存</span></h2>'
+    + '<div class="row"><label>她的屏幕</label><span class="small" style="flex:1">' + (res.space ? '🟢 运行中' : '⚪ 已关闭') + '</span>'
+    + (res.space
+        ? '<button class="btn danger sm" onclick="envPower(\'space\',\'stop\')">关闭</button>'
+        : '<button class="btn primary sm" onclick="envPower(\'space\',\'start\')">启动</button>') + '</div>'
+    + '<div class="row"><button class="btn primary sm" onclick="envStartAll()">一键启动整个环境</button><span class="hint" style="flex:1;margin-left:8px">依次启动屏幕和手机（内存不够会跳过）</span></div>'
+    + '<div class="row"><label>她的手机</label><span class="small" style="flex:1">' + (res.phone ? '🟢 运行中' : '⚪ 已关闭') + '</span>'
+    + (res.phone
+        ? '<button class="btn danger sm" onclick="envPower(\'phone\',\'stop\')">关闭</button>'
+        : '<button class="btn primary sm" onclick="envPower(\'phone\',\'start\')">启动</button>') + '</div>'
+    + '<div class="row" style="margin-top:8px"><label>她自己能开机</label><span class="small" style="flex:1">' + (env.selfStart === 'allow' ? '🟢 允许她自己启动屏幕/手机' : '⚪ 不允许（默认，省内存）') + '</span>'
+    + '<button class="btn ' + (env.selfStart === 'allow' ? 'ghost' : 'primary') + ' sm" onclick="setSelfStart(\'' + (env.selfStart === 'allow' ? 'deny' : 'allow') + '\')">' + (env.selfStart === 'allow' ? '改成不允许' : '允许她自己开') + '</button></div>'
+    + '<div class="hint">不允许：屏幕/手机没开时她不会自己启动，只能你手动开；允许：她可以自己启动（会占内存，只有你不在电脑前时才建议开）。</div>'
+    + '<div class="hint">屏幕虚拟机开着约占 <b>2~6 GB</b> 内存，手机模拟器约占 <b>2~4 GB</b>；长时间不用建议关掉，需要时再点启动（约 1 分钟）。</div>'
+    + (res.mem && res.mem.length ? '<div class="hint">当前占用：' + res.mem.join(' · ') + '</div>' : '')
+    + '</div>'
+    + '<div class="card"><h2>安全选项</h2>'
+    + '<div class="row"><label>危险操作确认</label><input type="checkbox" id="confirmDanger" style="width:auto" '+(env.confirmDanger!==false?'checked':'')+'></div>'
+    + '<div class="hint">开启后，删除/卸载/关机/转账/发消息等操作她会先问你</div></div>'
+    + '<div class="card"><h2>说明</h2>'
+    + '<div class="small">· 代码控制是按目标分别开的：可以只给她的屏幕开，不给你的电脑开。</div>'
+    + '<div class="small" style="margin-top:6px">· 开了代码控制后，她的工具里会多一个 code 工具；关掉后立即消失。</div>'
+    + '<div class="small" style="margin-top:6px">· 人设里也会告诉她当前权限，她不会越权。</div></div>'
+    + '</div></div>';
+}
+function setPerm(k, v){ window._env[k] = v; renderEnv(); }
+async function saveEnv(){
+  const env = {
+    pc: window._env.pc, space: window._env.space, phone: window._env.phone,
+    confirmDanger: document.getElementById('confirmDanger').checked,
+  };
+  const r = await saveJson('/api/env', env);
+  if(r.ok){ toast('权限已保存'); renderEnv(); }
+}
+async function renderModel(){
+  $('#topAction').innerHTML = '<button class="btn primary" onclick="saveModel()">保存</button>';
+  let m = { name: 'deepseek-flash', reasoningEffort: 'low', temperature: 0.9, maxTokens: 900 };
+  let usage = null;
+  try { const r = await api('/api/model'); m = r.model || m; usage = r.usage; } catch(e){}
+  let CTX = { historyMode: 'full', memoryInject: 8 };
+  try { CTX = (await api('/api/context')).context || CTX; } catch(e){}
+  let SETUP = null;
+  try { SETUP = (await api('/api/status')).setup || null; } catch(e){}
+  let STYLE = { noParens: false };
+  try { STYLE = (await api('/api/chat-style')).style || STYLE; } catch(e){}
+  window._style = STYLE;
+  let SAVING = { dynamicTools: false, compressImage: false, batchActions: false };
+  try { SAVING = (await api('/api/token-saving')).saving || SAVING; } catch(e){}
+  window._saving = SAVING;
+  window._ctx = CTX;
+  window._model = m;
+  const levels = [
+    { v: 'low', t: '低', d: '日常聊天够用，最省 token（推荐）' },
+    { v: 'medium', t: '中', d: '稍复杂一点的对话' },
+    { v: 'high', t: '高', d: '需要想清楚的问题、多步操作' },
+    { v: 'max', t: '最高', d: '专业编程、复杂逻辑，最费 token' },
+  ];
+  $('#body').innerHTML = '<div class="wrap"><div class="col">'
+    + '<div class="card"><h2>推理等级 <span class="tag">只影响本插件，不影响 DSH 和其它会话</span></h2>'
+    + '<div class="flex" style="gap:10px">'
+    + levels.map(l => '<button class="btn '+(m.reasoningEffort===l.v?'primary':'ghost')+'" style="padding:10px 16px" onclick="setEffort(\''+l.v+'\')">'+l.t+'</button>').join('')
+    + '</div>'
+    + '<div class="hint" style="margin-top:10px">当前：'+({low:'低',medium:'中',high:'高',max:'最高'}[m.reasoningEffort]||'低')+' —— '+((levels.find(l=>l.v===m.reasoningEffort)||levels[0]).d)+'</div>'
+    + '<div class="hint">一般聊天用「低」即可；要她帮你专业编程/排查问题时再调高。推理越高越慢、越费 token。</div>'
+    + '</div>'
+    + '<div class="card"><h2>模型参数</h2>'
+    + '<div class="row"><label>模型</label><input type="text" id="mName" value="'+esc(m.name)+'"></div>'
+    + '<div class="row"><label>温度</label><input type="number" id="mTemp" step="0.1" min="0" max="1.5" value="'+m.temperature+'" style="width:100px"><span class="small">越高越随机（0.9 左右自然）</span></div>'
+    + '<div class="row"><label>单轮输出上限</label><input type="number" id="mMaxTok" min="200" max="8000" value="'+m.maxTokens+'" style="width:120px"><span class="small">tokens</span></div>'
+    + '<div class="row"><label>工具循环上限</label><input type="number" id="mSteps" min="4" max="60" value="'+(m.maxSteps||20)+'" style="width:90px"><span class="small">步（她一次最多能连续调几次工具）</span></div>'
+    + '</div>'
+    + '<div class="card"><h2>DeepSeek API Key <span class="tag">独立运行 / 没装 DSH 时填这里</span></h2>'
+    + '<div class="row"><label>API Key</label><input type="password" id="apiKeyInput" placeholder="sk-...（只保存在本机数据目录）" style="flex:1"><button class="btn sm primary" onclick="saveApiKey()">保存</button></div>'
+    + '<div class="hint">当前：'+(SETUP && SETUP.apiKeyOk ? '已配置' : '未配置')+' · 纯聊天独立运行需要；DSH 环境下会自动读取 DSH 的 Key，通常不用填。</div></div>'
+    + '<div class="card"><h2>模型兼容性</h2><div class="small">只验证过 DeepSeek 模型（默认 deepseek-flash）。换其它 OpenAI 兼容模型时，工具循环、reasoning_content 回传可能不兼容，这部分不做适配。</div></div>'
+    + '<div class="card"><h2>聊天风格 <span class="tag">会影响她所有说话</span></h2>'
+    + '<div class="row"><label>无括号模式</label><input type="checkbox" id="noParens" style="width:auto" '+(STYLE.noParens?'checked':'')+' onchange="setNoParens(this.checked)"><span class="small">开启后她不用括号表示动作/表情，只直接说话</span></div></div>'
+    + '<div class="card"><h2>🧠 省 token 开关 <span class="tag">按需打开，随时关</span></h2>'
+    + '<div class="row"><label>按需给工具</label><span class="small" style="flex:1">闲聊时不带屏幕/手机/代码工具，少带一大段工具说明；要操作时关键词会自动带上</span><button class="btn '+(SAVING.dynamicTools?'primary':'ghost')+'" onclick="setSaving(&quot;dynamicTools&quot;)">'+(SAVING.dynamicTools?'已开启':'已关闭')+'</button></div>'
+    + '<div class="row"><label>压缩工具结果</label><span class="small" style="flex:1">截图自动缩小到 720 内、长输出截断；看屏幕更省 token</span><button class="btn '+(SAVING.compressImage?'primary':'ghost')+'" onclick="setSaving(&quot;compressImage&quot;)">'+(SAVING.compressImage?'已开启':'已关闭')+'</button></div>'
+    + '<div class="row"><label>批量动作</label><span class="small" style="flex:1">连续点击/输入一次提交，少来回；点两下 9,350→4,845（-48%）。危险操作别开</span><button class="btn '+(SAVING.batchActions?'primary':'ghost')+'" onclick="setSaving(&quot;batchActions&quot;)">'+(SAVING.batchActions?'已开启':'已关闭')+'</button></div>'
+    + '<div class="hint">实测（deepseek-flash）：只开「按需给工具」，闲聊 1,962 → 1,137（省约 42%）；再开「压缩工具结果」，看屏幕 4,766 → 3,618（省约 24%）；开「批量动作」后，看屏+点两下 9,350 → 4,845（省约 48%）。</div>'
+    + '</div>'
+    + '<div class="card"><h2>上下文档位 <span class="tag">省 token 的力度，随时切换</span></h2>'
+    + '<div class="small" style="margin-bottom:6px">聊天历史</div>'
+    + '<div class="flex">'
+    + [['full','完整 10 条'],['compact','精简 6 条 + 摘要'],['minimal','极简 4 条 + 摘要']].map(o => '<button class="btn '+(CTX.historyMode===o[0]?'primary':'ghost')+'" onclick="setCtx(&quot;historyMode&quot;,&quot;'+o[0]+'&quot;)">'+o[1]+'</button>').join('')
+    + '</div>'
+    + '<div class="small" style="margin:12px 0 6px">每轮注入记忆</div>'
+    + '<div class="flex">'
+    + [4,6,8].map(n => '<button class="btn '+(Number(CTX.memoryInject)===n?'primary':'ghost')+'" onclick="setCtx(&quot;memoryInject&quot;,'+n+')">'+n+' 条</button>').join('')
+    + '</div>'
+    + '<div class="hint" style="margin-top:10px">精简/极简会额外花一次很便宜的调用来生成"刚才聊到…"摘要；记忆条数越少越省，但经历感会淡一点。</div>'
+    + '</div>'
+    + '</div><div class="col side2">'
+    + '<div class="card"><h2>最近用量</h2><div class="small">'+(usage?('输入 '+usage.prompt_tokens+' / 输出 '+usage.completion_tokens+'（缓存命中 '+((usage.prompt_cache_hit_tokens)||0)+'）'):'暂无')+'</div></div>'
+    + '<div class="card"><h2>说明</h2><div class="small">· 记忆提取、日记、预览这些后台调用固定用「低」，不占你的推理等级设置</div>'
+    + '<div class="small" style="margin-top:6px">· 修改后下一条消息生效</div></div>'
+    + '</div></div>';
+}
+function setEffort(v){ window._model.reasoningEffort = v; renderModel(); }
+async function setCtx(k, v){ window._ctx[k] = v; const r = await saveJson('/api/context', window._ctx); if(r.ok) renderModel(); }
+async function setSaving(key){
+  const cur = window._saving || {};
+  const body = {}; body[key] = !cur[key];
+  try { const r = await api('/api/token-saving', { method: 'POST', body: JSON.stringify(body) }); if(r && r.ok) toast('已切换'); } catch(e){ toast('保存失败'); }
+  renderModel();
+}
+async function saveModel(){
+  const body = {
+    name: document.getElementById('mName').value,
+    reasoningEffort: window._model.reasoningEffort,
+    temperature: Number(document.getElementById('mTemp').value),
+    maxTokens: Number(document.getElementById('mMaxTok').value),
+    maxSteps: Number(document.getElementById('mSteps').value),
+  };
+  const r = await saveJson('/api/model', body);
+  if(r.ok){ toast('模型设置已保存'); renderModel(); }
+}
+async function renderTutorial(){
+  $('#topAction').innerHTML = '<button class="btn" onclick="location.hash=\'env\'">回到环境</button>';
+  let text = '';
+  try { text = (await api('/api/tutorial')).text || ''; } catch(e){ text = '教程加载失败：' + e.message; }
+  const html = text.split('\n').map(line => {
+    if (line.startsWith('# ')) return '<h2 style="font-size:18px;margin:0 0 12px">' + esc(line.slice(2)) + '</h2>';
+    if (line.startsWith('## ')) return '<div style="font-size:14px;font-weight:600;color:#9fb3c8;margin:18px 0 8px">' + esc(line.slice(3)) + '</div>';
+    if (line.startsWith('> ')) return '<div class="example">' + esc(line.slice(2)) + '</div>';
+    if (line.startsWith('- ')) return '<div style="padding-left:14px;color:#c4d0de">• ' + esc(line.slice(2)) + '</div>';
+    if (!line.trim()) return '<div style="height:6px"></div>';
+    return '<div style="color:#c4d0de">' + esc(line) + '</div>';
+  }).join('');
+  $('#body').innerHTML = '<div class="wrap"><div class="col"><div class="card" style="line-height:1.8">' + html + '</div></div>'
+    + '<div class="col side2"><div class="card"><h2>状态</h2><div class="small">当前模式：'+(((window._mode||{}).effective==='full')?'完整版':'纯聊天版')+'</div>'
+    + '<button class="btn ghost" style="width:100%;margin-top:8px" onclick="location.hash=\'env\'">去环境页检测</button></div>'
+    + '<div class="card"><h2>说明</h2><div class="small">装好教程里的环境后回到插件，横幅会自动变成「完整版」，不用手动切。</div></div></div></div>';
+}
+
+async function doBackup(){
+  try { const r = await api('/api/backup', { method: 'POST' }); toast(r.message || '正在备份'); }
+  catch(e){ toast('备份失败'); }
+}
+async function renderData(){
+  $('#topAction').innerHTML = '';
+  let dataRoot = '%USERPROFILE%\\.dsh-companion';
+  try { const st = await api('/api/status'); dataRoot = (st.setup && st.setup.dataRoot) || dataRoot; } catch(e){}
+  const dp = (p) => dataRoot.replace(/[\\\/]+$/, '') + '\\' + p;
+  $('#body').innerHTML = '<div class="wrap"><div class="col">'
+  + '<div class="card"><h2>数据目录</h2>'
+  + '<div class="row"><label>数据根目录</label><input type="text" value="'+esc(dataRoot)+'" disabled></div>'
+  + '<div class="row"><label>人设</label><input type="text" value="'+esc(dp('persona.md'))+'" disabled></div>'
+  + '<div class="row"><label>记忆/日记/聊天</label><input type="text" value="'+esc(dp('data'))+'" disabled></div>'
+  + '</div>'
+  + '<div class="card"><h2>备份</h2><div class="small">导出把数据目录打包成 zip；导入覆盖恢复。系统每天凌晨 4 点后会自动备份一次。</div>'
+  + '<div class="row"><button class="btn primary" onclick="doBackup()">立即备份</button><span class="hint" style="flex:1;margin-left:8px">备份到数据目录下的 backups</span></div><button class="btn ghost" style="margin-top:8px">导出备份</button></div>'
+  + '</div><div class="col side2"><div class="card"><h2>版本</h2><div class="small">v0.5.6 · 本地运行时</div></div></div></div>';
+}
+
+// ================= router =================
+async function go(tab){
+  currentTab = tab;
+  document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on', a.dataset.tab===tab));
+  $('#tabTitle').textContent = TABS[tab].title;
+  $('#tabSub').textContent = TABS[tab].sub;
+  const body = $('#body'); body.innerHTML = '<div class="small">加载中…</div>';
+  if(!PERSONA){ try { await loadPersona(); renderNavAva(); } catch(e){} }
+  try {
+    if(tab==='role'){ if(!PERSONA) await loadPersona(); await loadChars(); renderRole(); }
+    else if(tab==='life'){ if(!LIFE) await loadLife(); renderLife(); setTimeout(()=>{ try{ petRefresh(); }catch(e){} }, 120); }
+    else if(tab==='memory'){ await renderMemory(); }
+    else if(tab==='env'){ await renderEnv(); }
+    else if(tab==='model'){ await renderModel(); }
+    else if(tab==='data'){ await renderData(); }
+    else if(tab==='tutorial'){ await renderTutorial(); }
+  } catch(e){ body.innerHTML = '<div class="small">加载失败：'+esc(e.message)+'</div>'; }
+  try { window._mode = await api('/api/mode'); } catch(e){ window._mode = window._mode || { override: 'auto', effective: 'full', detected: null }; }
+  renderModeBanner();
+}
+function renderModeBanner(){
+  const host = document.getElementById('modeHost');
+  if (!host) return;
+  const info = window._mode || {};
+  const eff = info.effective || 'full';
+  const ov = info.override || 'auto';
+  const d = info.detected || {};
+  const detectedTxt = d.ok
+    ? '检测到虚拟屏幕 ✔' + (d.waydroid ? '（手机也在）' : '') + ' → 自动使用完整版'
+    : '未检测到虚拟屏幕 → 自动使用纯聊天版';
+  host.innerHTML = '<div class="mode-banner" style="margin-top:14px"><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">'
+    + '<div style="font-size:22px">'+(eff==='full'?'🖥️📱':'💬')+'</div>'
+    + '<div style="flex:1;min-width:240px"><div style="font-weight:600;font-size:15px">当前模式：'+(eff==='full'?'完整版 · 她有自己的屏幕和手机':'纯聊天版 · 只有对话')+'</div>'
+    + '<div class="small" style="margin-top:2px">'+detectedTxt+'</div>'
+    + '<div class="small" style="color:#55637a;margin-top:2px">覆盖设置：'+(ov==='auto'?'自动':(ov==='chat'?'强制纯聊天':'强制完整版'))+'</div></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    + '<button class="btn '+(ov==='auto'?'primary':'ghost')+'" onclick="setMode(\'auto\')">自动检测</button>'
+    + '<button class="btn '+(ov==='chat'?'primary':'ghost')+'" onclick="setMode(\'chat\')">纯聊天</button>'
+    + '<button class="btn '+(ov==='full'?'primary':'ghost')+'" onclick="setMode(\'full\')">完整版</button>'
+    + '<button class="btn ghost" onclick="location.hash=\'tutorial\'">📖 接入教程</button>'
+    + '</div></div></div>';
+}
+async function setMode(m){
+  const r = await saveJson('/api/mode', { override: m });
+  if(r.ok){ window._mode = { override: r.override, detected: r.detected, effective: r.effective }; toast(m==='auto'?'已设为自动检测':(m==='chat'?'已强制纯聊天':'已强制完整版')); go(currentTab); }
+}
+document.querySelectorAll('.nav a').forEach(a=>a.onclick = () => { location.hash = a.dataset.tab; });
+window.addEventListener('hashchange', () => go((location.hash||'#role').slice(1)));
+go((location.hash||'#role').slice(1));
+</script></body></html>

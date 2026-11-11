@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>屏幕彼端 · 聊天</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:#0b0f14;color:#d7dee8;font:14px/1.7 "Segoe UI","Microsoft YaHei",sans-serif;display:flex;flex-direction:column;height:100vh}
+header{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid #1d242e;background:#11161d;flex-shrink:0}
+header .ava{width:30px;height:30px;border-radius:50%;background:#16202b center/cover;border:1px solid #2a3745;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+header .name{font-weight:600;font-size:15px}
+header .dot{width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;margin-right:4px}
+header .meta{font-size:12px;color:#8496ab}
+header .chip{font-size:11px;border:1px solid #2a3745;border-radius:99px;padding:0 8px;color:#93a1b1;white-space:nowrap}
+header .spacer{flex:1}
+header a{color:#93a1b1;text-decoration:none;font-size:12px;padding:4px 10px;border:1px solid #2a3745;border-radius:8px}
+header a:hover{color:#e8eef6;border-color:#3b82f6}
+#list{flex:1;overflow-y:auto;padding:18px 16px 8px;display:flex;flex-direction:column;gap:10px}
+.msg{display:flex;gap:8px;max-width:78%}
+.msg .bubble{padding:9px 13px;border-radius:12px;white-space:pre-wrap;word-break:break-word;line-height:1.65}
+.msg.her{align-self:flex-start}
+.msg.her .bubble{background:#141c26;border:1px solid #22303d;border-top-left-radius:4px}
+.msg.user{align-self:flex-end;flex-direction:row-reverse}
+.msg.user .bubble{background:#1d4ed8;border:1px solid #2563eb;color:#fff;border-top-right-radius:4px}
+.msg .who{font-size:11px;color:#5f7183;margin-bottom:2px}
+.msg.user .who{text-align:right}
+.msg.system{align-self:center;max-width:90%;font-size:12px;color:#6b7f92;background:#101720;border:1px dashed #26333f;border-radius:10px;padding:6px 12px;text-align:center}
+.time{font-size:10px;color:#4d5f70;margin-top:3px}
+#typing{align-self:flex-start;font-size:12px;color:#7d8fa5;padding:4px 8px}
+#bar{flex-shrink:0;border-top:1px solid #1d242e;background:#0e141c;padding:10px 14px 12px;display:flex;flex-direction:column;gap:6px}
+#bar .hint{font-size:11px;color:#4d5f70}
+#row{display:flex;gap:8px;align-items:flex-end}
+textarea{flex:1;resize:none;background:#0b1118;border:1px solid #26333f;color:#d7dee8;border-radius:10px;padding:9px 11px;font:inherit;outline:none;min-height:42px;max-height:150px}
+textarea:focus{border-color:#2563eb}
+button{background:#2563eb;color:#fff;border:0;border-radius:10px;padding:10px 18px;font:inherit;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+#toast{position:fixed;right:16px;bottom:76px;background:#1f6feb;color:#fff;padding:8px 14px;border-radius:8px;opacity:0;transition:.2s;font-size:12px}
+</style>
+<link rel="stylesheet" href="/theme.css"></head><body>
+<header>
+  <div class="ava" id="ava">🐟</div>
+  <div>
+    <div class="name" id="name">大肥鱼</div>
+    <div class="meta"><span class="dot"></span><span id="online">在线</span><span id="place"> · </span></div>
+  </div>
+  <span class="chip" id="energyChip">状态 …</span>
+  <span class="chip" id="moneyChip">💰 …</span>
+  <span class="chip" id="tokenChip">🪙 …</span>
+  <span class="chip" id="modeChip">…</span>
+  <span class="chip" id="standaloneChip" style="display:none" title="纯聊天模式可以脱离 DSH 独立运行：Node 18+ 和 DeepSeek API Key 即可；完整版仍需 DSH">🧩 可独立运行</span>
+  <div class="spacer"></div>
+  <a href="/screen" target="_blank" title="快捷键 Alt+S">屏幕</a>
+  <a href="/stage" target="_blank">舞台</a>
+  <a href="/map" target="_blank">地图</a>
+  <a href="/settings" target="_blank">设置</a>
+</header>
+<div id="list"></div>
+<div id="typing" style="display:none">对方正在输入…</div>
+<div id="bar">
+  <div class="hint">Enter 发送 · Shift+Enter 换行 · 📎 发图片</div>
+  <div id="preview" style="display:none;align-items:center;gap:8px;font-size:12px;color:#93a1b1"></div>
+  <div id="row">
+    <textarea id="input" placeholder="跟她说点什么…"></textarea>
+    <button id="attach" title="发图片" style="background:#1b2430;color:#cfdae8;border:1px solid #2a3745">📎</button>
+    <input type="file" id="file" accept="image/*" style="display:none">
+    <button id="send">发送</button>
+  </div>
+</div>
+<div id="toast"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+let lastId = 0, busy = false, outboxImage = '';
+function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function toast(t){ const el=$('#toast'); el.textContent=t; el.style.opacity=1; setTimeout(()=>el.style.opacity=0,1600); }
+function fmtTime(ts){ const d=new Date(ts||Date.now()); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function nearBottom(){ const l=$('#list'); return l.scrollHeight - l.scrollTop - l.clientHeight < 160; }
+function addMsg(m){
+  const l = $('#list');
+  if (m.role === 'system') {
+    const d = document.createElement('div');
+    d.className = 'msg system';
+    d.textContent = m.text;
+    l.appendChild(d);
+  } else {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + (m.role === 'user' ? 'user' : 'her');
+    const who = m.role === 'user' ? '你' : '她';
+    const imgHtml = m.image ? '<div style="margin-top:6px"><img src="'+esc(m.image)+'" alt="" style="max-width:260px;max-height:260px;border-radius:8px;display:block"></div>' : '';
+    wrap.innerHTML = '<div><div class="who">'+esc(who)+' · '+fmtTime(m.at)+'</div><div class="bubble">'+esc(m.text)+imgHtml+'</div></div>';
+    l.appendChild(wrap);
+  }
+  if (nearBottom()) l.scrollTop = l.scrollHeight;
+}
+async function loadHeader(){
+  try {
+    const st = await (await fetch('/api/status')).json();
+    if (st.character) {
+      $('#name').textContent = st.character.name || '她';
+      const av = st.character.avatar;
+      if (av) { $('#ava').style.backgroundImage = 'url(' + av + ')'; $('#ava').textContent = ''; }
+      else { $('#ava').style.backgroundImage = ''; $('#ava').textContent = (st.character.name || '她').slice(0,1); }
+    }
+    if (st.place) $('#place').textContent = ' · ' + st.place.icon + ' ' + st.place.name;
+    $('#energyChip').textContent = '状态 ' + (function(e){ const n = Number(e)||0; return n>=80?'精力很足':n>=55?'状态不错':n>=35?'有点累':n>=20?'挺累的':'快撑不住了'; })(st.energy);
+    let modeEff = st.mode;
+    try { const mi = await (await fetch('/api/mode')).json(); if (mi && mi.effective) modeEff = mi.effective; } catch (e) {}
+    $('#modeChip').textContent = modeEff === 'chat' ? '纯聊天' : '完整版';
+    const sc = document.getElementById('standaloneChip');
+    if (sc) sc.style.display = modeEff === 'chat' ? '' : 'none';
+    const econ = await (await fetch('/api/economy')).json();
+    const w = econ.wallet || {};
+    $('#moneyChip').textContent = '💰 ' + (w.spendable ?? w.balance ?? '…') + ' 元';
+    const tk = st.tokens || {};
+    const tc = document.getElementById('tokenChip');
+    if (tc) {
+      const rem = Number(tk.remainingTokens ?? w.remainingTokens ?? 0);
+      const today = Number(tk.dailyUsed ?? 0);
+      const fmt = (n) => n >= 1000000 ? (n / 1000000).toFixed(n >= 10000000 ? 0 : 1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+      tc.textContent = '🪙 余 ' + fmt(rem) + ' · 今日 ' + fmt(today);
+      tc.title = '剩余 token：' + rem.toLocaleString() + '\n今日已用：' + today.toLocaleString() + (tk.tokenBudget ? '\n预算：' + Number(tk.tokenBudget).toLocaleString() : '');
+    }
+  } catch (e) {}
+}
+async function poll(){
+  try {
+    const r = await (await fetch('/api/events?since=' + lastId)).json();
+    (r.messages || []).forEach((m) => { addMsg(m); lastId = Math.max(lastId, Number(m.id)||0); });
+    $('#typing').style.display = r.typing ? 'block' : 'none';
+    busy = !!r.typing;
+    $('#send').disabled = false;
+  } catch (e) {}
+}
+async function send(){
+  const inp = $('#input');
+  const text = inp.value.trim();
+  if (!text && !outboxImage) return;
+  const body = { text };
+  if (outboxImage) body.images = [outboxImage];
+  inp.value = '';
+  outboxImage = '';
+  const pv = $('#preview'); if (pv) { pv.style.display = 'none'; pv.innerHTML = ''; }
+  try {
+    const r = await fetch('/api/chat', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(body) });
+    if (!r.ok) toast('发送失败：' + r.status);
+  } catch (e) { toast('发送失败'); }
+  await poll();
+}
+document.addEventListener('keydown', (e) => {
+  if (e.altKey && (e.key === 's' || e.key === 'S')) { e.preventDefault(); window.open('/screen', '_blank'); }
+});
+$('#attach').addEventListener('click', () => $('#file').click());
+$('#file').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  if (f.size > 8 * 1024 * 1024) { toast('图片太大（<8MB）'); return; }
+  const rd = new FileReader();
+  rd.onload = () => {
+    outboxImage = String(rd.result);
+    const pv = $('#preview');
+    pv.style.display = 'flex';
+    pv.innerHTML = '<img src="' + outboxImage + '" style="width:40px;height:40px;object-fit:cover;border-radius:6px"> <span>图片已就绪</span> <button id="rmImg" style="background:#3a1d1d;color:#ff9c9c;padding:2px 8px;font-size:11px;border-radius:6px">移除</button>';
+    document.getElementById('rmImg').onclick = () => { outboxImage = ''; pv.style.display = 'none'; pv.innerHTML = ''; };
+  };
+  rd.readAsDataURL(f);
+  e.target.value = '';
+});
+$('#send').addEventListener('click', send);
+$('#input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+});
+$('#input').addEventListener('input', (e) => {
+  e.target.style.height = 'auto';
+  e.target.style.height = Math.min(150, e.target.scrollHeight) + 'px';
+});
+// 流式显示
+let liveEl = null, liveBubble = null;
+function ensureLive(){
+  if (liveEl) return;
+  const l = $('#list');
+  liveEl = document.createElement('div');
+  liveEl.className = 'msg her';
+  liveEl.innerHTML = '<div><div class="who">她 · 正在输入</div><div class="bubble" id="liveBubble"></div></div>';
+  l.appendChild(liveEl);
+  liveBubble = document.getElementById('liveBubble');
+  l.scrollTop = l.scrollHeight;
+}
+function clearLive(){
+  if (liveEl) { try { liveEl.remove(); } catch {} }
+  liveEl = null; liveBubble = null;
+}
+function initStream(){
+  try {
+    const es = new EventSource('/api/stream');
+    es.onmessage = (e) => {
+      let d;
+      try { d = JSON.parse(e.data); } catch { return; }
+      if (d.type === 'start' || d.type === 'init') { if (d.active !== false && (d.type === 'start' || d.text)) { ensureLive(); } }
+      if (d.type === 'delta') { ensureLive(); if (liveBubble) { liveBubble.textContent += d.text; const l = $('#list'); l.scrollTop = l.scrollHeight; } }
+      if (d.type === 'done') { setTimeout(clearLive, 400); }
+    };
+    es.onerror = () => {};
+  } catch (e) {}
+}
+(async function init(){
+  try {
+    const r = await (await fetch('/api/events?since=0')).json();
+    (r.messages || []).forEach((m) => { addMsg(m); lastId = Math.max(lastId, Number(m.id)||0); });
+  } catch (e) { addMsg({ role:'system', text:'运行时好像没起来：' + e.message }); }
+  await loadHeader();
+  if (!location.search.includes('nostream')) initStream();
+  setInterval(poll, 1200);
+  setInterval(loadHeader, 15000);
+  $('#input').focus();
+})();
+</script></body></html>
