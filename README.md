@@ -49,11 +49,12 @@
 插件依赖 DSH 0.2.x（桌面/网页均可）。
 
 ```bash
-# 从本地目录安装（当前推荐）
+# 从 npm 安装（已发布 0.5.7）
+dsh plugin --profile <profile> add dsh-screen-beyond
+
+# 或从本地目录安装
 dsh plugin --profile <profile> add link:<插件目录>
 ```
-
-> `dsh-screen-beyond` 尚未发布到 npm；在发布前，`dsh plugin add dsh-screen-beyond` 会失败，请先用上面的本地 `link:` 方式，或下载 GitHub Release 的压缩包。
 
 装好后重启一次 DSH，左侧栏出现「屏幕彼端」。
 
