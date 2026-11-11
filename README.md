@@ -31,7 +31,7 @@
 
 ## 安装
 
-当前版本：0.5.7。
+当前版本：0.5.8。
 
 ### 纯聊天：独立运行（不需要 DSH）
 
@@ -49,7 +49,7 @@
 插件依赖 DSH 0.2.x（桌面/网页均可）。
 
 ```bash
-# 从 npm 安装（已发布 0.5.7）
+# 从 npm 安装（已发布）
 dsh plugin --profile <profile> add dsh-screen-beyond
 
 # 或从本地目录安装
