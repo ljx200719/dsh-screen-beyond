@@ -3,10 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { MemoryStore } from './memory.mjs';
+import { SyncStore } from './sync.mjs';
+import { DataStore } from './data-store.mjs';
 
 const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url));
 const VERSION = (() => {
@@ -19,13 +21,27 @@ const HOME = process.env.USERPROFILE || process.env.HOME || '.';
 const ROOT = process.env.LINZHI_ROOT ? path.resolve(process.env.LINZHI_ROOT) : path.join(HOME, '.dsh-companion');
 const PREFERRED_PORT = Number(process.env.LINZHI_PORT) || 8900;
 const PORT_FILE = path.join(HOME, '.dsh-companion-port.json');
+// 手机端地基：设备身份 + 事件日志；不做合并，只提供受令牌保护的同步协议。
+const SYNC = new SyncStore(path.join(ROOT, 'sync'), { deviceName: os.hostname() });
 let LISTEN_PORT = 0;
 fs.mkdirSync(ROOT, { recursive: true });
 fs.mkdirSync(path.join(ROOT, 'data'), { recursive: true });
+const DATA = new DataStore(ROOT, { deviceId: SYNC.deviceId });
 
 // ---------- utils ----------
-function readJson(file, dflt) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return dflt; } }
-function writeJson(file, obj) { try { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(obj, null, 1), 'utf8'); } catch {} }
+function readJson(file, dflt) { return DATA.readJson(file, dflt); }
+function writeJson(file, obj, meta) { try { return DATA.writeJson(file, obj, meta); } catch { return false; } }
+function writeText(file, text) { try { return DATA.writeText(file, text); } catch { return false; } }
+function guardRev(res, entity, id, expected) {
+  if (expected === undefined || expected === null || expected === '') return true;
+  const cur = DATA.revisionFor(entity, id);
+  const have = cur ? Number(cur.rev) : 0;
+  if (Number(expected) !== have) {
+    json(res, 409, { ok: false, error: '版本冲突：数据已被修改，请刷新后再试', entity, id, expectedRev: Number(expected), currentRev: have });
+    return false;
+  }
+  return true;
+}
 function readBody(req) { return new Promise((resolve, reject) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > 40 * 1024 * 1024) req.destroy(); }); req.on('end', () => resolve(b)); req.on('error', reject); }); }
 const pad2 = (n) => String(n).padStart(2, '0');
 const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
@@ -52,7 +68,7 @@ function loadLife() {
   const l = CONFIG.life || {};
   return { ...LIFE_DEFAULT, ...l, schedules: Array.isArray(l.schedules) ? l.schedules : LIFE_DEFAULT.schedules, activities: Array.isArray(l.activities) ? l.activities : LIFE_DEFAULT.activities };
 }
-function saveLife(life) { CONFIG.life = life; saveConfig(); return life; }
+function saveLife(life) { CONFIG.life = life; saveConfig(); try { DATA.track('life', ACTIVE_CHAR, null, life); } catch {} try { SYNC.record('life.set', 'life', ACTIVE_CHAR, life); } catch {} return life; }
 
 const ENV_DEFAULT = { pc: 'gui', space: 'gui', phone: 'gui', confirmDanger: true, selfStart: 'deny' };
 function loadEnv() { return { ...ENV_DEFAULT, ...(CONFIG.env || {}) }; }
@@ -149,6 +165,7 @@ function petStatusPayload() {
     character: { id: ACTIVE_CHAR, name: meta.name || '', avatar: '/api/pet/avatar?v=' + (() => { try { return Math.floor(fs.statSync(avatarPath()).mtimeMs); } catch { return 0; } })() },
     place: { id: cur.placeId, name: cur.name, icon: cur.icon || '' },
     state,
+    transport: cur.traveling ? (cur.traveling.modeLabel || '') : (cur.intercity ? (cur.intercity.modeLabel || '') : ''),
     activity: currentActivityLabel() || '',
     energy: energyWord(energy),
     tokens: (() => { try { return tokenStats(); } catch { return null; } })(),
@@ -226,7 +243,7 @@ function loadMeta() {
   const m = readJson(metaPath(), {});
   return { ...META_DEFAULT, ...m, traits: { ...META_DEFAULT.traits, ...(m.traits || {}) }, examples: Array.isArray(m.examples) ? m.examples : META_DEFAULT.examples, avatar: fs.existsSync(avatarPath()) ? '/avatar.png' : '/default-avatar.png' };
 }
-function saveMeta(meta) { writeJson(metaPath(), meta); }
+function saveMeta(meta) { writeJson(metaPath(), meta, { entity: 'character', entityId: ACTIVE_CHAR }); try { SYNC.record('character.meta.upsert', 'character', ACTIVE_CHAR, meta); } catch {} }
 function loadPersonaBody() { try { return fs.readFileSync(personaPath(), 'utf8'); } catch { return PERSONA_DEFAULT; } }
 
 let messages = [];
@@ -235,17 +252,21 @@ let summary = { text: '', upto: 0 };
 function loadMessages() {
   messages = readJson(messagesPath(), []);
   if (!Array.isArray(messages)) messages = [];
+  let changed = false;
+  for (const m of messages) { if (m && !m.uid) { m.uid = randomUUID(); changed = true; } }
   nextId = messages.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1;
   summary = readJson(summaryPath(), { text: '', upto: 0 });
+  if (changed) { try { writeJson(messagesPath(), messages, { entity: 'messages', entityId: ACTIVE_CHAR }); } catch {} }
 }
 function addMessage(role, text, image, opts) {
   const clean = role === 'her' ? herText(text) : String(text);
-  const msg = { id: nextId++, role, text: String(clean), at: Date.now() };
+  const msg = { id: nextId++, uid: randomUUID(), role, text: String(clean), at: Date.now() };
   if (image) msg.image = String(image);
   if (opts && opts.hidden) msg.hidden = true;
   messages.push(msg);
   if (messages.length > 800) messages = messages.slice(-600);
-  writeJson(messagesPath(), messages);
+  writeJson(messagesPath(), messages, { entity: 'messages', entityId: ACTIVE_CHAR });
+  try { SYNC.record('message.append', 'message', msg.id, msg); } catch {}
   return msg;
 }
 
@@ -256,6 +277,14 @@ function initMemory() {
     halfLifeDays: Number((CONFIG.memory || {}).halfLifeDays) || 5,
     forgetThreshold: Number((CONFIG.memory || {}).forgetThreshold) || 0.12,
     maxInjected: Number((CONFIG.memory || {}).maxInjected) || 8,
+    writeJson: (file, data) => writeJson(file, data),
+    writeText: (file, text) => writeText(file, text),
+    onSave: (ev) => {
+      try {
+        if (ev.kind === 'memory.facts') DATA.track('memory-facts', ACTIVE_CHAR, ev.file, ev.data);
+        else if (ev.kind === 'diary') DATA.track('diary', ACTIVE_CHAR + ':' + ev.date, ev.file, ev.data);
+      } catch {}
+    },
   });
 }
 function snapshotCharacterWorld() {
@@ -286,6 +315,7 @@ function activateCharacter(id) {
   restoreCharacterWorld(id, !switching);
   saveConfig();
   loadMessages(); initMemory();
+  try { SYNC.record('character.switch', 'character', id, { id, name: (() => { try { return loadMeta().name || ''; } catch { return ''; } })() }); } catch {}
   // 首次创建：写入默认人设
   if (!fs.existsSync(path.join(dir, 'meta.json'))) saveMeta({ ...META_DEFAULT });
   if (!fs.existsSync(path.join(dir, 'persona.md'))) fs.writeFileSync(path.join(dir, 'persona.md'), PERSONA_DEFAULT, 'utf8');
@@ -375,11 +405,24 @@ function loadMaps() {
   if (CONFIG.map && Array.isArray(CONFIG.map.places) && CONFIG.map.places.length) return [fix({ id: 'map-main', name: CONFIG.map.name || '小鱼镇', places: CONFIG.map.places })];
   return [{ id: 'map-main', name: '小鱼镇', places: DEFAULT_PLACES.map((p) => ({ ...p })), widthMeters: 2000, transport: 'auto', theme: 'town', displayMode: '2d', image: { url: '/official-map.jpg' } }];
 }
-function saveMaps(maps) { CONFIG.maps = maps; try { snapshotCharacterWorld(); } catch {} saveConfig(); }
+function saveMaps(maps) {
+  CONFIG.maps = maps;
+  try { snapshotCharacterWorld(); } catch {}
+  saveConfig();
+  try {
+    const entries = [['maps', ACTIVE_CHAR, null, maps]];
+    for (const map of (Array.isArray(maps) ? maps : [])) {
+      for (const place of (map.places || [])) entries.push(['place', String(map.id) + ':' + String(place.id), null, place]);
+      for (let i = 0; i < (map.roads || []).length; i++) entries.push(['road', String(map.id) + ':' + i, null, map.roads[i]]);
+    }
+    DATA.trackMany(entries);
+  } catch {}
+  try { SYNC.record('maps.replace', 'maps', ACTIVE_CHAR, { maps }); } catch {}
+}
 function activeMapId() { const ids = loadMaps().map((m) => m.id); return ids.includes(CONFIG.activeMapId) ? CONFIG.activeMapId : ids[0]; }
 function getActiveMap() { const maps = loadMaps(); return maps.find((m) => m.id === activeMapId()) || maps[0]; }
 function loadLocation() { const l = CONFIG.location || {}; return { ...l, mapId: l.mapId || '', placeId: l.placeId || 'home', since: Number(l.since) || Date.now(), manual: !!l.manual }; }
-function saveLocation(loc) { CONFIG.location = loc; try { snapshotCharacterWorld(); } catch {} saveConfig(); }
+function saveLocation(loc) { CONFIG.location = loc; try { snapshotCharacterWorld(); } catch {} saveConfig(); try { DATA.track('location', ACTIVE_CHAR, null, loc); } catch {} try { SYNC.record('location.set', 'location', ACTIVE_CHAR, loc); } catch {} }
 function placeOf(map, id) { return map.places.find((p) => p.id === id) || map.places[0]; }
 
 function routeOnRoads(map, from, to) {
@@ -727,7 +770,7 @@ function loadEconomy() {
   const moneyType = e.moneyType === 'token' || e.tokenMode === true ? 'token' : 'virtual';
   return { ...ECONOMY_DEFAULT, ...e, moneyType, transportBase: { ...ECONOMY_DEFAULT.transportBase, ...(e.transportBase || {}) }, transportPerKm: { ...ECONOMY_DEFAULT.transportPerKm, ...(e.transportPerKm || {}) } };
 }
-function saveEconomy(e) { CONFIG.economy = e; saveConfig(); return e; }
+function saveEconomy(e) { CONFIG.economy = e; saveConfig(); try { DATA.track('economy', ACTIVE_CHAR, null, e); } catch {} try { SYNC.record('economy.set', 'economy', ACTIVE_CHAR, e); } catch {} return e; }
 function readWalletRaw() { return readJson(walletPath(), {}); }
 function writeWalletRaw(w) { writeJson(walletPath(), w); }
 function loadWallet() {
@@ -1479,7 +1522,7 @@ function buildSystemPrompt(userText) {
     }
   } } catch {}
   try { if (!walletMoney().tokenMode) parts.push('## 不要提 token\n你现在用的是虚拟货币，不是 token 计费。聊天里不要主动提 token、API、余额、计费这些词；你只知道自己的钱够不够花。'); } catch {}
-  parts.push(`你现在在「${cur.traveling ? cur.name + '的路上' : cur.name}」（${cur.placeName || cur.name || ''}）` + (cur.traveling ? `，正从${cur.traveling.fromName}过去，还有约${Math.ceil(cur.traveling.etaSec / 60)}分钟` : cur.intercity ? `，正在跨城路上` : `，已经待了约${cur.minutes || 0}分钟`));
+  parts.push(`你现在在「${cur.traveling ? cur.name + '的路上' : cur.name}」（${cur.placeName || cur.name || ''}）` + (cur.traveling ? `，${['步行','骑车','自驾'].includes(cur.traveling.modeLabel) ? '正在' + cur.traveling.modeLabel : '正坐' + (cur.traveling.modeLabel || '车')}从${cur.traveling.fromName}过去，还有约${Math.ceil(cur.traveling.etaSec / 60)}分钟` : cur.intercity ? `，${['步行','骑车','自驾'].includes(cur.intercity.modeLabel) ? '正在' + cur.intercity.modeLabel : '正坐' + (cur.intercity.modeLabel || '车')}跨城路上` : `，已经待了约${cur.minutes || 0}分钟`));
   if (cur.desc) parts.push('这个地方：' + cur.desc);
   if (cur.feel) parts.push('你对这里的感受：' + cur.feel);
   const hint = scheduleHint(now);
@@ -2035,15 +2078,63 @@ function pruneUploadFiles(dir, prefix, keep = 3) {
 }
 
 // ---------- server ----------
+function syncHeaderToken(req) {
+  const auth = String((req.headers && req.headers.authorization) || '');
+  if (auth.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim();
+  return String((req.headers && req.headers['x-sync-token']) || '').trim();
+}
+function syncAuthorized(req) { return SYNC.verifyToken(syncHeaderToken(req)); }
+function syncJson(res, status, obj) {
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type,x-sync-token' });
+  res.end(JSON.stringify(obj));
+}
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   try {
-    if (req.method === 'OPTIONS') { json(res, 204, {}); return; }
+    if (req.method === 'OPTIONS') {
+      res.setHeader('access-control-allow-origin', '*');
+      res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
+      res.setHeader('access-control-allow-headers', 'authorization,content-type,x-sync-token');
+      json(res, 204, {});
+      return;
+    }
     // POST /api/*：先把 JSON 解析好；坏 JSON 直接 400，不进入业务逻辑
     if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
       const raw = await readBody(req);
       try { req._json = raw.trim() ? JSON.parse(raw) : {}; }
       catch { json(res, 400, { ok: false, error: '请求格式不正确' }); return; }
+    }
+    // ---------- 手机端同步地基（v1，仅协议 + 事件日志；合并尚未实现） ----------
+    if (req.method === 'GET' && url.pathname === '/api/data/revisions') {
+      const ip = String(req.socket.remoteAddress || '');
+      if (!(ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) { syncJson(res, 403, { ok: false, error: 'only loopback' }); return; }
+      syncJson(res, 200, DATA.getRevisions());
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/sync/local') {
+      const ip = String(req.socket.remoteAddress || '');
+      if (!(ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) { syncJson(res, 403, { ok: false, error: 'only loopback' }); return; }
+      syncJson(res, 200, { ...SYNC.getInfo(), token: SYNC.token });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/sync/info') {
+      if (!syncAuthorized(req)) { syncJson(res, 401, { ok: false, error: 'unauthorized' }); return; }
+      syncJson(res, 200, SYNC.getInfo());
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/sync/events') {
+      if (!syncAuthorized(req)) { syncJson(res, 401, { ok: false, error: 'unauthorized' }); return; }
+      const since = Number(url.searchParams.get('since') || 0);
+      const limit = Number(url.searchParams.get('limit') || 500);
+      syncJson(res, 200, { ok: true, apiVersion: 1, events: SYNC.eventsSince(since, limit) });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/sync/events') {
+      if (!syncAuthorized(req)) { syncJson(res, 401, { ok: false, error: 'unauthorized' }); return; }
+      const b = (req._json || {});
+      const r = SYNC.acceptRemote(b.events || b);
+      syncJson(res, 200, { ok: true, apiVersion: 1, ...r });
+      return;
     }
     // pages
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) return servePage(res, 'chat.html');
@@ -2329,6 +2420,7 @@ function importMemoryItems(raw) {
 
     if (req.method === 'POST' && url.pathname === '/api/memory/import') {
       const b = (req._json || {});
+      if (!guardRev(res, 'memory-facts', ACTIVE_CHAR, b.expectedRev)) return;
       const raw = String(b.text || '').slice(0, 300000);
       if (!raw.trim()) { json(res, 400, { ok: false, error: '导入内容为空' }); return; }
       const items = importMemoryItems(raw);
@@ -2355,11 +2447,12 @@ function importMemoryItems(raw) {
     }
     if (req.method === 'GET' && url.pathname === '/api/memory') {
       MEM.decay();
-      json(res, 200, { stats: MEM.stats(), params: MEM.cfg, facts: MEM.facts.filter((f) => !f.archived), archived: MEM.facts.filter((f) => f.archived), diaryDates: MEM.listDiaries() });
+      json(res, 200, { stats: MEM.stats(), params: MEM.cfg, facts: MEM.facts.filter((f) => !f.archived), archived: MEM.facts.filter((f) => f.archived), diaryDates: MEM.listDiaries(), rev: DATA.revisionFor('memory-facts', ACTIVE_CHAR) });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/memory/pin') {
       const b = (req._json || {});
+      if (!guardRev(res, 'memory-facts', ACTIVE_CHAR, b.expectedRev)) return;
       const f = MEM.facts.find((x) => Number(x.id) === Number(b.id));
       if (f) { f.pinned = !f.pinned; if (f.pinned) f.strength = 1; MEM.save(); }
       json(res, 200, { ok: true });
@@ -2367,6 +2460,7 @@ function importMemoryItems(raw) {
     }
     if (req.method === 'POST' && url.pathname === '/api/memory/delete') {
       const b = (req._json || {});
+      if (!guardRev(res, 'memory-facts', ACTIVE_CHAR, b.expectedRev)) return;
       MEM.facts = MEM.facts.filter((x) => Number(x.id) !== Number(b.id)); MEM.save();
       json(res, 200, { ok: true });
       return;
@@ -2378,16 +2472,20 @@ function importMemoryItems(raw) {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/persona') {
-      json(res, 200, { meta: { ...loadMeta(), avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + fs.statSync(avatarPath()).mtimeMs : '/default-avatar.png' }, body: loadPersonaBody() });
+      json(res, 200, { meta: { ...loadMeta(), avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + fs.statSync(avatarPath()).mtimeMs : '/default-avatar.png' }, body: loadPersonaBody(), rev: DATA.revisionFor('character', ACTIVE_CHAR), personaRev: DATA.revisionFor('persona', ACTIVE_CHAR) });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/persona') {
       const b = (req._json || {});
+      if (!guardRev(res, 'character', ACTIVE_CHAR, b.expectedRev)) return;
       const meta = { ...loadMeta(), ...(b.meta || {}) };
       delete meta.avatar;
       saveMeta(meta);
-      if (typeof b.body === 'string') fs.writeFileSync(personaPath(), b.body, 'utf8');
-      json(res, 200, { ok: true, meta: { ...loadMeta(), avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + Date.now() : '/default-avatar.png' }, body: loadPersonaBody() });
+      if (typeof b.body === 'string') {
+        writeText(personaPath(), b.body);
+        try { DATA.track('persona', ACTIVE_CHAR, personaPath(), b.body); } catch {}
+      }
+      json(res, 200, { ok: true, meta: { ...loadMeta(), avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + Date.now() : '/default-avatar.png' }, body: loadPersonaBody(), rev: DATA.revisionFor('character', ACTIVE_CHAR), personaRev: DATA.revisionFor('persona', ACTIVE_CHAR) });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/avatar') {
@@ -2397,6 +2495,7 @@ function importMemoryItems(raw) {
       if (!r.ok) { json(res, 400, { ok: false, error: r.error }); return; }
       fs.copyFileSync(path.join(ROOT, 'models', path.basename(r.url)), avatarPath());
       pruneUploadFiles(path.join(ROOT, 'models'), 'avatar-', 3);
+      try { DATA.track('avatar', ACTIVE_CHAR, avatarPath(), { avatar: true }); } catch {}
       json(res, 200, { ok: true, avatar: '/avatar.png?t=' + Date.now() });
       return;
     }
@@ -2543,6 +2642,8 @@ function importMemoryItems(raw) {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/pet/status') {
+      // 余额刷新放后台：DeepSeek 余额接口偶尔慢，不能拖住桌宠 700ms/次的切人检测
+      try { if (!REAL_BALANCE.at || Date.now() - Number(REAL_BALANCE.at) > 60000) refreshRealBalance().catch(() => {}); } catch {}
       json(res, 200, petStatusPayload());
       return;
     }
@@ -2563,7 +2664,11 @@ function importMemoryItems(raw) {
       const action = String(b.action || '');
       const manifest = loadPetCfg();
       let prompt = '';
-      if (action === 'look') prompt = '（桌宠按钮）用 pc 工具看看我的屏幕，然后用一句话告诉我你看到了什么。';
+      if (action === 'look') {
+        let selfName = '你自己';
+        try { selfName = loadMeta().name || selfName; } catch {}
+        prompt = `（桌宠按钮）用 pc 工具看看我的屏幕，然后用一句话告诉我你看到了什么。屏幕上可能出现${selfName}自己——桌宠、聊天头像、舞台上的小人、地图上的角色，都是你在屏幕上的样子，不要把自己当成别人或陌生角色。`;
+      }
       else if (action === 'chat') { json(res, 200, { ok: true, action: 'chat', prompt: '' }); return; }
       else if (action === 'gesture') {
         const g = (manifest.gestures || []).find((x) => x.id === String(b.gestureId || ''));
@@ -2787,6 +2892,7 @@ function importMemoryItems(raw) {
     }
     if (req.method === 'POST' && url.pathname === '/api/map') {
       const b = (req._json || {});
+      if (!guardRev(res, 'maps', ACTIVE_CHAR, b.expectedRev)) return;
       const maps = loadMaps();
       const id = String(b.mapId || activeMapId());
       const m = maps.find((x) => x.id === id);
@@ -3159,7 +3265,9 @@ async function watchScreenTick() {
     if (!w.nextAt) { saveWatchScreen({ nextAt: Date.now() + Math.round((Number(w.minMinutes) || 20) * 60000) }); return; }
     if (Date.now() < Number(w.nextAt)) return;
     saveWatchScreen({ nextAt: Date.now() + Math.round((Number(w.minMinutes) || 20) * 60000 * (0.8 + Math.random() * 0.4)) });
-    const prompt = '（她有点好奇你在做什么，趁你不注意悄悄瞥了一眼你的屏幕。用 pc 工具看看；如果看到值得说的事就自然地说一句，如果没什么特别就别说。不要提“截图”“桌宠按钮”或这条提示。）';
+    let selfName = '你自己';
+    try { selfName = loadMeta().name || selfName; } catch {}
+    const prompt = `（她有点好奇你在做什么，趁你不注意悄悄瞥了一眼你的屏幕。用 pc 工具看看；如果看到值得说的事就自然地说一句，如果没什么特别就别说。屏幕上可能出现${selfName}自己——桌宠、聊天头像、舞台上的小人、地图上的角色，都是你在屏幕上的样子，不要把自己当成别人。不要提“截图”“桌宠按钮”或这条提示。）`;
     addMessage('user', prompt, null, { hidden: true });
     await generateReply(prompt);
   } catch {}

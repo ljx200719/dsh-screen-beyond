@@ -1,12 +1,12 @@
 # 屏幕彼端 · Screen Beyond
 
-> 一个住在屏幕另一端的 AI 小伙伴。她能聊天、记事、过日子，也能拥有自己的屏幕和手机。
+> 住在屏幕彼端的ta。她能聊天、记事、过日子，也能拥有自己的屏幕和手机。
 
 ## 一句话简介
 
-**中文**：住在屏幕另一端的 AI 小伙伴：人设、记忆、日记、生活作息、地图舞台、桌面桌宠，以及她自己的虚拟屏幕和安卓手机；纯聊天模式可脱离 DSH 独立运行。早期版本，可能还有一些奇怪的小 bug，欢迎反馈。
+**中文**：住在屏幕彼端的ta：人设、记忆、日记、生活作息、地图舞台、桌面桌宠，以及她自己的虚拟屏幕和安卓手机；纯聊天模式可脱离 DSH 独立运行。早期版本，可能还有一些奇怪的小 bug，欢迎反馈。
 
-**English**：An AI companion who lives on the other side of your screen: persona, memory, diary, daily routines, maps and a stage, a desktop pet, and her own virtual screen and Android phone. The chat-only mode runs standalone without DSH. Early release — a few odd bugs may remain; reports are welcome.
+**English**：The one on the other side of your screen: persona, memory, diary, daily routines, maps and a stage, a desktop pet, and her own virtual screen and Android phone. The chat-only mode runs standalone without DSH. Early release — a few odd bugs may remain; reports are welcome.
 
 ## 三种用法
 
@@ -54,5 +54,5 @@ MIT License。商用、修改、再发布都可以，保留版权和许可声明
 
 ## 链接
 
-- 仓库：`https://github.com/<owner>/dsh-screen-beyond`（发布时替换）
+- 仓库：`https://github.com/ljx200719/dsh-screen-beyond`
 - 更新：见 GitHub Releases

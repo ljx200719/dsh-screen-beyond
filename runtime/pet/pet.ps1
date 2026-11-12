@@ -364,6 +364,16 @@ function Refresh-Status() {
     return
   }
   $script:status = $st
+  # 切角色兜底：char-watch 计时器偶尔漏拍时，状态轮询也能触发换形象
+  try {
+    if ($st.character -and $st.character.id -and ([string]$st.character.id -ne [string]$script:petCharId)) {
+      $script:petCharId = [string]$st.character.id
+      $script:bubbleUntil = [DateTime]::MinValue
+      $script:lastBubbleId = 0
+      Load-Manifest
+      Update-Image 'idle'
+    }
+  } catch {}
   if ($st.character -and $st.character.avatar -and $st.character.avatar -ne $script:lastAvatarUrl) {
     $script:lastAvatarUrl = $st.character.avatar
     Update-Image
@@ -382,7 +392,7 @@ function Refresh-Status() {
     }
   }
   $loc = ''; if ($st.place) { $loc = [string]$st.place.icon + ' ' + [string]$st.place.name }
-  $act = if ($st.activity) { [string]$st.activity } elseif ($st.state -eq 'traveling') { '在路上' } elseif ($st.state -eq 'intercity') { '出远门' } else { '待着' }
+  $act = if ($st.state -eq 'traveling' -or $st.state -eq 'intercity') { if ($st.transport) { $tr = [string]$st.transport; if ($tr -eq '步行' -or $tr -eq '骑车' -or $tr -eq '自驾') { '正在' + $tr } else { '正在坐' + $tr } } elseif ($st.state -eq 'traveling') { '在路上' } else { '出远门' } } elseif ($st.activity) { [string]$st.activity } else { '待着' }
   $en = if ($st.energy) { [string]$st.energy } else { '' }
   # 名字/地点/状态/精力必须随当前角色立即更新，不能被气泡计时挡住
   try {
@@ -796,7 +806,7 @@ $script:uiAnimTimer.Add_Tick({
   } catch {}
 })
 $script:charWatchTimer = New-Object System.Windows.Threading.DispatcherTimer
-$script:charWatchTimer.Interval = [TimeSpan]::FromMilliseconds(700)
+$script:charWatchTimer.Interval = [TimeSpan]::FromMilliseconds(300)
 $script:charWatchTimer.Add_Tick({
   try {
     $st = ApiGet '/api/pet/status'

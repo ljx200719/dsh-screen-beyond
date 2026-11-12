@@ -1,4 +1,4 @@
-﻿# 从备份恢复（会覆盖当前插件与角色数据）
+# 从备份恢复（会覆盖当前插件与角色数据）
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File scripts\restore.ps1 -BackupDir "备份目录"
 param(
@@ -40,6 +40,7 @@ $data = Join-Path $BackupDir 'data'
 if (Test-Path $data) {
   New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
   if (Test-Path (Join-Path $data 'config.json')) { Copy-Item (Join-Path $data 'config.json') $DataRoot -Force }
+  if (Test-Path (Join-Path $data 'sync')) { Copy-Item (Join-Path $data 'sync') (Join-Path $DataRoot 'sync') -Recurse -Force }
   if (Test-Path (Join-Path $data 'characters')) {
     New-Item -ItemType Directory -Force -Path (Join-Path $DataRoot 'data') | Out-Null
     Copy-Item (Join-Path $data 'characters') (Join-Path $DataRoot 'data') -Recurse -Force

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 // 记忆系统：事实卡 + 遗忘/强化 + 每日日记
 // 设计要点：
@@ -23,13 +24,26 @@ export class MemoryStore {
     fs.mkdirSync(this.dir, { recursive: true });
     fs.mkdirSync(this.diaryDir, { recursive: true });
     this.file = path.join(this.dir, 'facts.json');
+    this.writeJson = typeof cfg.writeJson === 'function' ? cfg.writeJson : null;
+    this.writeText = typeof cfg.writeText === 'function' ? cfg.writeText : null;
+    this.onSave = typeof cfg.onSave === 'function' ? cfg.onSave : null;
     this.facts = this.load();
   }
 
   load() {
-    try { const a = JSON.parse(fs.readFileSync(this.file, 'utf8')); return Array.isArray(a) ? a : []; } catch { return []; }
+    let a = [];
+    try { const raw = JSON.parse(fs.readFileSync(this.file, 'utf8')); a = Array.isArray(raw) ? raw : []; } catch { a = []; }
+    let changed = false;
+    for (const f of a) { if (f && !f.uid) { f.uid = randomUUID(); changed = true; } }
+    this.facts = a;
+    if (changed) { try { this.save(); } catch {} }
+    return a;
   }
-  save() { fs.writeFileSync(this.file, JSON.stringify(this.facts, null, 1), 'utf8'); }
+  save() {
+    if (this.writeJson) this.writeJson(this.file, this.facts);
+    else fs.writeFileSync(this.file, JSON.stringify(this.facts, null, 1), 'utf8');
+    if (this.onSave) { try { this.onSave({ kind: 'memory.facts', file: this.file, data: this.facts }); } catch {} }
+  }
 
   setParams(params = {}) {
     for (const k of ['halfLifeDays', 'forgetThreshold', 'reinforceBoost', 'maxInjected', 'coreStrength', 'maxPromptChars']) {
@@ -76,7 +90,7 @@ export class MemoryStore {
         added.push({ merged: true, id: existing.id, text: existing.text, strength: existing.strength });
       } else {
         const f = {
-          id: this.nextId(), text, tags,
+          id: this.nextId(), uid: randomUUID(), text, tags,
           importance,
           strength: Math.min(1, 0.35 + importance * 0.5),
           createdAt: now, lastSeenAt: now, hitCount: 1,
@@ -193,8 +207,12 @@ export class MemoryStore {
   hasDiary(date) { return fs.existsSync(this.diaryPath(date)); }
   readDiary(date) { try { return fs.readFileSync(this.diaryPath(date), 'utf8'); } catch { return ''; } }
   writeDiary(date, text) {
-    fs.writeFileSync(this.diaryPath(date), String(text).trim() + '\n', 'utf8');
-    return this.diaryPath(date);
+    const file = this.diaryPath(date);
+    const body = String(text).trim() + '\n';
+    if (this.writeText) this.writeText(file, body);
+    else fs.writeFileSync(file, body, 'utf8');
+    if (this.onSave) { try { this.onSave({ kind: 'diary', date: String(date), file, data: body }); } catch {} }
+    return file;
   }
   listDiaries(limit = 60) {
     try {
