@@ -160,6 +160,14 @@ function petStatusPayload() {
 const MODEL_DEFAULT = { name: 'deepseek-flash', reasoningEffort: 'low', temperature: 0.9, maxTokens: 900, maxSteps: 20 };
 function loadModelCfg() { return { ...MODEL_DEFAULT, ...(CONFIG.model || {}) }; }
 function saveModelCfg(m) { CONFIG.model = m; saveConfig(); return m; }
+const WATCH_DEFAULT = { enabled: false, minMinutes: 20, maxMinutes: 40, nextAt: 0 };
+function loadWatchScreen() { return { ...WATCH_DEFAULT, ...(CONFIG.watchScreen || {}) }; }
+function saveWatchScreen(patch) {
+  const cur = loadWatchScreen(); const next = { ...cur, ...(patch || {}) };
+  if (next.enabled && !cur.enabled) next.nextAt = Date.now() + Math.round((Number(next.minMinutes) || 20) * 60000 * (0.8 + Math.random() * 0.4));
+  if (!next.enabled) next.nextAt = 0;
+  CONFIG.watchScreen = next; saveConfig(); return next;
+}
 
 const CONTEXT_DEFAULT = { historyMode: 'full', memoryInject: 8 };
 function loadContext() { return { ...CONTEXT_DEFAULT, ...(CONFIG.context || {}) }; }
@@ -230,10 +238,11 @@ function loadMessages() {
   nextId = messages.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1;
   summary = readJson(summaryPath(), { text: '', upto: 0 });
 }
-function addMessage(role, text, image) {
+function addMessage(role, text, image, opts) {
   const clean = role === 'her' ? herText(text) : String(text);
   const msg = { id: nextId++, role, text: String(clean), at: Date.now() };
   if (image) msg.image = String(image);
+  if (opts && opts.hidden) msg.hidden = true;
   messages.push(msg);
   if (messages.length > 800) messages = messages.slice(-600);
   writeJson(messagesPath(), messages);
@@ -2263,7 +2272,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/api/events') {
       const since = Number(url.searchParams.get('since') || 0);
-      json(res, 200, { messages: messages.filter((m) => Number(m.id) > since), typing, lastTurnAt, usage: lastUsage, mode: effectiveMode() });
+      json(res, 200, { messages: messages.filter((m) => Number(m.id) > since && !m.hidden), typing, lastTurnAt, usage: lastUsage, mode: effectiveMode() });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/chat') {
@@ -2561,7 +2570,7 @@ function importMemoryItems(raw) {
         prompt = String((g && g.prompt) || b.prompt || '（你碰了碰她）');
       } else prompt = String(b.prompt || '');
       if (!prompt) { json(res, 400, { ok: false, error: '缺少 prompt' }); return; }
-      addMessage('user', prompt);
+      addMessage('user', prompt, null, action === 'look' ? { hidden: true } : undefined);
       generateReply(buildUserTurnText(prompt, ''));
       json(res, 200, { ok: true, action: action || 'gesture', prompt });
       return;
@@ -2978,6 +2987,17 @@ function importMemoryItems(raw) {
       req.on('close', () => { streamClients.delete(res); });
       return;
     }
+    if (req.method === 'GET' && url.pathname === '/api/watch-screen') { json(res, 200, { ok: true, watch: loadWatchScreen() }); return; }
+    if (req.method === 'POST' && url.pathname === '/api/watch-screen') {
+      const b = (req._json || {});
+      const patch = {};
+      if (typeof b.enabled === 'boolean') patch.enabled = b.enabled;
+      if (Number.isFinite(Number(b.minMinutes))) patch.minMinutes = Math.min(120, Math.max(5, Math.round(Number(b.minMinutes))));
+      if (Number.isFinite(Number(b.maxMinutes))) patch.maxMinutes = Math.min(240, Math.max(10, Math.round(Number(b.maxMinutes))));
+      if (patch.minMinutes !== undefined && patch.maxMinutes !== undefined && patch.maxMinutes < patch.minMinutes) patch.maxMinutes = patch.minMinutes;
+      json(res, 200, { ok: true, watch: saveWatchScreen(patch) });
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/api/stage') { json(res, 200, stagePayload()); return; }
     if (req.method === 'GET' && url.pathname === '/api/stage/stream') {
       res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive', 'access-control-allow-origin': '*' });
@@ -3003,7 +3023,7 @@ function stagePayload() {
   const w = WEATHERS[weather.kind] || WEATHERS.sunny;
   const state = cur.intercity ? 'intercity' : (cur.traveling ? 'traveling' : 'stationary');
   let wallet = null;
-  try { const m = walletMoney(); wallet = { balance: m.wallet.balance, spendable: m.spendable, tokenMode: m.tokenMode, remainingTokens: m.remainingTokens, moneyType: m.moneyType }; } catch {}
+  try { const m = walletMoney(); const t = tokenStats(); wallet = { balance: m.wallet.balance, spendable: m.spendable, tokenMode: m.tokenMode, remainingTokens: m.remainingTokens, moneyType: m.moneyType, realRmb: m.realRmb, realBalanceKnown: m.realBalanceKnown, dailyUsed: t.dailyUsed, usedTokens: t.usedTokens, tokenBudget: t.tokenBudget }; } catch {}
   return {
     ok: true, apiVersion: 1, serverTime: Date.now(),
     character: { id: ACTIVE_CHAR, name: meta.name || '', avatar: fs.existsSync(avatarPath()) ? '/avatar.png' : '/default-avatar.png', sprite: meta.sprite || '/pet-sprite/idle.png', chibi: meta.chibi || null, model: meta.model || { type: 'none', url: '', scale: 1 }, age: Number(meta.age) || null, license: meta.license === true },
@@ -3129,4 +3149,21 @@ function boot() {
   }, 60 * 1000).unref?.();
   tryListen(PREFERRED_PORT);
 }
+async function watchScreenTick() {
+  try {
+    const w = loadWatchScreen();
+    if (!w.enabled || typing || busy) return;
+    const env = loadEnv();
+    if (env.pc === 'off') return;
+    try { if (!kernelState()) return; } catch { return; }
+    if (!w.nextAt) { saveWatchScreen({ nextAt: Date.now() + Math.round((Number(w.minMinutes) || 20) * 60000) }); return; }
+    if (Date.now() < Number(w.nextAt)) return;
+    saveWatchScreen({ nextAt: Date.now() + Math.round((Number(w.minMinutes) || 20) * 60000 * (0.8 + Math.random() * 0.4)) });
+    const prompt = '（她有点好奇你在做什么，趁你不注意悄悄瞥了一眼你的屏幕。用 pc 工具看看；如果看到值得说的事就自然地说一句，如果没什么特别就别说。不要提“截图”“桌宠按钮”或这条提示。）';
+    addMessage('user', prompt, null, { hidden: true });
+    await generateReply(prompt);
+  } catch {}
+}
+setInterval(watchScreenTick, 60 * 1000).unref?.();
+
 boot();

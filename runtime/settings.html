@@ -247,7 +247,7 @@ html[data-theme="lavender"] #toast{background:#8877c9}
       <a href="#tutorial" data-tab="tutorial"><span>📖</span>教程</a>
     </nav>
     <div class="themeBox"><div class="themeLabel">配色</div><div class="themeDots" id="themeDots"></div></div>
-    <div class="sidefoot">v0.6.1 · <span id="sideMode">…</span><br><a href="/screen" target="_blank" style="color:#3b82f6;text-decoration:none;margin-right:10px">看屏幕</a><a href="/" style="color:#3b82f6;text-decoration:none">回到聊天</a></div>
+    <div class="sidefoot">v0.6.2 · <span id="sideMode">…</span><br><a href="/screen" target="_blank" style="color:#3b82f6;text-decoration:none;margin-right:10px">看屏幕</a><a href="/" style="color:#3b82f6;text-decoration:none">回到聊天</a></div>
   </aside>
 
   <div class="main">
@@ -392,7 +392,7 @@ function renderNavAva(){
   if(av){ a.style.backgroundImage = 'url(' + av + ')'; a.textContent = ''; }
   else { a.style.backgroundImage=''; a.textContent = (PERSONA.meta.name||'?').slice(0,1); }
   $('#navName').textContent = PERSONA.meta.name || '角色';
-  const sm = document.getElementById('sideMode'); if (sm) sm.textContent = ((window._mode||{}).effective === 'chat' ? '纯聊天' : '完整版');
+  const sm = document.getElementById('sideMode'); if (sm) sm.textContent = ((window._mode||{}).effective === 'chat' ? '环境未启用' : '完整版');
 }
 
 // ================= 角色 =================
@@ -415,7 +415,7 @@ function renderRole(){
   + '</div><div class="hint">切换角色会切换人设、记忆、日记和聊天记录；运行中的聊天页刷新后跟着变</div></div>'
   + '<div class="card"><h2>基本信息</h2>' 
   + '<div class="row" style="align-items:flex-start"><label style="width:60px">头像</label><div class="flex">'
-  + '<div class="avatar" id="avatarBox" style="background-image:'+(m.avatar?'url('+m.avatar+')':'none')+'">'+(m.avatar?'':esc((m.name||'芝').slice(0,1)))+'</div>'
+  + '<div class="avatar" id="avatarBox" style="background-image:'+(m.avatar?'url('+m.avatar+')':'none')+';background-size:cover;background-position:center">'+(m.avatar?'':esc((m.name||'芝').slice(0,1)))+'</div>'
   + '<div><button class="btn sm" onclick="document.getElementById(\'avatarFile\').click()">上传图片</button> <button class="btn sm ghost" onclick="clearAvatar()">用默认</button>'
   + '<div class="hint">png / jpg / webp</div><input type="file" id="avatarFile" accept="image/*" style="display:none" onchange="uploadAvatar(this)"></div></div></div>'
   + '<div class="row"><label>名字</label><input type="text" id="pName" value="'+esc(m.name)+'"></div>'
@@ -966,9 +966,12 @@ async function renderEnv(){
   const inChat = ((window._mode||{}).effective === 'chat');
   let env = { pc: 'gui', space: 'gui', phone: 'gui', confirmDanger: true };
   let res = { space: false, phone: false, mem: [] };
+  let WATCH = { enabled: false, minMinutes: 20, maxMinutes: 40, nextAt: 0 };
   try { const envResp = await api('/api/env'); env = envResp.env || env; res = envResp.resources || res; } catch(e){}
+  try { WATCH = (await api('/api/watch-screen')).watch || WATCH; } catch(e){}
   window._res = res;
   window._env = env;
+  window._watch = WATCH;
   const targets = [
     { k: 'pc', icon: '🖥️', name: '用户的电脑', desc: 'Windows 桌面。她可以截图看屏幕、用鼠标键盘点东西。' },
     { k: 'space', icon: '💻', name: '她自己的屏幕', desc: 'Linux 虚拟机。她自己的桌面，随便折腾。' },
@@ -980,10 +983,10 @@ async function renderEnv(){
     { v: 'code', label: '代码控制（危险）', cls: 'warn' },
   ];
   $('#body').innerHTML = '<div class="wrap"><div class="col">'
-    + (inChat ? '<div class="card" style="border-color:#b9d7f2;background:#eef7ff"><h2 style="color:#3f6f9f">当前是纯聊天模式</h2><div class="small">这些环境工具不会被启用。想让她有屏幕/手机，切到上方「完整版」。</div></div>' : '')
+    + (inChat ? '<div class="card" style="border-color:#b9d7f2;background:#eef7ff"><h2 style="color:#3f6f9f">当前没有启用虚拟环境</h2><div class="small">聊天、识图、记忆、地图/舞台、桌宠不受影响；只有她的虚拟屏幕/手机不可用。需要时再装/启动环境。</div></div>' : '')
     + '<div class="card" style="border-color:#ead3b3;background:#fff7ea"><h2 style="color:#a77a39">⚠️ 权限分两级</h2>'
     + '<div class="small" style="color:#8a6b43">「仅鼠标键盘」= 像人一样看屏幕、点鼠标、打字，安全；「代码控制」= 直接执行命令、读写文件，强大但危险，只在你信任时开启。</div></div>'
-    + '<div class="card"><h2>🧪 环境自检 <span class="tag">完整版进不去先点这里</span></h2>'
+    + '<div class="card"><h2>🧪 环境自检 <span class="tag">环境不生效先点这里</span></h2>'
     + '<div class="flex"><button class="btn primary sm" onclick="runEnvCheck()">开始自检</button><button class="btn sm" onclick="installAdbKeyboard()">安装 ADBKeyboard</button></div>'
     + '<div id="envCheckBox" class="small" style="margin-top:10px;line-height:1.8">还没检查。点「开始自检」看看缺什么。</div></div>'
     + targets.map(tg => '<div class="card"><h2>'+tg.icon+' '+tg.name+' <span class="tag">'+tg.k+'</span></h2>'
@@ -1010,6 +1013,12 @@ async function renderEnv(){
     + '<div class="hint">屏幕虚拟机开着约占 <b>2~6 GB</b> 内存，手机模拟器约占 <b>2~4 GB</b>；长时间不用建议关掉，需要时再点启动（约 1 分钟）。</div>'
     + (res.mem && res.mem.length ? '<div class="hint">当前占用：' + res.mem.join(' · ') + '</div>' : '')
     + '</div>'
+    + '<div class="card"><h2>👀 自己看你的屏幕 <span class="tag">默认关闭</span></h2>'
+    + '<div class="small" style="margin-bottom:10px">开启后，她会在你授权“用户的电脑”的前提下，每隔 20–40 分钟自己瞥一眼你在做什么；看到值得说的才自然提一句，没事就不打扰。</div>'
+    + '<div class="row"><label>自动看屏幕</label><span class="small" style="flex:1">' + (WATCH.enabled ? '🟢 已开启 · 约每 20–40 分钟看一次' : '⚪ 已关闭') + '</span>'
+    + '<button class="btn ' + (WATCH.enabled ? 'ghost' : 'primary') + ' sm" onclick="toggleWatchScreen()">' + (WATCH.enabled ? '关闭' : '开启') + '</button></div>'
+    + '<div class="hint">只在 DSH 分支、并且「用户的电脑」权限不是关闭时有效；**不需要虚拟机/安卓模拟器**。看屏幕会消耗少量 token。她不会每次都用截图刷屏，也不一定会说话。</div>'
+    + '</div>'
     + '<div class="card"><h2>安全选项</h2>'
     + '<div class="row"><label>危险操作确认</label><input type="checkbox" id="confirmDanger" style="width:auto" '+(env.confirmDanger!==false?'checked':'')+'></div>'
     + '<div class="hint">开启后，删除/卸载/关机/转账/发消息等操作她会先问你</div></div>'
@@ -1020,6 +1029,14 @@ async function renderEnv(){
     + '</div></div>';
 }
 function setPerm(k, v){ window._env[k] = v; renderEnv(); }
+async function toggleWatchScreen(){
+  const next = !(window._watch && window._watch.enabled);
+  try {
+    const r = await saveJson('/api/watch-screen', { enabled: next });
+    if (r && r.ok) { window._watch = r.watch || {enabled: next}; toast(next ? '已开启：她会偶尔看看你的屏幕' : '已关闭自动看屏幕'); renderEnv(); }
+    else toast('保存失败');
+  } catch(e){ toast('保存失败'); }
+}
 async function saveEnv(){
   const env = {
     pc: window._env.pc, space: window._env.space, phone: window._env.phone,
@@ -1105,7 +1122,13 @@ async function renderModel(){
     + '<div class="small" style="margin-top:6px">· 修改后下一条消息生效</div></div>'
     + '</div></div>';
 }
-function setEffort(v){ window._model.reasoningEffort = v; renderModel(); }
+async function setEffort(v){
+  try {
+    const r = await saveJson('/api/model', { reasoningEffort: v });
+    if (r && r.ok) { window._model = r.model || window._model; toast('推理等级已保存'); renderModel(); }
+    else toast(r && r.error ? r.error : '保存失败');
+  } catch(e){ toast('保存失败'); }
+}
 async function setCtx(k, v){ window._ctx[k] = v; const r = await saveJson('/api/context', window._ctx); if(r.ok) renderModel(); }
 async function setSaving(key){
   const cur = window._saving || {};
@@ -1166,9 +1189,9 @@ async function renderTutorial(){
     + '<div id="tutToc" style="max-height:150px;overflow:auto;padding:4px 0 10px;border-bottom:1px solid var(--t-line,#eee);margin-bottom:12px">' + tocHtml + '</div>'
     + '<div id="tutContent" style="line-height:1.95;font-size:14.5px">' + bodyHtml + '</div>'
     + '<div id="tutEmpty" style="display:none;padding:26px;text-align:center;color:var(--t-muted,#6b7d90)">没有找到匹配的内容</div>'
-    + '</div></div><div class="col side2"><div class="card"><h2>状态</h2><div class="small">当前模式：'+(((window._mode||{}).effective==='full')?'完整版':'纯聊天版')+'</div>'
+    + '</div></div><div class="col side2"><div class="card"><h2>状态</h2><div class="small">当前：'+(((window._mode||{}).effective==='full')?(((window._mode||{}).detected||{}).detected?'完整版 · 含虚拟屏幕/手机':'完整版 · DSH 分支（无虚拟环境）'):'聊天模式 · 虚拟环境未启用')+'</div>' + '<div class="small">聊天、识图、地图/舞台、桌宠不需要虚拟环境。</div>'
     + '<button class="btn ghost" style="width:100%;margin-top:8px" onclick="location.hash=\'env\'">去环境页检测</button></div>'
-    + '<div class="card"><h2>说明</h2><div class="small">装好教程里的环境后回到插件，横幅会自动变成「完整版」，不用手动切。</div></div></div></div>';
+    + '<div class="card"><h2>说明</h2><div class="small">环境只影响虚拟屏幕/手机；聊天、识图、地图/舞台、桌宠不需要它。装好后横幅会标成「完整版 · 含虚拟环境」。</div></div></div></div>';
   const search = document.getElementById('tutSearch');
   const content = document.getElementById('tutContent');
   const empty = document.getElementById('tutEmpty');
@@ -1207,7 +1230,7 @@ async function renderData(){
   + '</div>'
   + '<div class="card"><h2>备份</h2><div class="small">导出把数据目录打包成 zip；导入覆盖恢复。系统每天凌晨 4 点后会自动备份一次。<br>备份/恢复也可以双击插件 scripts 目录里的 <b>backup.cmd</b> / <b>restore.cmd</b>，已使用 ExecutionPolicy Bypass，不需要你改系统执行策略。</div>'
   + '<div class="row"><button class="btn primary" onclick="doBackup()">立即备份</button><span class="hint" style="flex:1;margin-left:8px">备份到数据目录下的 backups</span></div><button class="btn ghost" style="margin-top:8px" onclick="doBackup()">备份到数据目录</button></div>'
-  + '</div><div class="col side2"><div class="card"><h2>版本</h2><div class="small">v0.6.1 · 本地运行时</div></div></div></div>';
+  + '</div><div class="col side2"><div class="card"><h2>版本</h2><div class="small">v0.6.2 · 本地运行时</div></div></div></div>';
 }
 
 
@@ -1264,11 +1287,11 @@ function renderModeBanner(){
   const ov = info.override || 'auto';
   const d = info.detected || {};
   const detectedTxt = d.ok
-    ? '检测到虚拟屏幕 ✔' + (d.waydroid ? '（手机也在）' : '') + ' → 自动使用完整版'
-    : '未检测到虚拟屏幕 → 自动使用纯聊天版';
+    ? '检测到虚拟屏幕/手机 ✔ → 完整版（含虚拟环境）'
+    : '未检测到虚拟屏幕/手机 → 聊天、识图、地图/舞台、桌宠仍可用；只是屏幕/手机未启用';
   host.innerHTML = '<div class="mode-banner" style="margin-top:14px"><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">'
-    + '<div style="font-size:22px">'+(eff==='full'?'🖥️📱':'💬')+'</div>'
-    + '<div style="flex:1;min-width:240px"><div style="font-weight:600;font-size:15px">当前模式：'+(eff==='full'?'完整版 · 她有自己的屏幕和手机':'纯聊天版 · 只有对话')+'</div>'
+    + '<div style="font-size:22px">'+((eff==='full'&&d.ok)?'🖥️📱':(eff==='full'?'🧩':'💬'))+'</div>'
+    + '<div style="flex:1;min-width:240px"><div style="font-weight:600;font-size:15px">当前模式：'+(eff==='full'?(d.ok?'完整版 · 含虚拟屏幕/手机':'完整版 · DSH 分支（无虚拟环境）'):'聊天模式 · 虚拟环境未启用')+'</div>'
     + '<div class="small" style="margin-top:2px">'+detectedTxt+'</div>'
     + '<div class="small" style="color:#55637a;margin-top:2px">覆盖设置：'+(ov==='auto'?'自动':(ov==='chat'?'强制纯聊天':'强制完整版'))+'</div></div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap">'

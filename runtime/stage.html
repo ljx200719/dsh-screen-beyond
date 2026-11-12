@@ -119,9 +119,15 @@ function render(payload){
   const wm = payload.wallet;
   const moneyEl = document.getElementById('money');
   const tokenEl = document.getElementById('token');
-  if (tokenEl) tokenEl.textContent = wm ? ('🪙 剩余 ' + Number(wm.remainingTokens || 0).toLocaleString() + ' token') : '';
+  if (tokenEl) tokenEl.textContent = wm
+    ? (wm.tokenMode
+      ? ('🪙 今日已用 ' + Number(wm.dailyUsed || 0).toLocaleString() + ' token · 预算剩 ' + Number(wm.remainingTokens || 0).toLocaleString())
+      : ('🪙 剩余 ' + Number(wm.remainingTokens || 0).toLocaleString() + ' token'))
+    : '';
   if (moneyEl) moneyEl.textContent = wm
-    ? (wm.tokenMode ? ('🪙 剩余 token ' + (wm.remainingTokens || 0) + '（≈' + wm.spendable + ' 元）') : ('💰 ' + (wm.spendable !== undefined ? wm.spendable : wm.balance) + ' 元'))
+    ? (wm.tokenMode
+      ? ('💳 用户实时余额 ' + (wm.realBalanceKnown ? '¥' + Number(wm.realRmb).toFixed(2) : '读取失败'))
+      : ('💰 ' + (wm.spendable !== undefined ? wm.spendable : wm.balance) + ' 元'))
     : '';
 
   $('#me').style.display = 'block';

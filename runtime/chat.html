@@ -82,7 +82,7 @@ input, textarea, select { border-radius: 9px; }
 </style>
 <link rel="stylesheet" href="/theme.css"><style>
 
-/* 0.6.1 聊天页细化：只做视觉，不加动画 */
+/* 0.6.2 聊天页细化：只做视觉，不加动画 */
 body{
   background:#08111d;
   background-image:
@@ -366,7 +366,7 @@ html[data-theme="lavender"] #bgBtn{border-color:rgba(169,149,228,.5)!important;c
   <span class="chip" id="tokenChip">🪙 …</span>
   <span class="chip" id="modeChip">…</span>
   <button class="chip" id="bgBtn" onclick="toggleBgPanel()" title="换聊天背景">🎨 背景</button>
-  <span class="chip" id="standaloneChip" style="display:none" title="纯聊天模式可以脱离 DSH 独立运行：Node 18+ 和 DeepSeek API Key 即可；完整版仍需 DSH">🧩 可独立运行</span>
+  <span class="chip" id="standaloneChip" style="display:none" title="聊天、识图等功能不依赖虚拟屏幕/手机；纯聊天可脱离 DSH 独立运行，完整版 DSH 分支不需要虚拟机">🧩 聊天模式</span>
   <div class="spacer"></div>
   <a href="/screen" target="_blank" title="快捷键 Alt+S">屏幕</a>
   <a href="/stage" target="_blank">舞台</a>
@@ -424,7 +424,7 @@ async function loadHeader(){
     $('#energyChip').textContent = '状态 ' + (function(e){ const n = Number(e)||0; return n>=80?'精力很足':n>=55?'状态不错':n>=35?'有点累':n>=20?'挺累的':'快撑不住了'; })(st.energy);
     let modeEff = st.mode;
     try { const mi = await (await fetch('/api/mode')).json(); if (mi && mi.effective) modeEff = mi.effective; } catch (e) {}
-    $('#modeChip').textContent = modeEff === 'chat' ? '纯聊天' : '完整版';
+    $('#modeChip').textContent = modeEff === 'chat' ? '环境未启用' : '完整版';
     const sc = document.getElementById('standaloneChip');
     if (sc) sc.style.display = modeEff === 'chat' ? '' : 'none';
     const econ = await (await fetch('/api/economy')).json();

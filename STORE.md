@@ -8,10 +8,11 @@
 
 **English**：An AI companion who lives on the other side of your screen: persona, memory, diary, daily routines, maps and a stage, a desktop pet, and her own virtual screen and Android phone. The chat-only mode runs standalone without DSH. Early release — a few odd bugs may remain; reports are welcome.
 
-## 两种用法
+## 三种用法
 
-- **纯聊天（独立运行）**：不需要 DSH。Node.js 18+ + DeepSeek API Key，双击 `start-pure-chat.cmd`，浏览器打开 `http://127.0.0.1:8900/`。聊天、人设、记忆、日记、生活、地图/舞台等页面都可以用。
-- **完整版（DSH 插件）**：作为 DSH（DeepSeek Harness）插件安装，在 DSH 侧边栏里使用；她的虚拟屏幕、安卓手机等完整环境需要 DSH 和对应虚拟机/模拟器。
+- **纯聊天版（独立运行）**：不需要 DSH，也不需要虚拟机。Node.js 18+ + DeepSeek API Key，双击 `start-pure-chat.cmd`，浏览器打开 `http://127.0.0.1:8900/`。
+- **完整版 · DSH 分支**：作为 DSH（DeepSeek Harness）插件安装，在 DSH 侧边栏里使用；**不装虚拟机也能聊天、识图、发图、记忆、地图/舞台、桌宠**。虚拟机不是完整版的前置条件。
+- **完整版 · 虚拟机分支**：在 DSH 分支上再装 VirtualBox 虚拟屏幕 + Android 模拟器；**只新增**她自己的 Linux 屏幕和安卓手机，不影响识图/图片回复。
 
 ## 功能
 
@@ -21,7 +22,7 @@
 - **聊天**：文字 + 图片、逐字流式、主动消息；顶部显示剩余 token 和今日已用；可开「无括号模式」。
 - **地图与舞台**：地点拖拽/增删、自绘道路、2D 底图、3D 模型、2D/3D 舞台。
 - **桌宠**：默认用她的头像，可换自己的图；点气泡展开半透明聊天，点眼睛让她看你的屏幕；摸头/戳一戳等互动可在 `pet.json` 自定义。
-- **她自己的环境**：虚拟屏幕、安卓手机、你的电脑三种工具；虚拟屏幕/手机需要完整环境。
+- **她自己的环境**：虚拟屏幕、安卓手机、你的电脑三种工具；虚拟屏幕/手机才需要 VirtualBox/模拟器，识图/聊天不需要。
 - **Token 代币**：可以用剩余 token 当钱，也可以使用虚拟货币。
 
 ## 安装
