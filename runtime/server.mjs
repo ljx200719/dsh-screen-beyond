@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { MemoryStore } from './memory.mjs';
 import { SyncStore } from './sync.mjs';
 import { DataStore } from './data-store.mjs';
+import { BUILTIN_SCENES } from './scenes.mjs';
+import { createVmChat } from './vm-chat.mjs';
 
 const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url));
 const VERSION = (() => {
@@ -27,6 +29,8 @@ let LISTEN_PORT = 0;
 fs.mkdirSync(ROOT, { recursive: true });
 fs.mkdirSync(path.join(ROOT, 'data'), { recursive: true });
 const DATA = new DataStore(ROOT, { deviceId: SYNC.deviceId });
+const SCENE_ACTIVITY_CACHE = new Map();
+let SCENE_AI_LAST = 0;
 
 // ---------- utils ----------
 function readJson(file, dflt) { return DATA.readJson(file, dflt); }
@@ -344,6 +348,9 @@ const DEFAULT_PLACES = [
   { id: "riverside", name: "河边", icon: "🏞️", x: 0.17, y: 0.38, desc: "沿河走一走", feel: "风很舒服，适合放空" },
   { id: "bookstore", name: "书店", icon: "📖", x: 0.35, y: 0.35, desc: "逛书店", feel: "安静，一逛就很久" },
 ];
+for (const p of DEFAULT_PLACES) {
+  if (BUILTIN_SCENES[p.id]) p.scene = { ...BUILTIN_SCENES[p.id], characters: [] };
+}
 const ROAD_LINES = [
   [[0.00, 0.47], [0.12, 0.43], [0.25, 0.44], [0.38, 0.47], [0.50, 0.48], [0.62, 0.47], [0.75, 0.44], [0.88, 0.46], [1.00, 0.45]],
   [[0.50, 0.48], [0.505, 0.60], [0.495, 0.72], [0.50, 0.85], [0.505, 1.00]],
@@ -369,8 +376,46 @@ function normalizeRoads(roads) {
 function normalizePlaces(places) {
   return (places || []).map((p) => {
     const d = DEFAULT_PLACES.find((x) => x.id === p.id) || {};
-    return { ...p, desc: p.desc || d.desc || '', feel: p.feel || d.feel || '', icon: p.icon || d.icon || '📍', image: p.image && String(p.image).startsWith('/models/') ? p.image : null };
+    const scene = p.scene === undefined ? (d.scene ? { ...d.scene, characters: [] } : null) : normalizeScene(p.scene);
+    return { ...p, desc: p.desc || d.desc || '', feel: p.feel || d.feel || '', icon: p.icon || d.icon || '📍', image: p.image && String(p.image).startsWith('/models/') ? p.image : null, scene };
   });
+}
+function normalizeScene(sc) {
+  if (!sc || typeof sc !== 'object') return null;
+  const bg = String(sc.background || '').trim().slice(0, 300);
+  if (!bg || !(bg.startsWith('/models/') || bg.startsWith('/assets/') || bg.startsWith('/images/'))) return null;
+  const characters = Array.isArray(sc.characters) ? sc.characters.slice(0, 20).map((c) => ({
+    id: String(c.id || '').slice(0, 40),
+    x: Math.max(0.02, Math.min(0.98, Number(c.x) || 0.5)),
+    y: Math.max(0.08, Math.min(0.95, Number(c.y) || 0.72)),
+  })).filter((c) => c.id) : [];
+  const hotspots = Array.isArray(sc.hotspots) ? sc.hotspots.slice(0, 24).map((h) => ({
+    id: String(h.id || '').slice(0, 40),
+    label: String(h.label || '').slice(0, 40),
+    x: Math.max(0.02, Math.min(0.98, Number(h.x) || 0.5)),
+    y: Math.max(0.05, Math.min(0.95, Number(h.y) || 0.5)),
+    action: String(h.action || '').slice(0, 40),
+  })) : [];
+  const photos = Array.isArray(sc.photos) ? sc.photos.slice(0, 12).map((u) => String(u || '').trim()).filter((u) => u.startsWith('/models/')).slice(0, 12) : [];
+  const obstacles = Array.isArray(sc.obstacles) ? sc.obstacles.slice(0, 40).map((o) => ({
+    x: Math.max(0, Math.min(1, Number(o && o.x) || 0)),
+    y: Math.max(0, Math.min(1, Number(o && o.y) || 0)),
+    w: Math.max(0.01, Math.min(1, Number(o && o.w) || 0.05)),
+    h: Math.max(0.01, Math.min(1, Number(o && o.h) || 0.05)),
+  })).filter((o) => o.w > 0 && o.h > 0) : [];
+  const walkable = Array.isArray(sc.walkable) ? sc.walkable.slice(0, 40).map((o) => ({
+    x: Math.max(0, Math.min(1, Number(o && o.x) || 0)),
+    y: Math.max(0, Math.min(1, Number(o && o.y) || 0)),
+    w: Math.max(0.01, Math.min(1, Number(o && o.w) || 0.05)),
+    h: Math.max(0.01, Math.min(1, Number(o && o.h) || 0.05)),
+  })).filter((o) => o.w > 0 && o.h > 0) : [];
+  const mode = sc.mode === '3d' ? '3d' : '2d';
+  const model3d = sc.model3d && typeof sc.model3d === 'object' && String(sc.model3d.url || '').startsWith('/models/') ? {
+    url: String(sc.model3d.url).slice(0, 300),
+    scale: Math.max(0.05, Math.min(20, Number(sc.model3d.scale) || 1)),
+    rotationY: Number(sc.model3d.rotationY) || 0,
+  } : null;
+  return { background: bg, characters, hotspots, photos, obstacles, walkable, mode, model3d };
 }
 function normalizeVehicles(v) {
   const out = {};
@@ -423,7 +468,648 @@ function activeMapId() { const ids = loadMaps().map((m) => m.id); return ids.inc
 function getActiveMap() { const maps = loadMaps(); return maps.find((m) => m.id === activeMapId()) || maps[0]; }
 function loadLocation() { const l = CONFIG.location || {}; return { ...l, mapId: l.mapId || '', placeId: l.placeId || 'home', since: Number(l.since) || Date.now(), manual: !!l.manual }; }
 function saveLocation(loc) { CONFIG.location = loc; try { snapshotCharacterWorld(); } catch {} saveConfig(); try { DATA.track('location', ACTIVE_CHAR, null, loc); } catch {} try { SYNC.record('location.set', 'location', ACTIVE_CHAR, loc); } catch {} }
+function avatarDataUrl(id) {
+  try {
+    const f = path.join(CHARS_ROOT, id || ACTIVE_CHAR, 'avatar.bin');
+    if (!fs.existsSync(f)) return '';
+    const buf = fs.readFileSync(f);
+    const mime = buf[0] === 0x89 ? 'image/png' : (buf[0] === 0xFF ? 'image/jpeg' : 'image/webp');
+    return 'data:' + mime + ';base64,' + buf.toString('base64');
+  } catch { return ''; }
+}
+function characterAvatarUrl(id) {
+  try {
+    const f = path.join(CHARS_ROOT, id, 'avatar.bin');
+    if (fs.existsSync(f)) return '/avatar.png?c=' + encodeURIComponent(id) + '&t=' + Math.floor(fs.statSync(f).mtimeMs);
+  } catch {}
+  return '/default-avatar.png';
+}
+function pointAlongPath(pathPts, progress) {
+  const path = Array.isArray(pathPts) ? pathPts : [];
+  if (path.length < 2) return path[0] || { x: 0.5, y: 0.5 };
+  let total = 0; const segs = [];
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i], b = path[i + 1];
+    const d = Math.hypot(Number(a.x) - Number(b.x), Number(a.y) - Number(b.y));
+    segs.push(d); total += d;
+  }
+  let target = total * Math.max(0, Math.min(1, Number(progress) || 0));
+  for (let i = 0; i < segs.length; i++) {
+    if (target <= segs[i] || i === segs.length - 1) {
+      const a = path[i], b = path[i + 1]; const r = segs[i] ? target / segs[i] : 0;
+      return { x: Number(a.x) + (Number(b.x) - Number(a.x)) * Math.min(1, Math.max(0, r)), y: Number(a.y) + (Number(b.y) - Number(a.y)) * Math.min(1, Math.max(0, r)) };
+    }
+    target -= segs[i];
+  }
+  return path[path.length - 1];
+}
+function characterWorld(id) {
+  if (id === ACTIVE_CHAR) return { maps: loadMaps(), map: getActiveMap(), location: loadLocation() };
+  const w = (CONFIG.worlds || {})[id] || {};
+  const maps = (Array.isArray(w.maps) && w.maps.length) ? w.maps : loadMaps();
+  const map = maps.find((m) => m.id === (w.activeMapId || '')) || maps[0] || null;
+  const location = w.location || { placeId: (map && map.places && map.places[0] && map.places[0].id) || 'home', since: Date.now() };
+  return { maps, map, location };
+}
+function worldPosition(map, loc) {
+  if (!map || !loc) return { x: null, y: null, state: 'unknown', transport: '', etaSec: 0 };
+  if (loc.intercity) {
+    return { x: null, y: null, state: 'intercity', transport: (TRANSPORTS[loc.mode] || TRANSPORTS.rail).label, etaSec: Math.max(0, Math.round((Number(loc.durationMs) || 0) - (Date.now() - (Number(loc.startedAt) || Date.now()))) / 1000) };
+  }
+  if (loc.toPlaceId) {
+    const info = travelInfo(loc, map);
+    if (info) {
+      if (info.progress >= 1) {
+        const p = placeOf(map, loc.toPlaceId);
+        return { x: p.x, y: p.y, state: 'stationary', transport: info.modeLabel, etaSec: 0 };
+      }
+      const pathPts = Array.isArray(loc.path) && loc.path.length > 1 ? loc.path : null;
+      const pt = pathPts ? pointAlongPath(pathPts, info.progress) : null;
+      const fallback = pt || placeOf(map, loc.toPlaceId);
+      return { x: fallback.x, y: fallback.y, state: 'traveling', transport: info.modeLabel, etaSec: info.etaSec || 0 };
+    }
+  }
+  const p = placeOf(map, loc.placeId);
+  return { x: p.x, y: p.y, state: 'stationary', transport: '', etaSec: 0 };
+}
+function worldCharacters() {
+  const activeMap = getActiveMap();
+  const activeCur = currentPlace();
+  const chars = listCharacters().map((c) => {
+    const w = characterWorld(c.id);
+    const map = w.map;
+    const loc = w.location || {};
+    const pos = worldPosition(map, loc);
+    const placeId = String(loc.toPlaceId || loc.placeId || '');
+    const place = map && Array.isArray(map.places) ? map.places.find((p) => p.id === placeId) : null;
+    const sameMap = !!(map && activeMap && map.id === activeMap.id);
+    return {
+      id: c.id, name: c.name || c.id, avatar: characterAvatarUrl(c.id),
+      mapId: (map && map.id) || '', mapName: (map && map.name) || '',
+      placeId, placeName: (place && place.name) || '', icon: (place && place.icon) || '',
+      x: pos.x, y: pos.y, state: pos.state, transport: pos.transport, etaSec: pos.etaSec,
+      sameMap, samePlace: sameMap && pos.state === 'stationary' && placeId === String(activeCur.placeId),
+      isActive: c.id === ACTIVE_CHAR,
+    };
+  });
+  return chars.sort((a, b) => (b.isActive ? 1 : 0) - (a.isActive ? 1 : 0));
+}
+function scenePlaceAndHotspot(placeId, hotspotId) {
+  const map = getActiveMap();
+  const place = map && Array.isArray(map.places) ? map.places.find((p) => p.id === placeId) : null;
+  if (!place) return null;
+  const hotspot = place.scene && Array.isArray(place.scene.hotspots) ? place.scene.hotspots.find((h) => h.id === hotspotId || h.label === hotspotId) : null;
+  return { map, place, hotspot };
+}
+function localSceneActivity(metaName, place, hotspot) {
+  const who = metaName || '她';
+  if (hotspot && hotspot.label) return `${who}正在「${hotspot.label}」旁边。`;
+  return `${who}正在「${place.name}」里待着。`;
+}
+async function sceneActivityFor(characterId, placeId, hotspotId) {
+  const found = scenePlaceAndHotspot(placeId, hotspotId);
+  if (!found) return { ok: false, error: '地点不存在' };
+  const meta = readJson(path.join(CHARS_ROOT, String(characterId || ACTIVE_CHAR), 'meta.json'), {});
+  const name = meta.name || '她';
+  const key = String(characterId || ACTIVE_CHAR) + ':' + placeId + ':' + (hotspotId || '');
+  const now = Date.now();
+  const cached = SCENE_ACTIVITY_CACHE.get(key);
+  if (cached && now - cached.at < 10 * 60 * 1000) return { ok: true, text: cached.text, source: cached.source, cached: true };
+  const fallback = localSceneActivity(name, found.place, found.hotspot);
+  let text = fallback;
+  let source = 'local';
+
+  // AI 只在有 API Key 且全局间隔足够时偶尔调用；悬浮频繁不会每次烧 token
+  try {
+    if (CONFIG.sceneActivityAI !== false && (now - SCENE_AI_LAST > 5 * 60 * 1000) && apiKey()) {
+      SCENE_AI_LAST = now;
+      const spot = found.hotspot ? found.hotspot.label : '';
+      const resp = await chatCompletion({
+        messages: [
+          { role: 'system', content: `你是${name}。用一句 12 到 20 字的中文描述你此刻在做什么，像游戏角色头顶的悬浮状态。不要出现“系统”“AI”“提示词”，不要解释，不要括号，不要每次都说在发呆。` },
+          { role: 'user', content: `地点：${found.place.name}（${found.place.desc || ''}）。附近：${spot || '这里'}。当前时间：${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}。请写这一句：` },
+        ],
+        max_tokens: 500, temperature: 0.9,
+      });
+      const msg = resp && resp.choices && resp.choices[0] && resp.choices[0].message;
+      const aiText = msg ? String(msg.content || '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').split('\n')[0].trim().slice(0, 40) : '';
+      if (aiText) { text = aiText; source = 'ai'; }
+    }
+  } catch (e) { try { console.error('[scene-activity-ai]', String(e && e.message || e).slice(0, 300)); } catch {} }
+  SCENE_ACTIVITY_CACHE.set(key, { text, source, at: now });
+  return { ok: true, text, source, cached: false };
+}
 function placeOf(map, id) { return map.places.find((p) => p.id === id) || map.places[0]; }
+
+// ---------- 后台生活模拟（0.7.1 基础版）----------
+const LIFE_SIM_DEFAULT = {
+  enabled: true,
+  minEventGapMin: 90,
+  maxDaily: 8,
+  quietStart: 23,
+  quietEnd: 8,
+  photoChance: 0.25,
+};
+const LIFE_SIM_BEHAVIORS = {
+  sleep: { min: 360, max: 540, name: '睡觉' },
+  read: { min: 30, max: 90, name: '看书' },
+  study: { min: 45, max: 120, name: '写作业' },
+  eat: { min: 20, max: 45, name: '吃饭' },
+  coffee: { min: 30, max: 60, name: '喝咖啡' },
+  phone: { min: 15, max: 45, name: '看手机' },
+  look: { min: 3, max: 10, name: '看看' },
+  idle: { min: 10, max: 30, name: '发呆' },
+};
+function lifeSimCfg() { return { ...LIFE_SIM_DEFAULT, ...(CONFIG.lifeSim || {}) }; }
+function lifeSimPath(id) { return path.join(charDir(id || ACTIVE_CHAR), 'life-state.json'); }
+function messagesPathFor(id) { return path.join(charDir(id || ACTIVE_CHAR), 'messages.json'); }
+function addMessageFor(id, role, text, image) {
+  if (!id || id === ACTIVE_CHAR) return addMessage(role, text, image);
+  const clean = role === 'her' ? herText(text) : String(text);
+  const msg = { id: nextId++, uid: randomUUID(), role, text: String(clean), at: Date.now() };
+  if (image) msg.image = String(image);
+  let arr = [];
+  try { arr = readJson(messagesPathFor(id), []); } catch {}
+  if (!Array.isArray(arr)) arr = [];
+  arr.push(msg);
+  if (arr.length > 800) arr = arr.slice(-600);
+  try { writeJson(messagesPathFor(id), arr); } catch {}
+  try { SYNC.record('message.append', 'message', msg.id, msg); } catch {}
+  return msg;
+}
+function lifeRecentFor(id) {
+  let arr = [];
+  try { arr = id === ACTIVE_CHAR ? messages : readJson(messagesPathFor(id), []); } catch {}
+  return (Array.isArray(arr) ? arr : []).filter((m) => m.role === 'user' || m.role === 'her').slice(-6)
+    .map((m) => (m.role === 'user' ? '他：' : '你：') + String(m.text || '').slice(0, 100)).join('\n');
+}
+function lifeTravelMinutes() { return 30 + Math.round(Math.random() * 120); }
+function lifeSetLocation(id, mapId, placeId) {
+  try {
+    if (id === ACTIVE_CHAR) {
+      CONFIG.activeMapId = mapId;
+      saveLocation({ mapId, placeId, since: Date.now(), manual: false });
+      return true;
+    }
+    const maps = loadMaps();
+    const map = maps.find((m) => m.id === mapId);
+    if (!map || !(map.places || []).some((p) => p.id === placeId)) return false;
+    CONFIG.worlds = CONFIG.worlds || {};
+    const w = CONFIG.worlds[id] || {};
+    w.maps = maps; w.activeMapId = mapId; w.location = { mapId, placeId, since: Date.now(), manual: false };
+    CONFIG.worlds[id] = w;
+    saveConfig();
+    return true;
+  } catch { return false; }
+}
+function loadLifeSimState(id) {
+  try { return readJson(lifeSimPath(id), null); } catch { return null; }
+}
+function saveLifeSimState(id, st) {
+  try { writeJson(lifeSimPath(id), st); } catch {}
+}
+function lifeIsNight() { const h = new Date().getHours(); return h >= 22 || h < 7; }
+function lifeSceneFor(id) {
+  const w = characterWorld(id || ACTIVE_CHAR);
+  const map = w.map; if (!map) return null;
+  const loc = w.location || {};
+  const place = (map.places || []).find((p) => p.id === loc.placeId) || (map.places || [])[0];
+  if (!place) return null;
+  const scene = place.scene || null;
+  return { map, place, scene, hotspots: scene && Array.isArray(scene.hotspots) ? scene.hotspots : [] };
+}
+function lifeBehaviorFor(hotspot, place) {
+  const action = String((hotspot && hotspot.action) || '').trim();
+  if (LIFE_SIM_BEHAVIORS[action]) return action;
+  const label = String((hotspot && hotspot.label) || '');
+  if (/床|睡|枕/.test(label)) return 'sleep';
+  if (/书架|阅读|图书|小说/.test(label)) return 'read';
+  if (/作业|课桌|黑板|书桌|学习/.test(label)) return 'study';
+  if (/饭|餐|食堂|窗口|吃/.test(label)) return 'eat';
+  if (/咖啡|吧台/.test(label)) return 'coffee';
+  if (/手机|电脑/.test(label)) return 'phone';
+  return 'look';
+}
+function lifeDurationMinutes(behavior) {
+  const cfg = LIFE_SIM_BEHAVIORS[behavior] || LIFE_SIM_BEHAVIORS.idle;
+  if (behavior === 'sleep' && !lifeIsNight()) return 60 + Math.random() * 60;
+  return cfg.min + Math.random() * (cfg.max - cfg.min);
+}
+function lifePositionFor(id, hotspot, place) {
+  let x = hotspot && Number.isFinite(Number(hotspot.x)) ? Number(hotspot.x) : 0.5;
+  let y = hotspot && Number.isFinite(Number(hotspot.y)) ? Number(hotspot.y) : 0.62;
+  x += (Math.random() - 0.5) * 0.03; y += 0.025 + (Math.random() - 0.5) * 0.02;
+  // 同地点角色简单避让，避免叠在一起
+  try {
+    const others = listCharacters().filter((c) => c.id !== id);
+    for (const c of others) {
+      const st = loadLifeSimState(c.id);
+      if (!st || st.placeId !== (place && place.id)) continue;
+      const ox = Number(st.position && st.position.x), oy = Number(st.position && st.position.y);
+      if (!Number.isFinite(ox) || !Number.isFinite(oy)) continue;
+      if (Math.hypot(x - ox, y - oy) < 0.06) { x += x >= ox ? 0.06 : -0.06; y += y >= oy ? 0.03 : -0.03; }
+    }
+  } catch {}
+  return { x: Math.max(0.04, Math.min(0.96, x)), y: Math.max(0.12, Math.min(0.92, y)) };
+}
+function lifePathFor(id, from, to, ctx) {
+  const cols = 28, rows = 18;
+  const x0 = 0.04, y0 = 0.1, x1 = 0.96, y1 = 0.94;
+  const obstacles = Array.isArray(ctx.scene && ctx.scene.obstacles) ? ctx.scene.obstacles.slice() : [];
+  const walkable = Array.isArray(ctx.scene && ctx.scene.walkable) ? ctx.scene.walkable.slice() : [];
+  if (!obstacles.length) {
+    for (const h of (ctx.hotspots || [])) {
+      const hx = Number(h.x), hy = Number(h.y);
+      if (Number.isFinite(hx) && Number.isFinite(hy)) obstacles.push({ x: hx - 0.035, y: hy - 0.035, w: 0.07, h: 0.07 });
+    }
+  }
+  for (const c of listCharacters()) {
+    if (c.id === id) continue;
+    const ost = loadLifeSimState(c.id);
+    if (!ost || ost.placeId !== ctx.place.id) continue;
+    const p = ost.position || {};
+    if (Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y))) obstacles.push({ x: Number(p.x) - 0.025, y: Number(p.y) - 0.025, w: 0.05, h: 0.05 });
+  }
+  const cell = (x, y) => ({ c: Math.max(0, Math.min(cols - 1, Math.floor((x - x0) / (x1 - x0) * cols))), r: Math.max(0, Math.min(rows - 1, Math.floor((y - y0) / (y1 - y0) * rows))) });
+  const pos = (c, r) => ({ x: x0 + (c + 0.5) / cols * (x1 - x0), y: y0 + (r + 0.5) / rows * (y1 - y0) });
+  const blocked = new Set();
+  // 可走区域：画了之后，只有区域内的格子可走
+  if (walkable.length) {
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const pt = pos(c, r);
+      if (!walkable.some((w) => pt.x >= w.x && pt.x <= w.x + w.w && pt.y >= w.y && pt.y <= w.y + w.h)) blocked.add(c + ',' + r);
+    }
+  }
+  for (const o of obstacles) {
+    const a = cell(o.x, o.y), b = cell(o.x + o.w, o.y + o.h);
+    for (let r = a.r; r <= b.r; r++) for (let c = a.c; c <= b.c; c++) blocked.add(c + ',' + r);
+  }
+  const start = cell(from.x, from.y), goal = cell(to.x, to.y);
+  const freeNear = (p) => {
+    if (!blocked.has(p.c + ',' + p.r)) return p;
+    for (let rad = 1; rad < 8; rad++) for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) {
+      const c = p.c + dc, r = p.r + dr;
+      if (c >= 0 && c < cols && r >= 0 && r < rows && !blocked.has(c + ',' + r)) return { c, r };
+    }
+    return p;
+  };
+  const s0 = freeNear(start), g0 = freeNear(goal);
+  const key = (c, r) => c + ',' + r;
+  const open = [{ ...s0, f: 0 }]; const came = new Map(); const gScore = new Map([[key(s0.c, s0.r), 0]]);
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+  let found = false, guard = 0;
+  while (open.length && guard++ < 4000) {
+    open.sort((a, b) => a.f - b.f);
+    const cur = open.shift();
+    if (cur.c === g0.c && cur.r === g0.r) { found = true; break; }
+    for (const [dc, dr] of dirs) {
+      const c = cur.c + dc, r = cur.r + dr;
+      if (c < 0 || c >= cols || r < 0 || r >= rows || blocked.has(key(c, r))) continue;
+      const tentative = (gScore.get(key(cur.c, cur.r)) || 0) + Math.hypot(dc, dr);
+      if (tentative >= (gScore.get(key(c, r)) ?? Infinity)) continue;
+      gScore.set(key(c, r), tentative); came.set(key(c, r), key(cur.c, cur.r));
+      const f = tentative + Math.hypot(g0.c - c, g0.r - r);
+      if (!open.some((o) => o.c === c && o.r === r)) open.push({ c, r, f });
+    }
+  }
+  const pathPts = [];
+  if (found) {
+    let k = key(g0.c, g0.r); const rev = [];
+    while (k) { const [c, r] = k.split(',').map(Number); rev.push(pos(c, r)); k = came.get(k); }
+    rev.reverse(); pathPts.push(...rev);
+  } else {
+    pathPts.push(pos(s0.c, s0.r), pos(g0.c, g0.r));
+  }
+  pathPts.push({ x: to.x, y: to.y });
+  return pathPts;
+}
+function lifePickLocal(ctx, state) {
+  const hotspots = ctx.hotspots || [];
+  if (!hotspots.length) return { behavior: 'idle', hotspot: null, minutes: lifeDurationMinutes('idle') };
+  let pool = hotspots;
+  if (String(ctx.place.id) === 'home' && lifeIsNight()) {
+    const bed = hotspots.filter((h) => /床|睡|枕/.test(String(h.label || '')));
+    if (bed.length) pool = bed;
+  }
+  const h = pool[Math.floor(Math.random() * pool.length)];
+  const behavior = lifeBehaviorFor(h, ctx.place);
+  return { behavior, hotspot: h, minutes: lifeDurationMinutes(behavior) };
+}
+function lifeInitState(id) {
+  const ctx = lifeSceneFor(id);
+  if (!ctx) return null;
+  const local = lifePickLocal(ctx, null);
+  const now = Date.now();
+  const position = lifePositionFor(id, local.hotspot, ctx.place);
+  const path = lifePathFor(id, position, position, ctx);
+  return {
+    characterId: id,
+    mapId: ctx.map.id,
+    placeId: ctx.place.id,
+    placeName: ctx.place.name,
+    hotspotId: local.hotspot ? (local.hotspot.id || local.hotspot.label || '') : '',
+    hotspotLabel: local.hotspot ? local.hotspot.label || '' : '',
+    behavior: local.behavior,
+    behaviorLabel: (LIFE_SIM_BEHAVIORS[local.behavior] || {}).name || local.behavior,
+    position,
+    path,
+    startedAt: now,
+    endsAt: now + local.minutes * 60000,
+    energy: 70,
+    mood: '平静',
+    lastDecisionAt: now,
+    lastEventAt: Number(CONFIG.lifeSimLastEventAt || 0),
+    eventsDate: '',
+    eventsToday: 0,
+  };
+}
+function lifeGetState(id) {
+  let st = loadLifeSimState(id);
+  const ctx = lifeSceneFor(id);
+  if (!ctx) return null;
+  if (!st || st.mapId !== ctx.map.id || st.placeId !== ctx.place.id) {
+    st = lifeInitState(id);
+    if (st) saveLifeSimState(id, st);
+  }
+  if (st && (!st.position || !Number.isFinite(Number(st.position.x)) || !Number.isFinite(Number(st.position.y)))) {
+    const hotspot = (ctx.hotspots || []).find((h) => String(h.id || '') === String(st.hotspotId || '') || String(h.label || '') === String(st.hotspotId || '') || String(h.label || '') === String(st.hotspotLabel || '')) || null;
+    st.position = lifePositionFor(id, hotspot, ctx.place);
+    st.placeName = st.placeName || ctx.place.name;
+    saveLifeSimState(id, st);
+  }
+  if (st && !Array.isArray(st.path)) {
+    st.path = lifePathFor(id, st.position || { x: 0.5, y: 0.7 }, st.position || { x: 0.5, y: 0.7 }, ctx);
+    saveLifeSimState(id, st);
+  }
+  return st;
+}
+function lifeQuietNow(cfg) {
+  const h = new Date().getHours();
+  return cfg.quietStart <= cfg.quietEnd ? (h >= cfg.quietStart && h < cfg.quietEnd) : (h >= cfg.quietStart || h < cfg.quietEnd);
+}
+function lifeParseJson(text) {
+  try {
+    const s = String(text || '').replace(/```json|```/gi, '').trim();
+    const a = s.indexOf('{'), b = s.lastIndexOf('}');
+    if (a < 0 || b <= a) return null;
+    return JSON.parse(s.slice(a, b + 1));
+  } catch { return null; }
+}
+async function lifeAskAI(id, st, ctx) {
+  const meta = readJson(path.join(charDir(id), 'meta.json'), {});
+  const name = meta.name || '她';
+  const hot = (ctx.hotspots || []).map((h) => String(h.label || '')).filter(Boolean).join('、') || '无';
+  const maps = loadMaps();
+  const places = maps.map((m) => m.name + '（' + m.id + '）：' + (m.places || []).map((p) => p.id + '=' + p.name).join(' / ')).join('\n');
+  const recent = lifeRecentFor(id);
+  const resp = await chatCompletion({
+    messages: [
+      { role: 'system', content: `你是${name}。你在过自己的生活，现在到了决定下一步做什么的时候。用 JSON 返回，不要输出别的。
+可用行为：sleep, read, study, eat, coffee, phone, look, idle。
+可用地图与地点：
+${places}
+当前热点：${hot}。
+返回格式：{"mapId":"map-main","placeId":"library","behavior":"read","hotspot":"书架","durationMinutes":45,"tellUser":false,"message":"","imagePrompt":"","memory":""}
+规则：
+- mapId/placeId 从可用地图和地点里选；只有真的想换地点或去别的地图时才改，否则填当前地图/地点
+- 跨地图会走长途，时间会更久，只有真的想去才跨
+- behavior 必须是上面之一
+- hotspot 优先从可用热点里选
+- durationMinutes 按真实生活：睡觉夜间 360–540，看书 30–90，写作业 45–120，吃饭 20–45，咖啡 30–60，手机 15–45，看看 3–10，发呆 10–30
+- tellUser 只有真值得主动找他时才 true，最多一句话，25–50 字
+- 如果 tellUser，message 是你要发给他的原话，自然、不解释、不括号
+- imagePrompt 只有刚好拍了/看到东西时填，否则留空
+- memory 是这件事的一两句记忆，可为空` },
+      { role: 'user', content: `当前地图：${ctx.map.name}。当前地点：${ctx.place.name}（${ctx.place.desc || ''}）。当前时间：${new Date().toLocaleString('zh-CN')}。精力：${st.energy}。最近聊天：\n${recent || '（没聊什么）'}\n请决定下一步（可以换同一张地图里的地点），并告诉我要不要主动找他。` },
+    ],
+    max_tokens: 700, temperature: 0.9,
+  });
+  const msg = resp && resp.choices && resp.choices[0] && resp.choices[0].message;
+  return lifeParseJson(msg && msg.content);
+}
+
+async function lifeSocialTick(force) {
+  const cfg = lifeSimCfg();
+  if (cfg.enabled === false && !force) return null;
+  const chars = listCharacters();
+  const states = chars.map((c) => ({ c, st: lifeGetState(c.id) })).filter((x) => x.st);
+  const now = Date.now();
+  const keys = new Set();
+  for (const a of states) {
+    for (const b of states) {
+      if (a.c.id >= b.c.id) continue;
+      if (a.st.mapId !== b.st.mapId || a.st.placeId !== b.st.placeId) continue;
+      const pa = a.st.position || {}, pb = b.st.position || {};
+      if (!Number.isFinite(Number(pa.x)) || !Number.isFinite(Number(pb.x))) continue;
+      const dist = Math.hypot(Number(pa.x) - Number(pb.x), Number(pa.y) - Number(pb.y));
+      if (dist > 0.45) continue;
+      const key = a.c.id + ':' + b.c.id;
+      keys.add(key);
+      const last = Number((CONFIG.lifeSocialAt || {})[key] || 0);
+      if (!force && now - last < 30 * 60 * 1000) continue;
+      if (!force && Math.random() > 0.35) continue;
+      let decision = null;
+      try {
+        const resp = await chatCompletion({
+          messages: [
+            { role: 'system', content: `你是${a.c.name}。你在${a.st.placeName}遇到了${b.c.name}。用 JSON 返回：{"tellUser":true,"message":"你想对用户说的一句话","memory":"这件事的一两句记忆"}。message 要自然、25–45 字，可以提到你们在做什么；不要解释、不要括号。` },
+            { role: 'user', content: `你正在：${a.st.behaviorLabel}。${b.c.name}正在：${b.st.behaviorLabel}。请判断这次相遇值不值得告诉用户。` },
+          ],
+          max_tokens: 600, temperature: 0.9,
+        });
+        const msg = resp && resp.choices && resp.choices[0] && resp.choices[0].message;
+        decision = lifeParseJson(msg && msg.content);
+      } catch {}
+      CONFIG.lifeSocialAt = CONFIG.lifeSocialAt || {};
+      CONFIG.lifeSocialAt[key] = now; saveConfig();
+      const mem = String((decision && decision.memory) || (a.c.name + '在' + a.st.placeName + '遇到了' + b.c.name)).slice(0, 300);
+      for (const x of [a, b]) {
+        try {
+          const mp = path.join(charDir(x.c.id), 'life-memory.json');
+          const arr = readJson(mp, []);
+          if (Array.isArray(arr)) { arr.push({ at: now, place: a.st.placeName, behavior: '相遇', text: mem, with: x === a ? b.c.name : a.c.name }); writeJson(mp, arr.slice(-200)); }
+        } catch {}
+      }
+      if (decision && decision.tellUser && decision.message) {
+        const active = chars.find((c) => c.id === ACTIVE_CHAR);
+        if (active && (active.id === a.c.id || active.id === b.c.id)) {
+          try { addMessageFor(ACTIVE_CHAR, 'her', String(decision.message).slice(0, 120)); } catch {}
+        }
+      }
+      return { ok: true, pair: [a.c.id, b.c.id], place: a.st.placeName, decision };
+    }
+  }
+  return { ok: true, pairs: keys.size };
+}
+
+
+function lifeAct(id, placeId, hotspotId) {
+  const ctx = lifeSceneFor(id); if (!ctx) return null;
+  const st = lifeGetState(id); if (!st) return null;
+  if (placeId && String(ctx.place.id) !== String(placeId)) return null;
+  const hotspot = (ctx.hotspots || []).find((h) => String(h.id || '') === String(hotspotId || '') || String(h.label || '') === String(hotspotId || '')) || null;
+  const behavior = lifeBehaviorFor(hotspot, ctx.place);
+  const bcfg = LIFE_SIM_BEHAVIORS[behavior] || LIFE_SIM_BEHAVIORS.idle;
+  const now = Date.now();
+  st.behavior = behavior; st.behaviorLabel = bcfg.name;
+  st.hotspotId = hotspot ? (hotspot.id || hotspot.label || '') : '';
+  st.hotspotLabel = hotspot ? (hotspot.label || '') : '';
+  st.position = lifePositionFor(id, hotspot, ctx.place);
+  st.startedAt = now; st.endsAt = now + lifeDurationMinutes(behavior) * 60000; st.lastDecisionAt = now;
+  saveLifeSimState(id, st);
+  return st;
+}
+
+
+function lifeSetPosition(id, x, y) {
+  const st = lifeGetState(id); if (!st) return null;
+  const px = Math.max(0.03, Math.min(0.97, Number(x)));
+  const py = Math.max(0.08, Math.min(0.94, Number(y)));
+  st.position = { x: px, y: py };
+  saveLifeSimState(id, st);
+  return st;
+}
+
+function recordVmCheckFor(id, r) {
+  try {
+    const x = r && r.result ? r.result : r;
+    const an = x && x.analysis;
+    if (!an) return;
+    const recent = Array.isArray(an.recent) ? an.recent : [];
+    const lastUser = [...recent].reverse().find((m) => /对方|user|用户/i.test(String((m && m.from) || '')) && String((m && m.text) || '').trim());
+    const txt = lastUser ? String(lastUser.text).trim() : '';
+    const seenMap = { ...(CONFIG.vmChat?.lastUserByChar || {}) };
+    if (txt && txt !== String(seenMap[id] || '')) {
+      addMessageFor(id, 'user', txt);
+      seenMap[id] = txt;
+      CONFIG.vmChat = { ...(CONFIG.vmChat || {}), lastUserByChar: seenMap }; saveConfig();
+    }
+    const sent = x && x.sent;
+    if (sent && sent.ok && an.reply) addMessageFor(id, 'her', String(an.reply).trim());
+  } catch {}
+}
+
+async function lifeTick(id) {
+  const cfg = lifeSimCfg();
+  if (cfg.enabled === false && !(arguments[1] && arguments[1].force)) return null;
+  const ctx = lifeSceneFor(id); if (!ctx) return null;
+  let st = lifeGetState(id); if (!st) return null;
+  const now = Date.now();
+  if (st.traveling) {
+    if (!(arguments[1] && arguments[1].force) && now < Number(st.traveling.arrivesAt || 0)) return st;
+    lifeSetLocation(id, st.traveling.toMapId, st.traveling.toPlaceId);
+    const ctx2 = lifeSceneFor(id);
+    if (ctx2) {
+      const local2 = lifePickLocal(ctx2, st);
+      st.traveling = null; st.mapId = ctx2.map.id; st.placeId = ctx2.place.id; st.placeName = ctx2.place.name;
+      st.behavior = local2.behavior; st.behaviorLabel = (LIFE_SIM_BEHAVIORS[local2.behavior] || {}).name || local2.behavior;
+      st.hotspotId = local2.hotspot ? (local2.hotspot.id || local2.hotspot.label || '') : '';
+      st.hotspotLabel = local2.hotspot ? (local2.hotspot.label || '') : '';
+      st.position = lifePositionFor(id, local2.hotspot, ctx2.place);
+      st.startedAt = now; st.endsAt = now + local2.minutes * 60000; st.lastDecisionAt = now;
+      saveLifeSimState(id, st);
+    }
+    return st;
+  }
+  if (!(arguments[1] && arguments[1].force) && now < Number(st.endsAt || 0)) return st;
+  let decision = null;
+  try { decision = await lifeAskAI(id, st, ctx); } catch { decision = null; }
+  // 跨地图/换地点
+  if (decision && (decision.mapId || decision.placeId)) {
+    const targetMapId = String(decision.mapId || ctx.map.id);
+    const targetPlaceId = String(decision.placeId || ctx.place.id);
+    if (targetMapId !== String(ctx.map.id)) {
+      const targetMap = loadMaps().find((m) => m.id === targetMapId);
+      if (targetMap && (targetMap.places || []).some((p) => p.id === targetPlaceId)) {
+        st.traveling = { fromMapId: ctx.map.id, fromPlaceId: ctx.place.id, toMapId: targetMapId, toPlaceId: targetPlaceId, startedAt: now, arrivesAt: now + lifeTravelMinutes() * 60000, targetName: targetMap.name + '·' + (targetMap.places.find((p) => p.id === targetPlaceId).name || '') };
+        saveLifeSimState(id, st);
+        return st;
+      }
+    } else if (targetPlaceId !== String(ctx.place.id)) {
+      const target = (ctx.map.places || []).find((p) => String(p.id) === targetPlaceId);
+      if (target && lifeSetLocation(id, ctx.map.id, target.id)) {
+        ctx = lifeSceneFor(id) || ctx;
+        st.placeId = ctx.place.id; st.placeName = ctx.place.name; st.mapId = ctx.map.id;
+      }
+    }
+  }
+  const local = lifePickLocal(ctx, st);
+  const behavior = decision && LIFE_SIM_BEHAVIORS[decision.behavior] ? decision.behavior : local.behavior;
+  const hotspot = decision && decision.hotspot && ctx.hotspots.find((h) => String(h.label || '') === String(decision.hotspot) || String(h.id || '') === String(decision.hotspot)) ? ctx.hotspots.find((h) => String(h.label || '') === String(decision.hotspot) || String(h.id || '') === String(decision.hotspot)) : local.hotspot;
+  let minutes = Number(decision && decision.durationMinutes);
+  if (!Number.isFinite(minutes)) minutes = local.minutes;
+  const bcfg = LIFE_SIM_BEHAVIORS[behavior] || LIFE_SIM_BEHAVIORS.idle;
+  const minMinutes = behavior === 'sleep' ? (lifeIsNight() ? 360 : 60) : bcfg.min;
+  minutes = Math.max(minMinutes, Math.min(behavior === 'sleep' ? 540 : bcfg.max, minutes));
+  st.behavior = behavior;
+  st.behaviorLabel = bcfg.name;
+  st.hotspotId = hotspot ? (hotspot.id || hotspot.label || '') : '';
+  st.hotspotLabel = hotspot ? (hotspot.label || '') : '';
+  const fromPos = st.position || lifePositionFor(id, hotspot, ctx.place);
+  st.position = lifePositionFor(id, hotspot, ctx.place);
+  st.path = lifePathFor(id, fromPos, st.position, ctx);
+  st.startedAt = now;
+  st.endsAt = now + minutes * 60000;
+  st.lastDecisionAt = now;
+  // 事件判断
+  try {
+    const tell = !!(decision && decision.tellUser && decision.message);
+    const date = new Date().toISOString().slice(0, 10);
+    if (st.eventsDate !== date) { st.eventsDate = date; st.eventsToday = 0; }
+    const gapOk = now - Number(st.lastEventAt || 0) >= Number(cfg.minEventGapMin || 90) * 60000;
+    if (tell && !lifeQuietNow(cfg) && gapOk && Number(st.eventsToday || 0) < Number(cfg.maxDaily || 8)) {
+      let text = String(decision.message || '').trim().slice(0, 120);
+      let image = null;
+      try {
+        const chance = Math.max(0, Math.min(1, Number(cfg.photoChance ?? 0.25)));
+        if (decision.imagePrompt && Math.random() < chance) {
+          const icfg = loadImageCfg();
+          if (icfg.enabled && icfg.apiKeySet) {
+            // 角色身份约束：如果画面里出现这个角色，外观必须与角色设定一致
+            let identity = '';
+            try {
+              const mm = readJson(path.join(charDir(id), 'meta.json'), {});
+              const persona = fs.existsSync(path.join(charDir(id), 'persona.md')) ? fs.readFileSync(path.join(charDir(id), 'persona.md'), 'utf8') : '';
+              identity = String(mm.appearance || mm.identity || persona.replace(/\s+/g, ' ').slice(0, 500) || '').trim();
+            } catch {}
+            const ip = String(decision.imagePrompt || '');
+            const wantsCharacter = /(她|自己|我|人像|自拍|照片里|角色)/.test(ip);
+            const fixed = identity ? ('角色固定外观：' + identity.slice(0, 500) + '。如果画面中出现角色，必须保持这个外观、发型、发色、脸型和气质一致，不要换成另一个人。') : '';
+            image = await generateImageFile((fixed + ' ' + ip).slice(0, 1200), { size: '1024x1024', image: wantsCharacter ? (avatarDataUrl(id) || undefined) : undefined });
+          }
+        }
+      } catch {}
+      if (text) {
+        let deliveredVm = false;
+        try {
+          if (id === ACTIVE_CHAR && CONFIG.vmChat && CONFIG.vmChat.enabled) {
+            if (CONFIG.vmChat.checkMessages !== false) {
+              try {
+                const cr = await VM_CHAT.checkAndReply();
+                if (cr && cr.ok) recordVmCheckFor(id, cr);
+              } catch {}
+            }
+            const vr = await VM_CHAT.sendText(text);
+            deliveredVm = !!(vr && vr.ok);
+            if (deliveredVm && CONFIG.vmChat.idleShutdown !== false) { try { await VM_CHAT.stop(); } catch {} }
+          }
+        } catch {}
+        addMessageFor(id, 'her', text, image || undefined);
+        st.lastEventAt = now; st.eventsToday = Number(st.eventsToday || 0) + 1;
+        CONFIG.lifeSimLastEventAt = now; saveConfig();
+        const mem = readJson(path.join(charDir(id), 'life-memory.json'), []);
+        if (Array.isArray(mem)) {
+          mem.push({ at: now, place: ctx.place.name, behavior: st.behaviorLabel, text: String(decision.memory || text).slice(0, 300) });
+          writeJson(path.join(charDir(id), 'life-memory.json'), mem.slice(-200));
+        }
+      }
+    }
+  } catch {}
+  saveLifeSimState(id, st);
+  return st;
+}
+
+
 
 function routeOnRoads(map, from, to) {
   const roads = (map && Array.isArray(map.roads) && map.roads.length) ? map.roads : ROAD_LINES;
@@ -981,6 +1667,19 @@ function pickIntercityMode(km) {
   if (km < 600) return Math.random() < 0.7 ? 'rail' : 'coach';
   return 'plane';
 }
+function travelSchedule(mode) {
+  const interval = mode === 'coach' ? 30 : (mode === 'rail' ? 60 : 120);
+  const now = new Date();
+  const next = new Date(now.getTime());
+  next.setSeconds(0, 0);
+  const m = next.getMinutes();
+  next.setMinutes(Math.ceil((m + 1) / interval) * interval);
+  if (next.getTime() <= now.getTime()) next.setMinutes(next.getMinutes() + interval);
+  const waitMinutes = Math.max(1, Math.round((next.getTime() - now.getTime()) / 60000));
+  const roll = Math.random();
+  const delayMinutes = roll < 0.2 ? (5 + Math.floor(Math.random() * 25)) : 0;
+  return { departAt: next.getTime(), waitMinutes, delayMinutes, label: (mode === 'coach' ? '长途汽车' : mode === 'rail' ? '高铁' : '飞机') };
+}
 function moveToMap(targetMapId, opts = {}) {
   const maps = loadMaps();
   const target = maps.find((m) => m.id === targetMapId);
@@ -992,7 +1691,7 @@ function moveToMap(targetMapId, opts = {}) {
     const hour = new Date().getHours();
     const night = hour >= 22 || hour < 6;
     if (night && caps.minor && !opts.confirmNight) return { refused: true, needsConfirm: true, reason: '这么晚还要去别的城市？我得先跟你说一声——确定让我去吗' };
-    if (!opts.noReport) { try { addMessage('her', `（报备）我坐${(TRANSPORTS[opts.mode] || TRANSPORTS.rail).label}去${target.name}，到了跟你说。`); } catch {} }
+    if (!opts.noReport) { const extra = Math.round((Number(opts.extraDelayMs) || 0) / 60000); try { addMessage('her', `（报备）我坐${(TRANSPORTS[opts.mode] || TRANSPORTS.rail).label}去${target.name}${extra ? '，班次要等/晚点约 ' + extra + ' 分钟' : ''}，到了跟你说。`); } catch {} }
   }
   const km = intercityDistanceKm(from, target);
   let mode = opts.mode && ['coach', 'rail', 'plane'].includes(opts.mode) ? opts.mode : pickIntercityMode(km);
@@ -1003,7 +1702,8 @@ function moveToMap(targetMapId, opts = {}) {
     if (!opts.instant) { try { spendMoney(fare, '跨城车票'); } catch {} }
   }
   const speed = (TRANSPORTS[mode] || TRANSPORTS.rail).speed;
-  const durationMs = opts.instant ? 1000 : Math.max(2000, Math.round((km * 1000) / speed * 1000));
+  const extraDelayMs = Math.max(0, Number(opts.extraDelayMs) || 0);
+  const durationMs = opts.instant ? 1000 : Math.max(2000, Math.round((km * 1000) / speed * 1000) + extraDelayMs);
   if (opts.instant) {
     CONFIG.activeMapId = target.id;
     saveLocation({ mapId: target.id, placeId: target.places[0].id, since: Date.now(), manual: true });
@@ -1287,6 +1987,16 @@ function runPy(script, args, timeoutMs = 180000) {
     }).catch((e) => resolve({ ok: false, out: '', err: String(e.message) }));
   });
 }
+const VM_CHAT = createVmChat({
+  runPy: (script, args, timeoutMs) => runPy(script, args, timeoutMs),
+  probeTcp: (port) => probeTcp(port),
+  chatCompletion: (body) => chatCompletion(body),
+  getSettings: () => (CONFIG.vmChat || {}),
+  saveSettings: (patch) => { CONFIG.vmChat = { ...(CONFIG.vmChat || {}), ...(patch || {}) }; saveConfig(); },
+  getCharacter: () => { const m = loadMeta(); return { name: m.name || '她', relation: m.relation || '' }; },
+  dataRoot: ROOT,
+  log: (x) => { try { console.error('[vm-chat]', x); } catch {} },
+});
 const UI_THEMES = [
   { id: 'warm', name: '暖光', colors: ['#f6d4bc', '#f7f2eb', '#5b8fce'] },
   { id: 'mint', name: '薄荷', colors: ['#bfe8d8', '#eefaf4', '#4f9f8a'] },
@@ -1398,6 +2108,7 @@ async function generateImageFile(prompt, opts = {}) {
     response_format: 'b64_json',
     watermark: !!cfg.watermark,
   };
+  if (opts.image) body.image = String(opts.image);
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { authorization: 'Bearer ' + key, 'content-type': 'application/json' },
@@ -1523,6 +2234,16 @@ function buildSystemPrompt(userText) {
   } } catch {}
   try { if (!walletMoney().tokenMode) parts.push('## 不要提 token\n你现在用的是虚拟货币，不是 token 计费。聊天里不要主动提 token、API、余额、计费这些词；你只知道自己的钱够不够花。'); } catch {}
   parts.push(`你现在在「${cur.traveling ? cur.name + '的路上' : cur.name}」（${cur.placeName || cur.name || ''}）` + (cur.traveling ? `，${['步行','骑车','自驾'].includes(cur.traveling.modeLabel) ? '正在' + cur.traveling.modeLabel : '正坐' + (cur.traveling.modeLabel || '车')}从${cur.traveling.fromName}过去，还有约${Math.ceil(cur.traveling.etaSec / 60)}分钟` : cur.intercity ? `，${['步行','骑车','自驾'].includes(cur.intercity.modeLabel) ? '正在' + cur.intercity.modeLabel : '正坐' + (cur.intercity.modeLabel || '车')}跨城路上` : `，已经待了约${cur.minutes || 0}分钟`));
+  try {
+    const present = worldCharacters().filter((c) => !c.isActive && c.samePlace && c.state === 'stationary');
+    if (present.length) parts.push(`这里还有：${present.map((c) => c.name).join('、')}。你们在同一个地点，可以自然提到她们，但不要替她们说话。`);
+  } catch {}
+  try {
+    const f = CONFIG.sceneFocus;
+    if (f && String(f.mapId) === String(getActiveMap().id) && String(f.placeId) === String(cur.placeId)) {
+      parts.push(`你现在在「${f.placeName}」${f.hotspotLabel ? '的「' + f.hotspotLabel + '」附近' : ''}。可以自然提到你正在做的事，但不要每次都重复。`);
+    }
+  } catch {}
   if (cur.desc) parts.push('这个地方：' + cur.desc);
   if (cur.feel) parts.push('你对这里的感受：' + cur.feel);
   const hint = scheduleHint(now);
@@ -1541,7 +2262,7 @@ function buildSystemPrompt(userText) {
   if (env.pc !== 'off') envTools.push('pc（看/操作用户电脑：look 截图、windows 列窗口、click/type/key 操作、task 交办）');
   if (env.space !== 'off') envTools.push('space（她自己的 Linux 桌面：look/click/type/run）');
   if (env.phone !== 'off') envTools.push('phone（她自己的安卓手机：look/tap/swipe/key）');
-  parts.push('## 聊天的要求\n像真人聊天：短句、口语、不列提纲、不总结、不重复客套。\n想说话就用 send_message；不需要每条都回。不要机械报状态数据；可以自然提到天气/心情/钱。\n不要说体力、血条、数值这类东西——真人不知道自己的体力数字，只能感觉累不累、困不困。\n如果用户让你记住什么，用 remember；想读日记用 read_diary；想花钱娱乐用 spend_money。\n用户可能发图片，你能看到。');
+  parts.push('## 聊天的要求\n像真人聊天：短句、口语、不列提纲、不总结、不重复客套。\n想说话就用 send_message；不需要每条都回。不要机械报状态数据；可以自然提到天气/心情/钱。\n不要说体力、血条、数值这类东西——真人不知道自己的体力数字，只能感觉累不累、困不困。\n如果用户让你记住什么，用 remember；想读日记用 read_diary；想花钱娱乐用 spend_money。\n用户可能发图片，你能看到。\n如果用户只发了一张图片、没有文字：先用一两句具体说你看到了什么，不要直接替他下结论、回答或行动；然后问一句“怎么了”“发生什么了”这类，等他补充后再继续。\n如果用户发了图片并说了话，再结合他的话回应。');
   if (loadImageCfg().enabled) parts.push('## 图片反馈\n想发图片（找到四叶草、试了新衣服、看到好看的东西）可以用 send_image，caption 写配文。');
   if (loadChatStyle().noParens) parts.push('## 说话方式\n不要用括号表示动作、表情、心理活动或旁白（不要写“（脸红了）”“(叹气)”这种），也不要用 *动作* 的写法；只直接说话。');
   if (loadTokenSaving().batchActions && walletMoney().tokenMode) parts.push('## 省 token 小提示\n连续操作（连续点击、点完再输入）优先用 space 的 action=batch + steps 一次提交，别一步一步点——每次单独调用都要重发上下文，很费 token。');
@@ -2631,7 +3352,7 @@ function importMemoryItems(raw) {
     }
     if (req.method === 'GET' && url.pathname.startsWith('/pet-sprite/')) {
       const name = String(url.pathname.split('/').pop() || '').replace(/\.png$/i, '').replace(/[^a-z0-9_-]/gi, '');
-      const p = path.join(RUNTIME_DIR, 'assets', 'pet', (ACTIVE_CHAR || 'xiaojing') + '-' + name + '.png');
+      const p = path.join(RUNTIME_DIR, 'assets', 'pet', (ACTIVE_CHAR || 'default') + '-' + name + '.png');
       if (!fs.existsSync(p)) { res.writeHead(404); res.end('not found'); return; }
       res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
       res.end(fs.readFileSync(p));
@@ -2890,6 +3611,190 @@ function importMemoryItems(raw) {
       });
       return;
     }
+    function recordVmCheck(r) {
+      try {
+        const x = r && r.result ? r.result : r;
+        const an = x && x.analysis;
+        if (!an) return;
+        const recent = Array.isArray(an.recent) ? an.recent : [];
+        const lastUser = [...recent].reverse().find((m) => /对方|user|用户/i.test(String((m && m.from) || '')) && String((m && m.text) || '').trim());
+        const txt = lastUser ? String(lastUser.text).trim() : '';
+        if (txt && txt !== String(CONFIG.vmChat?.lastUserText || '')) {
+          addMessageFor(ACTIVE_CHAR, 'user', txt);
+          CONFIG.vmChat = { ...(CONFIG.vmChat || {}), lastUserText: txt }; saveConfig();
+        }
+        const sent = x && x.sent;
+        if (sent && sent.ok && an.reply) addMessageFor(ACTIVE_CHAR, 'her', String(an.reply).trim());
+      } catch {}
+    }
+    if (req.method === 'GET' && url.pathname === '/api/vm-chat/settings') {
+      json(res, 200, { ok: true, settings: { enabled: false, checkMessages: true, autoStart: true, idleShutdown: true, checkIntervalMin: 15, ...(CONFIG.vmChat || {}) } });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/vm-chat/settings') {
+      const b = (req._json || {});
+      const cur = { ...(CONFIG.vmChat || {}) };
+      if (typeof b.enabled === 'boolean') cur.enabled = b.enabled;
+      if (typeof b.checkMessages === 'boolean') cur.checkMessages = b.checkMessages;
+      if (typeof b.autoStart === 'boolean') cur.autoStart = b.autoStart;
+      if (typeof b.idleShutdown === 'boolean') cur.idleShutdown = b.idleShutdown;
+      if (Number.isFinite(Number(b.checkIntervalMin))) cur.checkIntervalMin = Math.max(2, Math.min(1440, Number(b.checkIntervalMin)));
+      CONFIG.vmChat = cur; saveConfig();
+      json(res, 200, { ok: true, settings: cur });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/vm-chat/status') {
+      try { json(res, 200, { ok: true, status: await VM_CHAT.status() }); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/vm-chat/wake') {
+      try { json(res, 200, { ok: await VM_CHAT.wake(), running: await VM_CHAT.isRunning() }); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/vm-chat/check') {
+      try {
+        const result = await VM_CHAT.checkAndReply();
+        recordVmCheckFor(ACTIVE_CHAR, result);
+        json(res, 200, { ok: true, result });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/vm-chat/send') {
+      const b = (req._json || {});
+      try { json(res, 200, { ok: true, result: await VM_CHAT.sendText(String(b.text || '')) }); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/scene/settings') {
+      json(res, 200, { ok: true, ai: CONFIG.sceneActivityAI !== false, photoChance: Math.max(0, Math.min(1, Number(CONFIG.scenePhotoChance ?? 0.25))), minGapMinutes: 5, cacheMinutes: 10 });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/scene/settings') {
+      const b = (req._json || {});
+      if (typeof b.ai === 'boolean') { CONFIG.sceneActivityAI = b.ai; saveConfig(); }
+      if (Number.isFinite(Number(b.photoChance))) { CONFIG.scenePhotoChance = Math.max(0, Math.min(1, Number(b.photoChance))); saveConfig(); }
+      json(res, 200, { ok: true, ai: CONFIG.sceneActivityAI !== false, photoChance: Math.max(0, Math.min(1, Number(CONFIG.scenePhotoChance ?? 0.25))) });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/scene/activity') {
+      const r = await sceneActivityFor(url.searchParams.get('character') || ACTIVE_CHAR, url.searchParams.get('placeId') || '', url.searchParams.get('hotspotId') || '');
+      json(res, r.ok ? 200 : 404, r);
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/scene/focus') {
+      const b = (req._json || {});
+      if (!b.placeId) { CONFIG.sceneFocus = null; saveConfig(); json(res, 200, { ok: true, focus: null }); return; }
+      const found = scenePlaceAndHotspot(String(b.placeId), String(b.hotspotId || ''));
+      if (!found) { json(res, 404, { ok: false, error: '地点不存在' }); return; }
+      CONFIG.sceneFocus = { mapId: found.map.id, placeId: found.place.id, placeName: found.place.name, hotspotId: found.hotspot ? found.hotspot.id : '', hotspotLabel: found.hotspot ? found.hotspot.label : '', at: Date.now() };
+      saveConfig();
+      json(res, 200, { ok: true, focus: CONFIG.sceneFocus });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/life/settings') {
+      json(res, 200, { ok: true, settings: lifeSimCfg() });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/life/social') {
+      try { const r = await lifeSocialTick(true); json(res, 200, { ok: true, result: r }); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/life/act') {
+      const b = (req._json || {});
+      const st = lifeAct(b.characterId || ACTIVE_CHAR, b.placeId || '', b.hotspotId || '');
+      json(res, st ? 200 : 404, st ? { ok: true, state: st } : { ok: false, error: '地点或热点不存在' });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/life/position') {
+      const b = (req._json || {});
+      const st = lifeSetPosition(b.characterId || ACTIVE_CHAR, b.x, b.y);
+      json(res, st ? 200 : 404, st ? { ok: true, state: st } : { ok: false, error: '没有生活状态' });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/life/test-image') {
+      const b = (req._json || {});
+      try {
+        const cid = String(b.characterId || ACTIVE_CHAR);
+        const prompt = String(b.imagePrompt || '日常手机美食照片，温馨小镇的一餐，自然光，生活感，无文字无 UI').slice(0, 800);
+        const useRef = b.withIdentity === true || /(她|自己|我|人像|自拍|照片里|角色)/.test(prompt);
+        const img = await generateImageFile(prompt, { size: '1024x1024', image: useRef ? (avatarDataUrl(cid) || undefined) : undefined });
+        const text = String(b.message || '给你看看今天吃的。').slice(0, 120);
+        addMessageFor(String(b.characterId || ACTIVE_CHAR), 'her', text, img);
+        json(res, 200, { ok: true, image: img, text });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/travel/options') {
+      const from = getActiveMap();
+      const maps = loadMaps();
+      const wallet = walletMoney();
+      const options = maps.filter((m) => m.id !== from.id).map((m) => {
+        const km = intercityDistanceKm(from, m);
+        const modes = ['coach', 'rail', 'plane'].map((mode) => {
+          const fare = transportFare(mode, km * 1000);
+          const speed = (TRANSPORTS[mode] || TRANSPORTS.rail).speed;
+          const sch = travelSchedule(mode);
+          return { mode, label: (TRANSPORTS[mode] || {}).label, icon: (TRANSPORTS[mode] || {}).icon, fare, minutes: Math.max(1, Math.round((km * 1000) / speed / 60)), canAfford: wallet.spendable >= fare, nextDeparture: sch.departAt, waitMinutes: sch.waitMinutes, delayMinutes: sch.delayMinutes };
+        });
+        return { id: m.id, name: m.name, km: Math.round(km), modes };
+      });
+      json(res, 200, { ok: true, from: { id: from.id, name: from.name }, wallet, options });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/travel/ticket') {
+      const b = (req._json || {});
+      const mode = String(b.mode || '');
+      const sch = travelSchedule(mode);
+      const wait = Number.isFinite(Number(b.waitMinutes)) ? Math.max(0, Number(b.waitMinutes)) : sch.waitMinutes;
+      const delay = Number.isFinite(Number(b.delayMinutes)) ? Math.max(0, Number(b.delayMinutes)) : sch.delayMinutes;
+      const loc = moveToMap(String(b.mapId || ''), { mode, manual: true, extraDelayMs: (wait + delay) * 60000 });
+      json(res, 200, loc && loc.refused ? { ok: false, refused: true, reason: loc.reason, location: currentPlace() } : { ok: true, location: loc });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/life/states') {
+      const list = listCharacters().map((c) => {
+        const st = lifeGetState(c.id);
+        return st ? { ...st, name: c.name, avatar: c.avatar } : null;
+      }).filter(Boolean);
+      json(res, 200, { ok: true, states: list });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/life/state') {
+      const st = lifeGetState(url.searchParams.get('character') || ACTIVE_CHAR);
+      json(res, st ? 200 : 404, st ? { ok: true, state: st } : { ok: false, error: '角色不在任何地点' });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/life/settings') {
+      const b = (req._json || {});
+      CONFIG.lifeSim = { ...(CONFIG.lifeSim || {}) };
+      for (const k of ['enabled']) if (typeof b[k] === 'boolean') CONFIG.lifeSim[k] = b[k];
+      for (const k of ['minEventGapMin', 'maxDaily', 'quietStart', 'quietEnd', 'photoChance']) if (Number.isFinite(Number(b[k]))) CONFIG.lifeSim[k] = Number(b[k]);
+      saveConfig();
+      json(res, 200, { ok: true, settings: lifeSimCfg() });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/life/tick') {
+      try {
+        const st = await lifeTick(url.searchParams.get('character') || ACTIVE_CHAR, { force: true });
+        json(res, 200, { ok: true, state: st });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/map/preview') {
+      const maps = loadMaps();
+      const id = String(url.searchParams.get('mapId') || activeMapId());
+      const map = maps.find((m) => m.id === id);
+      if (!map) { json(res, 404, { ok: false, error: '没有这张地图' }); return; }
+      json(res, 200, {
+        ok: true, map, activeMapId: activeMapId(),
+        maps: maps.map((m) => ({ id: m.id, name: m.name, placeCount: (m.places || []).length, image: m.image || null })),
+        location: currentPlace(),
+      });
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/world/characters') {
+      json(res, 200, { characters: worldCharacters(), activeMapId: getActiveMap().id });
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/api/map') {
       const b = (req._json || {});
       if (!guardRev(res, 'maps', ACTIVE_CHAR, b.expectedRev)) return;
@@ -2908,7 +3813,7 @@ function importMemoryItems(raw) {
       if (b.image !== undefined) m.image = b.image && b.image.url ? { url: String(b.image.url).slice(0, 300) } : null;
       if (b.model !== undefined) m.model = b.model && b.model.url ? { url: String(b.model.url).slice(0, 300), scale: Number(b.model.scale) || 1, rotationY: Number(b.model.rotationY) || 0, yOffset: Number(b.model.yOffset) || 0 } : null;
       if (Array.isArray(b.places)) {
-        m.places = b.places.slice(0, 40).map((p) => ({ id: String(p.id || ('p-' + Math.random().toString(36).slice(2, 7))).slice(0, 40), name: String(p.name || '未命名').slice(0, 20), icon: String(p.icon || '📍').slice(0, 4), x: Math.max(0.05, Math.min(0.95, Number(p.x) || 0.5)), y: Math.max(0.08, Math.min(0.92, Number(p.y) || 0.5)), desc: String(p.desc || '').slice(0, 80), feel: String(p.feel || '').slice(0, 80), image: p.image && String(p.image).startsWith('/models/') ? String(p.image) : null }));
+        m.places = b.places.slice(0, 40).map((p) => ({ id: String(p.id || ('p-' + Math.random().toString(36).slice(2, 7))).slice(0, 40), name: String(p.name || '未命名').slice(0, 20), icon: String(p.icon || '📍').slice(0, 4), x: Math.max(0.05, Math.min(0.95, Number(p.x) || 0.5)), y: Math.max(0.08, Math.min(0.92, Number(p.y) || 0.5)), desc: String(p.desc || '').slice(0, 80), feel: String(p.feel || '').slice(0, 80), image: p.image && String(p.image).startsWith('/models/') ? String(p.image) : null, scene: normalizeScene(p.scene) }));
       }
       if (Array.isArray(b.schedules)) {
         const life = loadLife();
@@ -2978,6 +3883,15 @@ function importMemoryItems(raw) {
       }
       saveMaps(maps);
       json(res, 200, { ok: true, added, skipped, total: map.places.length, places: map.places });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/scene/image') {
+      try {
+        const b = (req._json || {});
+        const r = saveDataUrlImage(b.dataUrl, 'scene', 12 * 1024 * 1024);
+        if (!r.ok) { json(res, 400, { ok: false, error: r.error }); return; }
+        json(res, 200, { ok: true, url: r.url });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/map/image') {
@@ -3229,7 +4143,7 @@ function boot() {
       const recent = messages.filter((m) => m.role === 'user' || m.role === 'her').slice(-6).map((m) => (m.role === 'user' ? '他：' : '你：') + String(m.text).slice(0, 100)).join('\n');
       const resp = await chatCompletion({
         messages: [
-          { role: 'system', content: '你是' + meta.name + '。现在你一个人待着，突然想主动找他说句话。\n要求：一句话，25 字以内，像真人发消息；可以撒娇/吐槽/分享小事/想他；不要报体力数值，不要说"记录"这种；不要问"在吗"；不要列清单。\n你现在的状态：在' + cur.name + '，感觉' + (typeof energyWord === 'function' ? energyWord(loadCharState().energy) : '还好') + '。' },
+          { role: 'system', content: '你是' + meta.name + '。现在你一个人待着，突然想主动找他说句话。\n要求：一句话，25 字以内，像真人发消息；可以撒娇/吐槽/分享小事/想他；不要报体力数值，不要说"记录"这种；不要问"在吗"；不要列清单。\n你现在的状态：在' + cur.name + '，感觉' + (typeof energyWord === 'function' ? energyWord(loadCharState().energy) : '还好') + '。' + (() => { try { const f = CONFIG.sceneFocus; if (f && String(f.mapId) === String(getActiveMap().id) && String(f.placeId) === String(cur.placeId)) return `你现在在「${f.placeName}」${f.hotspotLabel ? '的「' + f.hotspotLabel + '」旁边' : ''}，可以自然提到正在做的事，或者偶尔问他一个小问题，但不要每次都这样。`; } catch {} return ''; })() },
           { role: 'user', content: '最近聊的：\n' + (recent || '（没聊什么）') + '\n\n请写出你想发的那一句话：' },
         ],
         max_tokens: 120, temperature: 0.95,
@@ -3237,7 +4151,37 @@ function boot() {
       const msg = resp && resp.choices && resp.choices[0] && resp.choices[0].message;
       let txt = msg ? String(msg.content || '').trim() : '';
       txt = txt.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').split('\n')[0].slice(0, 60);
-      if (txt) { await streamText(txt); addMessage('her', txt); }
+      if (txt) {
+        let photo = null;
+        try {
+          const f = CONFIG.sceneFocus;
+          // 没有打开场景时，也按当前所在地点判断主动发图
+          const focusPlaceId = (f && String(f.mapId) === String(getActiveMap().id)) ? String(f.placeId) : String(cur.placeId || '');
+          const focusHotspotId = (f && String(f.mapId) === String(getActiveMap().id)) ? String(f.hotspotId || '') : '';
+          if (focusPlaceId) {
+            const found = scenePlaceAndHotspot(focusPlaceId, focusHotspotId);
+            const photos = found && found.place && found.place.scene && Array.isArray(found.place.scene.photos) ? found.place.scene.photos : [];
+            const photoChance = Math.max(0, Math.min(1, Number(CONFIG.scenePhotoChance ?? 0.25)));
+            if (photos.length && Math.random() < photoChance && Date.now() - Number(CONFIG.lastScenePhotoAt || 0) > 90 * 60 * 1000) {
+              photo = photos[Math.floor(Math.random() * photos.length)];
+              CONFIG.lastScenePhotoAt = Date.now();
+              saveConfig();
+            }
+            if (!photo && Date.now() - Number(CONFIG.lastScenePhotoAt || 0) > 90 * 60 * 1000 && Math.random() < photoChance) {
+              const cfg = loadImageCfg();
+              if (cfg.enabled && cfg.apiKeySet) {
+                const spot = found.hotspot ? found.hotspot.label : '';
+                const prompt = `日常手机照片，${meta.name}在${found.place.name}${spot ? '的' + spot + '旁边' : ''}，自然抓拍，光线柔和，生活感，不摆拍，画面里不要文字和 UI。`;
+                photo = await generateImageFile(prompt, { size: '1024x1024' });
+                CONFIG.lastScenePhotoAt = Date.now();
+                saveConfig();
+              }
+            }
+          }
+        } catch {}
+        await streamText(txt);
+        addMessage('her', txt, photo || undefined);
+      }
     } catch {}
     scheduleNextProactive();
   }, 60 * 1000).unref?.();
@@ -3253,6 +4197,25 @@ function boot() {
       runPy('space_ensure.py', ['ensure'], 45000).catch(() => {});
     } catch {}
   }, 60 * 1000).unref?.();
+  // 后台生活模拟：即使不打开地图，也会按自己的时间推进
+  try {
+    for (const c of listCharacters()) { try { lifeGetState(c.id); } catch {} }
+    setTimeout(async () => { for (const c of listCharacters()) { try { await lifeTick(c.id); } catch {} } }, 15000);
+    setInterval(async () => { for (const c of listCharacters()) { try { await lifeTick(c.id); } catch {} } }, 30 * 1000).unref?.();
+    setInterval(() => { lifeSocialTick(false).catch(() => {}); }, 5 * 60 * 1000).unref?.();
+    setInterval(async () => {
+      try {
+        const vc = CONFIG.vmChat || {};
+        if (!vc.enabled || vc.checkMessages === false) return;
+        const min = Math.max(2, Number(vc.checkIntervalMin) || 15) * 60 * 1000;
+        if (Date.now() - Number(vc.lastCheckAt || 0) < min) return;
+        CONFIG.vmChat.lastCheckAt = Date.now(); saveConfig();
+        const r = await VM_CHAT.checkAndReply();
+        if (r && r.ok) recordVmCheckFor(ACTIVE_CHAR, { result: r });
+        if (r && r.ok && vc.idleShutdown !== false) { try { await VM_CHAT.stop(); } catch {} }
+      } catch {}
+    }, 60 * 1000).unref?.();
+  } catch {}
   tryListen(PREFERRED_PORT);
 }
 async function watchScreenTick() {
@@ -3267,7 +4230,7 @@ async function watchScreenTick() {
     saveWatchScreen({ nextAt: Date.now() + Math.round((Number(w.minMinutes) || 20) * 60000 * (0.8 + Math.random() * 0.4)) });
     let selfName = '你自己';
     try { selfName = loadMeta().name || selfName; } catch {}
-    const prompt = `（她有点好奇你在做什么，趁你不注意悄悄瞥了一眼你的屏幕。用 pc 工具看看；如果看到值得说的事就自然地说一句，如果没什么特别就别说。屏幕上可能出现${selfName}自己——桌宠、聊天头像、舞台上的小人、地图上的角色，都是你在屏幕上的样子，不要把自己当成别人。不要提“截图”“桌宠按钮”或这条提示。）`;
+    const prompt = `（她有点好奇你在做什么，趁你不注意悄悄瞥了一眼你的屏幕。用 pc 工具看看，只简单说你看到了什么，不要直接替他回答问题、不要下结论、不要操作；然后停下来观察他后面有没有接话。如果没什么特别的就别说话。屏幕上可能出现${selfName}自己——桌宠、聊天头像、舞台上的小人、地图上的角色，都是你在屏幕上的样子，不要把自己当成别人。不要提“截图”“桌宠按钮”或这条提示。）`;
     addMessage('user', prompt, null, { hidden: true });
     await generateReply(prompt);
   } catch {}

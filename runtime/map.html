@@ -78,6 +78,80 @@ input, textarea, select { border-radius: 9px; }
 ::-webkit-scrollbar-thumb { background: #2b3a4c; border-radius: 8px; }
 ::-webkit-scrollbar-thumb:hover { background: #3b5068; }
 
+/* 多角色同图 / 地点详情 / 内部场景 */
+#travelOverlay{position:fixed;inset:0;z-index:62;background:rgba(3,7,12,.86);display:flex;align-items:center;justify-content:center;padding:18px}
+#travelOverlay .tvBox{width:min(700px,94vw);max-height:90vh;overflow:auto;border:1px solid #3a4b5f;border-radius:18px;background:#0b1219;box-shadow:0 24px 80px rgba(0,0,0,.65)}
+#travelOverlay .tvHead{display:flex;gap:10px;align-items:center;padding:12px 16px;background:#101b29;border-bottom:1px solid #243445;position:sticky;top:0}
+#travelOverlay .tvHead h3{font-size:16px;margin:0;flex:1;color:#e8eef6}
+#travelOverlay .tvBody{padding:14px 16px;color:#cfdae8}
+#travelOverlay .tvCard{border:1px solid #26384b;border-radius:12px;padding:10px;margin:8px 0;background:#101a26}
+#travelOverlay .tvCard h4{margin:0 0 4px;font-size:14px;color:#e8eef6}
+#travelOverlay .tvModes{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+#travelOverlay .tvMode{border:1px solid #33485e;border-radius:9px;background:#162434;color:#dbe7f5;padding:7px 10px;cursor:pointer;font-size:12px;text-align:left}
+#travelOverlay .tvMode:hover{border-color:#6f9fd1;background:#1d3044}
+#travelOverlay .tvMode .price{display:block;color:#f3d6a2;font-size:11px;margin-top:2px}
+#travelOverlay .tvFoot{padding:10px 16px;border-top:1px solid #243445;color:#8fa3b8;font-size:12px;display:flex;gap:10px;align-items:center}
+#travelOverlay .tvFoot .spacer{flex:1}
+
+#mapPreview{position:fixed;inset:0;z-index:60;background:rgba(3,7,12,.86);display:flex;align-items:center;justify-content:center;padding:18px}
+#mapPreview .mpBox{width:min(1120px,94vw);border:1px solid #3a4b5f;border-radius:18px;overflow:hidden;background:#0b1219;box-shadow:0 24px 80px rgba(0,0,0,.65)}
+#mapPreview .mpHead{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#101b29;border-bottom:1px solid #243445}
+#mapPreview .mpHead h3{font-size:15px;margin:0;flex:1;color:#e8eef6}
+#mapPreview .mpStage{position:relative;aspect-ratio:16/9;min-height:320px;background:#0b1219 center/cover;overflow:hidden}
+#mapPreview .mpStage .pin{transform:translate(-50%,-100%);cursor:default}
+#mapPreview .mpStage .pinNum,#mapPreview .mpStage .pinLabel{pointer-events:none}
+#mapPreview .mpFoot{padding:8px 14px;background:#0f1825;color:#7d8fa5;font-size:11px;border-top:1px solid #243445;display:flex;gap:10px;align-items:center}
+#mapPreview .mpFoot .spacer{flex:1}
+#mapPreview .mapPick{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+
+#charPins{position:absolute;inset:0;z-index:7;pointer-events:none}
+.charPin{position:absolute;transform:translate(-50%,-100%);pointer-events:auto;cursor:pointer;text-align:center;filter:drop-shadow(0 3px 6px rgba(0,0,0,.6))}
+.charPin .cAva{width:32px;height:32px;border-radius:50%;border:2px solid #e0a45f;background-color:#16202b;background-position:center;background-size:cover;background-repeat:no-repeat;display:flex;align-items:center;justify-content:center;font-size:14px;margin:0 auto;overflow:hidden}
+.charPin.same .cAva{border-color:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.18)}
+.charPin .cName{font-size:10px;background:rgba(12,20,29,.9);border:1px solid #3a4b5f;color:#dbe6f3;padding:0 5px;border-radius:7px;white-space:nowrap;margin-top:1px}
+.charPin.same .cName{border-color:#22c55e;color:#b9f6d0}
+#worldCharList .wrow{display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid #1c2733;cursor:pointer;border-radius:8px}
+#worldCharList .wrow:hover{background:#121d28}
+#worldCharList .wava{width:28px;height:28px;border-radius:50%;background:#16202b center/cover;display:flex;align-items:center;justify-content:center;font-size:12px;border:1px solid #33465a;flex:0 0 auto}
+#worldCharList .pAva{width:28px;height:28px;border-radius:50%;background-color:#16202b;background-position:center;background-size:cover;background-repeat:no-repeat;display:flex;align-items:center;justify-content:center;font-size:12px;border:1px solid #33465a;flex:0 0 auto;overflow:hidden}
+#worldCharList .wname{font-size:13px}
+#worldCharList .wmeta{font-size:11px;color:#7d8fa5}
+.worldModal{position:fixed;inset:0;z-index:40;background:rgba(5,9,14,.72);display:flex;align-items:center;justify-content:center;padding:20px}
+.worldModal .box{width:min(440px,92vw);max-height:86vh;overflow:auto;background:#101b29;border:1px solid #2f6bd8;border-radius:16px;padding:18px;box-shadow:0 18px 60px rgba(0,0,0,.55)}
+.worldModal .box.wide{width:min(640px,95vw)}
+.worldModal .box .row input[type=number]{width:64px}
+.worldModal .box h3{margin:0 0 4px;font-size:16px}
+.worldModal .box .desc{font-size:12px;color:#9fb3c8;line-height:1.7;margin:7px 0}
+.worldModal .box .people{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.worldModal .box .person{display:flex;align-items:center;gap:6px;font-size:12px;background:#0c1621;border:1px solid #243445;border-radius:999px;padding:3px 8px 3px 3px}
+.worldModal .box .person .pAva{width:24px;height:24px;border-radius:50%;background:#16202b center/cover;display:inline-flex;align-items:center;justify-content:center;font-size:11px;border:1px solid #33465a}
+.worldModal .box .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px}
+#sceneOverlay{position:fixed;inset:0;z-index:50;background:rgba(3,7,12,.86);display:flex;align-items:center;justify-content:center;padding:18px}
+#sceneOverlay .sceneBox{position:relative;width:min(980px,95vw);height:min(700px,88vh);border:1px solid #3a4b5f;border-radius:18px;overflow:hidden;background:#0b1219 center/cover;box-shadow:0 24px 80px rgba(0,0,0,.65)}
+#sceneOverlay .sceneTop{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;gap:8px;padding:10px 14px;background:linear-gradient(180deg,rgba(5,9,14,.86),rgba(5,9,14,0));z-index:20}
+#sceneOverlay .sceneTop h3{font-size:15px;margin:0;flex:1;color:#e8eef6;text-shadow:0 2px 8px #000}
+#sceneOverlay .sceneWalkLayer{position:absolute;inset:0;z-index:6;pointer-events:none;display:none}
+#sceneOverlay .sceneWalkLayer.active{display:block;pointer-events:auto;cursor:crosshair}
+#sceneOverlay .walkRect{position:absolute;border:2px solid rgba(120,220,150,.9);background:rgba(80,200,120,.18);border-radius:4px;box-sizing:border-box}
+#sceneOverlay .sceneObstacleLayer{position:absolute;inset:0;z-index:7;pointer-events:none;display:none}
+#sceneOverlay .sceneObstacleLayer.active{display:block;pointer-events:auto;cursor:crosshair}
+#sceneOverlay .obsRect{position:absolute;border:2px dashed rgba(255,190,110,.95);background:rgba(255,150,60,.2);border-radius:4px;box-sizing:border-box}
+#sceneOverlay .obsRect:hover{background:rgba(255,90,60,.35);border-color:#ff6b6b}
+#sceneOverlay .scenePerson{position:absolute;transform:translate(-50%,-100%);text-align:center;pointer-events:auto;cursor:grab;filter:drop-shadow(0 4px 10px #000);transition:left 1.15s ease,top 1.15s ease}
+#sceneOverlay .scenePerson.dragging{transition:none;cursor:grabbing;z-index:8}
+#sceneOverlay .scenePerson .spAva{width:68px;height:68px;border-radius:50%;border:3px solid #f3d6a2;background-color:#16202b;background-position:center;background-size:cover;background-repeat:no-repeat;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 7px 20px rgba(0,0,0,.42);overflow:hidden}
+#sceneOverlay .scenePerson .spName{font-size:11px;color:#fff;background:rgba(8,14,22,.86);border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:1px 7px;margin-top:2px;display:inline-block}
+#sceneOverlay .scenePin{position:absolute;transform:translate(-50%,-100%);cursor:pointer;pointer-events:auto;z-index:4}
+#sceneOverlay .scenePin:hover{filter:drop-shadow(0 4px 8px rgba(0,0,0,.45)) brightness(1.06)}
+#sceneOverlay .scenePin .pinLabel{color:#3e4d5f}
+#sceneOverlay .sceneEmpty{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;padding:0 20px 34px;pointer-events:none}
+#sceneOverlay .sceneActivityTip{position:absolute;transform:translate(-50%,-100%);z-index:10;pointer-events:none;background:rgba(8,14,22,.92);border:1px solid rgba(255,255,255,.2);color:#f2f7ff;border-radius:10px;padding:6px 10px;font-size:12px;line-height:1.5;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.35);max-width:320px;overflow:hidden;text-overflow:ellipsis}
+#sceneOverlay .emptyCard{pointer-events:none;text-align:center;background:rgba(9,15,23,.58);border:1px solid rgba(255,255,255,.16);border-radius:16px;padding:12px 20px 13px;color:#dbe6f3;backdrop-filter:blur(6px);box-shadow:0 8px 26px rgba(0,0,0,.28)}
+#sceneOverlay .emptyIcon{font-size:22px;line-height:1.2;margin-bottom:2px;opacity:.9}
+#sceneOverlay .emptyTitle{font-size:13px;font-weight:600;letter-spacing:.02em}
+#sceneOverlay .emptyHint{font-size:11px;color:#9fb3c8;margin-top:3px}
+@media (max-width:900px){ #charPins{pointer-events:none} .charPin{transform:translate(-50%,-100%) scale(.9)} }
+
 </style>
 <link rel="stylesheet" href="/theme.css"><link rel="stylesheet" href="/ui-theme.css"><script src="/ui-theme.js"></script>
 <script>
@@ -201,6 +275,7 @@ window.addEventListener('load', () => {
   <h1>🗺️ <span id="mapName">地图</span></h1>
   <span id="mapBadge" class="officialBadge" style="display:none">官方 2D</span>
   <select id="mapSel" onchange="switchMap(this.value)"></select>
+  <button id="charSpreadBtn" onclick="toggleCharSpread()" style="display:none">👥 分开头像</button>
   <select id="longMode" title="换地图时的交通方式">
     <option value="auto">自动选长途</option>
     <option value="coach">🚌 长途汽车</option>
@@ -210,6 +285,8 @@ window.addEventListener('load', () => {
   <button onclick="renameMap()">改名</button>
   <button onclick="newMap()">+ 新地图</button>
   <button onclick="delMap()">删地图</button>
+  <button onclick="openMapPreview()">👁 看其他地图</button>
+  <button onclick="openTravel()">🚉 车站</button>
   <span class="now" id="nowPlace">…</span>
   <div class="spacer"></div>
   <a href="/screen" target="_blank">屏幕</a>
@@ -225,6 +302,7 @@ window.addEventListener('load', () => {
       <div id="mapBg" style="position:absolute;inset:0;display:none"><img id="mapBgImg" alt="" style="width:100%;height:100%;object-fit:fill;display:block"></div>
       <div id="mapInfo"><span id="mapClock">--:--</span><span id="mapWeather">…</span></div>
       <div id="mapPins"></div>
+      <div id="charPins"></div>
       <div id="roadLayer" style="position:absolute;inset:0;pointer-events:none"></div>
       <div id="routeLayer"></div>
       <div id="roadBar" style="position:absolute;left:12px;top:12px;display:none;gap:6px;align-items:center;background:rgba(8,13,20,.88);border:1px solid #2f6bd8;border-radius:10px;padding:6px 10px;font-size:12px;z-index:6">
@@ -258,10 +336,26 @@ window.addEventListener('load', () => {
       <div class="row" style="margin-top:8px;justify-content:space-between"><span class="small" id="curSince"></span>
         <label class="small" style="display:flex;align-items:center;gap:6px;flex:0 0 auto"><input type="checkbox" id="freeWalk" onchange="toggleFreeWalk()"> 让她自由走动</label></div>
     </div>
+    <div class="card"><h2>角色 <span class="chip" id="worldCount">…</span></h2>
+      <div id="worldCharList"></div>
+      <div class="small" style="margin-top:5px">同地图的角色会出现在地图上；点她可切换过去。</div>
+    </div>
     <div class="card"><h2>地图设置</h2>
       <div class="row"><label>地图全宽</label><input type="text" id="widthMeters" placeholder="例如 2000" style="width:90px"><span class="small">米</span></div>
       <div class="row"><label>交通方式</label><select id="transport"><option value="auto">自动</option><option value="walk">🚶 步行</option><option value="bike">🚲 骑车</option><option value="bus">🚌 公交</option><option value="car">🚗 自驾</option><option value="metro">🚇 地铁</option></select></div>
       <div class="row"><label>天气来源</label><select id="weatherMode" onchange="saveWeatherMode()"><option value="manual">手动选择</option><option value="real">真实天气（按设备定位）</option></select></div>
+      <div class="row"><label>场景 AI</label><label class="small" style="display:flex;align-items:center;gap:6px;flex:1"><input type="checkbox" id="sceneAI" onchange="saveSceneAISetting()"> 角色活动用 AI 文案</label></div>
+      <div class="row"><label>主动发图</label><input type="range" id="scenePhotoChance" min="0" max="100" step="5" value="25" oninput="document.getElementById('scenePhotoChanceVal').textContent=this.value+'%'" onchange="saveScenePhotoChance()" style="flex:1"><span class="small" id="scenePhotoChanceVal" style="width:40px;text-align:right">25%</span></div>
+      <div class="row"><label>后台生活</label><label class="small" style="display:flex;align-items:center;gap:6px;flex:1"><input type="checkbox" id="lifeEnabled" onchange="saveLifeSettings()"> 按自己的时间生活</label></div>
+      <div class="row"><label>消息间隔</label><input id="lifeGap" type="number" min="10" max="1440" step="10" style="width:74px" onchange="saveLifeSettings()"><span class="small">分钟</span></div>
+      <div class="row"><label>每日上限</label><input id="lifeDaily" type="number" min="1" max="30" step="1" style="width:64px" onchange="saveLifeSettings()"><span class="small">条</span></div>
+      <div class="row"><label>免打扰</label><input id="lifeQuietStart" type="number" min="0" max="23" step="1" style="width:48px" onchange="saveLifeSettings()"><span class="small">点到</span><input id="lifeQuietEnd" type="number" min="0" max="23" step="1" style="width:48px" onchange="saveLifeSettings()"><span class="small">点</span></div>
+      <div class="row"><label>当前生活</label><span class="small" id="lifeStateLine" style="flex:1">…</span></div>
+      <div class="row"><label>VM 聊天</label><label class="small" style="display:flex;align-items:center;gap:6px;flex:1"><input type="checkbox" id="vmChatEnabled" onchange="saveVmChatSettings()"> 主动消息走虚拟机社交软件</label></div>
+      <div class="row"><label>看消息</label><label class="small" style="display:flex;align-items:center;gap:6px;flex:1"><input type="checkbox" id="vmChatCheck" onchange="saveVmChatSettings()"> 唤醒后先检查消息</label></div>
+      <div class="row"><label>检查间隔</label><input id="vmChatInterval" type="number" min="2" max="1440" step="1" style="width:64px" onchange="saveVmChatSettings()"><span class="small">分钟</span><button class="btn" id="vmChatTest" onclick="checkVmChat()">检测虚拟机</button></div>
+      <div class="row"><label>发完 VM</label><label class="small" style="display:flex;align-items:center;gap:6px;flex:1"><input type="checkbox" id="vmChatShutdown" onchange="saveVmChatSettings()"> 自动存档关闭</label></div>
+      <div class="row"><label>VM 状态</label><span class="small" id="vmChatStatus" style="flex:1">…</span></div>
       <div class="row"><label>天气</label><select id="weather" onchange="saveWeather()"><option value="sunny">☀️ 晴天</option><option value="cloudy">☁️ 多云</option><option value="rain">🌧️ 下雨</option><option value="snow">❄️ 下雪</option><option value="hot">🥵 热</option><option value="cold">🧣 冷</option><option value="windy">💨 大风</option></select></div>
       <div class="small" id="realWeatherInfo"></div>
       <div class="row"><button class="btn" onclick="relocateWeather()">重新定位并刷新天气</button></div>
@@ -320,7 +414,15 @@ window.addEventListener('load', () => {
 <script src="/wx.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
-let DATA = null, PLACES = [], SCHEDULES = [], CURRENT = null, TRANSPORTS = {}, TIMER = null, PALETTE_TARGET = null, CAPS = {}, WEATHERS = {}, ENERGY = 80, ROUTINE = null, RPLACES = [], VISITS = {}, ROADS = [], EDITING_ROADS = false, ROAD_CUR = [], WXFX = {};
+let DATA = null, PLACES = [], SCHEDULES = [], CURRENT = null, TRANSPORTS = {}, TIMER = null, PALETTE_TARGET = null, CAPS = {}, WEATHERS = {}, ENERGY = 80, ROUTINE = null, RPLACES = [], VISITS = {}, ROADS = [], EDITING_ROADS = false, ROAD_CUR = [], WXFX = {}, WORLD_CHARS = [], LAST_WORLD_LOAD = 0; let CHAR_SPREAD = true;
+window.DSH_SCENE_3D = {
+  renderer: null,
+  register(fn) { this.renderer = typeof fn === 'function' ? fn : null; },
+  render(host, scene) {
+    if (!this.renderer) return false;
+    try { this.renderer(host, scene); return true; } catch (e) { console.error('[scene3d]', e); return false; }
+  }
+};
 const EMOJIS = ['🏠','🏫','🏢','📚','🌳','☕','🍚','🛒','🏥','🏦','🚉','✈️','🎬','🏬','🏋️','📖','💻','🌉','🏞️','⛰️','🍜','🍰','🍺','🎮','🎤','🧺','🛏️','🚿','🌇','🌃','🏪','💊','🐟','🐳','⭐','📍','🎪','🚏','🌲'];
 function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function toast(t){ const el=$('#toast'); el.textContent=t; el.style.opacity=1; setTimeout(()=>el.style.opacity=0,1600); }
@@ -378,12 +480,19 @@ function placeEl(p, index){
   el.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
     const box = document.getElementById('mapWrap').getBoundingClientRect();
+    let moved = false;
     const move = (e) => {
-      p.x = Math.max(0.05, Math.min(0.95, (e.clientX - box.left) / box.width));
-      p.y = Math.max(0.08, Math.min(0.92, (e.clientY - box.top) / box.height));
+      const nx = Math.max(0.05, Math.min(0.95, (e.clientX - box.left) / box.width));
+      const ny = Math.max(0.08, Math.min(0.92, (e.clientY - box.top) / box.height));
+      if (Math.abs(nx - p.x) + Math.abs(ny - p.y) > 0.012) moved = true;
+      p.x = nx; p.y = ny;
       el.style.left = (p.x*100)+'%'; el.style.top = (p.y*100)+'%';
     };
-    const up = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); };
+    const up = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      if (!moved) { try { showPlaceCard(p); } catch (e) {} }
+    };
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', up);
   });
@@ -393,6 +502,640 @@ function renderPins(){
   const wrap = document.getElementById('mapPins');
   wrap.innerHTML = '';
   PLACES.forEach((p, i) => wrap.appendChild(placeEl(p, i)));
+}
+
+// ── 多角色同图 / 地点详情 / 内部场景 ─────────────────────────────
+function openWorldModal(html){
+  const d = document.createElement('div');
+  d.className = 'worldModal';
+  d.innerHTML = '<div class="box">' + html + '</div>';
+  document.body.appendChild(d);
+  d.addEventListener('click', (e) => { if (e.target === d) d.remove(); });
+  const close = d.querySelector('[data-close]');
+  if (close) close.onclick = () => d.remove();
+  return d;
+}
+function charStatus(c){
+  if (c.state === 'intercity') return '跨城旅行中';
+  if (c.state === 'traveling') return (c.transport || '出行') + '中' + (c.etaSec ? ' · 约 ' + fmtEta(c.etaSec) : '');
+  return '在' + (c.placeName || '某个地方');
+}
+function charAvaHtml(c, cls){
+  const style = c.avatar ? ' style="background-image:url(\''+String(c.avatar).replace(/'/g,'%27')+'\')"' : '';
+  // 有头像图时不要再把名字首字叠在图上；只有没有图时才用文字兜底
+  return '<span class="'+cls+'"'+style+'>'+(c.avatar ? '' : esc((c.name || '她').slice(0,1)))+'</span>';
+}
+function showCharCard(c){
+  const same = c.samePlace ? '<div class="desc" style="color:#8ee7ab">和你现在在同一个地点。</div>' : '';
+  const d = openWorldModal(
+    '<h3>'+esc(c.name || c.id)+'</h3>'+
+    '<div class="desc">'+esc(c.mapName || '')+' · '+esc(charStatus(c))+'</div>'+ same +
+    '<div class="actions">'+
+      '<button class="btn primary" data-chat>切换并聊天</button>'+
+      '<button class="btn" data-switch>切换到她</button>'+
+      '<button class="btn" data-close>关闭</button>'+
+    '</div>'
+  );
+  d.querySelector('[data-switch]').onclick = async () => {
+    try {
+      const r = await saveJson('/api/characters', { action: 'switch', id: c.id });
+      if (r && r.ok) location.reload(); else toast((r && r.error) || '切换失败');
+    } catch (e) { toast('切换失败：' + e.message); }
+  };
+  d.querySelector('[data-chat]').onclick = async () => {
+    try {
+      const r = await saveJson('/api/characters', { action: 'switch', id: c.id });
+      if (r && r.ok) window.open('/', '_blank');
+      else toast((r && r.error) || '切换失败');
+    } catch (e) { toast('切换失败：' + e.message); }
+  };
+}
+function showPlaceCard(p){
+  const here = WORLD_CHARS.filter((c) => c.sameMap && String(c.placeId) === String(p.id) && c.state === 'stationary');
+  const people = here.length ? '<div class="people">' + here.map((c) => '<span class="person">'+charAvaHtml(c,'pAva')+esc(c.name)+'</span>').join('') + '</div>' : '<div class="desc">这里现在没有人。</div>';
+  const hasScene = !!(p.scene && p.scene.background);
+  const d = openWorldModal(
+    '<h3>'+esc(p.icon || '📍')+' '+esc(p.name)+'</h3>'+
+    (p.desc ? '<div class="desc">'+esc(p.desc)+'</div>' : '')+
+    (p.feel ? '<div class="desc" style="color:#8fa3b8">她对这个地方的感受：'+esc(p.feel)+'</div>' : '')+
+    people+
+    '<div class="actions">'+
+      (hasScene ? '<button class="btn primary" data-scene>进入内部</button>' : '')+
+      '<button class="btn" data-go>让她来这里</button>'+
+      '<button class="btn" data-close>关闭</button>'+
+    '</div>'
+  );
+  if (hasScene) d.querySelector('[data-scene]').onclick = () => { d.remove(); openScene(p); };
+  d.querySelector('[data-go]').onclick = async () => {
+    const i = PLACES.findIndex((x) => x.id === p.id);
+    d.remove();
+    if (i >= 0) await goHere(i);
+  };
+}
+const SCENE_TIP_CACHE = {};
+async function sceneActivityText(characterId, placeId, hotspotId){
+  const key = characterId + ':' + placeId + ':' + (hotspotId || '');
+  if (SCENE_TIP_CACHE[key]) return SCENE_TIP_CACHE[key];
+  try {
+    const r = await api('/api/scene/activity?character=' + encodeURIComponent(characterId) + '&placeId=' + encodeURIComponent(placeId) + '&hotspotId=' + encodeURIComponent(hotspotId || ''));
+    if (r && r.text) { SCENE_TIP_CACHE[key] = r.text; return r.text; }
+  } catch (e) {}
+  return '她在这里待着。';
+}
+function showSceneActivityTip(el, text){
+  const host = document.querySelector('#sceneOverlay .sceneBox');
+  if (!host) return;
+  let tip = host.querySelector('.sceneActivityTip');
+  if (!tip) { tip = document.createElement('div'); tip.className = 'sceneActivityTip'; host.appendChild(tip); }
+  const r = el.getBoundingClientRect(), hr = host.getBoundingClientRect();
+  tip.textContent = text;
+  tip.style.left = Math.max(90, Math.min(hr.width - 90, r.left - hr.left + r.width / 2)) + 'px';
+  tip.style.top = Math.max(50, r.top - hr.top - 6) + 'px';
+  tip.style.display = 'block';
+}
+function hideSceneActivityTip(){ const tip = document.querySelector('#sceneOverlay .sceneActivityTip'); if (tip) tip.style.display = 'none'; }
+async function openTravel(){
+  try {
+    const r = await api('/api/travel/options');
+    if (!r.options || !r.options.length) { toast('没有别的地图可以去'); return; }
+    const d = document.createElement('div'); d.id = 'travelOverlay';
+    d.innerHTML = '<div class="tvBox"><div class="tvHead"><h3>🚉 车站 · 从「' + esc(r.from.name) + '」出发</h3><button class="btn" data-close>关闭</button></div>'
+      + '<div class="tvBody">' + r.options.map((o) => '<div class="tvCard"><h4>' + esc(o.name) + ' <span class="small">约 ' + o.km + ' km</span></h4><div class="tvModes">'
+        + o.modes.map((m) => { const dep = m.nextDeparture ? new Date(m.nextDeparture).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''; return '<button class="tvMode" data-map="' + esc(o.id) + '" data-mode="' + esc(m.mode) + '" data-wait="' + (m.waitMinutes || 0) + '" data-delay="' + (m.delayMinutes || 0) + '">' + (m.icon||'') + ' ' + esc(m.label) + ' · ' + (m.minutes||'?') + '分钟<span class="price">' + (m.fare ? m.fare + ' 块' : '免费') + (m.canAfford ? '' : ' · 余额不够') + (dep ? ' · ' + dep + ' 发车' : '') + (m.waitMinutes ? ' · 等 ' + m.waitMinutes + ' 分' : '') + (m.delayMinutes ? ' · 晚点 ' + m.delayMinutes + ' 分' : '') + '</span></button>'; }).join('') + '</div></div>').join('') + '</div>'
+      + '<div class="tvFoot"><span>余额：' + esc(String(r.wallet.spendable ?? r.wallet.money ?? '?')) + ' 块</span><span class="spacer"></span><span>购票后她会自己过去，到站跟你说</span></div></div>';
+    document.body.appendChild(d);
+    d.addEventListener('click', (e) => { if (e.target === d) d.remove(); });
+    d.querySelector('[data-close]').onclick = () => d.remove();
+    d.querySelectorAll('[data-map]').forEach((btn) => btn.onclick = async () => {
+      const mapId = btn.dataset.map, mode = btn.dataset.mode;
+      if (!confirm('买这张票去「' + (r.options.find((x) => x.id === mapId)?.name || mapId) + '」？')) return;
+      try {
+        const rr = await saveJson('/api/travel/ticket', { mapId, mode, waitMinutes: Number(btn.dataset.wait || 0), delayMinutes: Number(btn.dataset.delay || 0) });
+        if (rr && rr.ok) { d.remove(); await loadMapData(); toast('票买好了，她出发了'); }
+        else toast((rr && rr.reason) || '买票失败');
+      } catch (e) { toast('买票失败：' + e.message); }
+    });
+  } catch (e) { toast('车站加载失败：' + e.message); }
+}
+function openMapPreview(){
+  const maps = (DATA && DATA.maps) || [];
+  const d = openWorldModal(
+    '<h3>看地图</h3><div class="desc">只是查看，不会移动角色。想过去可以用预览里的「直接过去」。</div>' +
+    '<div class="mapPick">' + maps.map((m) => '<button class="btn" data-map="' + esc(m.id) + '">' + esc(m.name) + ' · ' + (m.placeCount || 0) + ' 个地点</button>').join('') + '</div>' +
+    '<div class="actions"><button class="btn" data-close>关闭</button></div>'
+  );
+  d.querySelectorAll('[data-map]').forEach((btn) => btn.onclick = () => { const id = btn.dataset.map; d.remove(); showMapPreview(id); });
+}
+async function showMapPreview(id){
+  try {
+    const r = await api('/api/map/preview?mapId=' + encodeURIComponent(id));
+    const m = r.map;
+    const bg = (m.image && m.image.url) ? m.image.url : '/official-map.jpg';
+    const pins = (m.places || []).map((p, i) => '<div class="pin" style="position:absolute;left:' + (p.x * 100) + '%;top:' + (p.y * 100) + '%;transform:translate(-50%,-100%);pointer-events:none">'
+      + '<div class="pinNum" style="background:' + pinColor(p) + '">' + (i + 1) + '</div>'
+      + '<div class="pinLabel">' + esc(p.icon || '') + '<span>' + esc(p.name) + '</span></div>'
+      + '<div class="pinStem"></div></div>').join('');
+    const active = String(r.activeMapId || '') === String(id);
+    const d = document.createElement('div'); d.id = 'mapPreview';
+    d.innerHTML = '<div class="mpBox"><div class="mpHead"><h3>👁 ' + esc(m.name) + ' · ' + (m.places || []).length + ' 个地点</h3><button class="btn" data-close>关闭</button></div>'
+      + '<div class="mpStage" style="background-image:url(\'' + String(bg).replace(/'/g, '%27') + '\')">' + pins + '</div>'
+      + '<div class="mpFoot"><span>预览模式，角色还在「' + esc((r.location && r.location.name) || '原地') + '」</span><span class="spacer"></span>'
+      + (active ? '<span class="small">当前地图</span>' : '<button class="btn primary" data-go>让她直接过去</button>') + '</div></div>';
+    document.body.appendChild(d);
+    d.addEventListener('click', (e) => { if (e.target === d) d.remove(); });
+    d.querySelector('[data-close]').onclick = () => d.remove();
+    const go = d.querySelector('[data-go]');
+    if (go) go.onclick = async () => {
+      try {
+        const rr = await saveJson('/api/map/activate', { id, instant: true });
+        if (rr && rr.ok) { d.remove(); await loadMapData(); toast('已直接到「' + m.name + '」'); }
+        else toast((rr && rr.error) || '切换失败');
+      } catch (e) { toast('切换失败：' + e.message); }
+    };
+  } catch (e) { toast('地图预览失败：' + e.message); }
+}
+let SERVER_SCENE_SYNC = 0;
+function stopServerSceneSync(){ if (SERVER_SCENE_SYNC) { clearInterval(SERVER_SCENE_SYNC); SERVER_SCENE_SYNC = 0; } }
+function startServerSceneSync(d, p){
+  stopServerSceneSync();
+  const refresh = async () => {
+    if (!document.querySelector('#sceneOverlay')) { stopServerSceneSync(); return; }
+    try {
+      const r = await api('/api/life/states');
+      const list = (r && r.states) || [];
+      const inPlace = list.filter((st) => String(st.placeId) === String(p.id) && (!DATA || !DATA.activeMapId || String(st.mapId) === String(DATA.activeMapId)));
+      d.querySelectorAll('.scenePerson').forEach((el) => {
+        const cid = el.dataset.character;
+        const st = list.find((x) => String(x.characterId) === String(cid));
+        if (!st || String(st.placeId) !== String(p.id)) return;
+        const path = Array.isArray(st.path) ? st.path : [];
+        const sig = JSON.stringify(path);
+        if (path.length > 1 && el.dataset.pathSig !== sig) {
+          el.dataset.pathSig = sig;
+          if (el._walkTimer) clearTimeout(el._walkTimer);
+          let i = 1;
+          const step = () => {
+            const pt = path[i]; if (!pt) { delete el._walkTimer; return; }
+            const x = Math.max(0.03, Math.min(0.97, Number(pt.x) || 0.5));
+            const y = Math.max(0.08, Math.min(0.94, Number(pt.y) || 0.7));
+            el.style.left = (x * 100) + '%'; el.style.top = (y * 100) + '%';
+            el.dataset.x = String(x); el.dataset.y = String(y);
+            i += 1;
+            if (i < path.length) el._walkTimer = setTimeout(step, 420);
+            else delete el._walkTimer;
+          };
+          step();
+        } else if (st.position && Number.isFinite(Number(st.position.x)) && Number.isFinite(Number(st.position.y))) {
+          const x = Number(st.position.x), y = Number(st.position.y);
+          el.style.left = (x * 100) + '%'; el.style.top = (y * 100) + '%';
+          el.dataset.x = String(x); el.dataset.y = String(y);
+        }
+      });
+      const active = inPlace.find((st) => st.characterId === (WORLD_CHARS.find((c) => c.isActive) || {}).id);
+      const line = d.querySelector('#sceneBehavior');
+      if (line && active) line.textContent = (active.name || '她') + '：' + (active.behaviorLabel || '') + (active.placeName ? ' · ' + active.placeName : '');
+    } catch (e) {}
+  };
+  refresh();
+  SERVER_SCENE_SYNC = setInterval(refresh, 4000);
+}
+function openScene(p){
+  const sc = p.scene || {};
+  const is3d = sc.mode === '3d';
+  const here = WORLD_CHARS.filter((c) => c.sameMap && String(c.placeId) === String(p.id) && c.state === 'stationary');
+  const slots = Array.isArray(sc.characters) ? sc.characters : [];
+  const savedSlots = new Map(slots.filter((x) => x && x.id).map((x) => [String(x.id), x]));
+  const peopleHtml = here.map((c, i) => {
+    const slot = savedSlots.get(String(c.id));
+    const x = slot && Number.isFinite(Number(slot.x)) ? Math.max(0.03, Math.min(0.97, Number(slot.x))) : 0.35 + i * 0.22;
+    const y = slot && Number.isFinite(Number(slot.y)) ? Math.max(0.08, Math.min(0.94, Number(slot.y))) : 0.72;
+    return '<div class="scenePerson" data-character="'+esc(c.id)+'" data-x="'+x+'" data-y="'+y+'" style="left:'+(x*100)+'%;top:'+(y*100)+'%">'+charAvaHtml(c,'spAva')+'<span class="spName">'+esc(c.name)+'</span></div>';
+  }).join('');
+  const spots = (Array.isArray(sc.hotspots) ? sc.hotspots : []).map((h) => ({ ...h }));
+  const pinColors = ['#6f9fd1', '#e0a45f', '#69a97c', '#9b8bd4'];
+  const spotsHtml = spots.map((h, i) => {
+    const x = Number.isFinite(Number(h.x)) ? Number(h.x) : 0.5;
+    const y = Number.isFinite(Number(h.y)) ? Number(h.y) : 0.5;
+    return '<div class="scenePin pin" data-hotspot="'+i+'" data-x="'+x+'" data-y="'+y+'" style="left:'+(x*100)+'%;top:'+(y*100)+'%">'
+      + '<div class="pinNum" style="background:'+pinColors[i % pinColors.length]+'">'+(i + 1)+'</div>'
+      + '<div class="pinLabel">'+esc(h.label || '看看')+'</div>'
+      + '<div class="pinStem"></div>'
+      + '</div>';
+  }).join('');
+  const d = document.createElement('div');
+  d.id = 'sceneOverlay';
+  d.innerHTML = '<div class="sceneBox">'+
+    '<div class="sceneTop"><h3>'+(p.icon||'📍')+' '+esc(p.name)+'<span class="small" style="margin-left:8px;color:#9fb3c8;font-weight:400">按真实行为停留/走动 · 可拖动角色</span><span class="small" id="sceneBehavior" style="margin-left:10px;color:#f3d6a2"></span></h3><button class="btn" data-edit>✏️ 布局</button><button class="btn" data-obstacle>🧱 障碍</button><button class="btn" data-walkable>🚶 可走</button><button class="btn" data-talk>和她说话</button><button class="btn" data-close>关闭</button></div>'+
+    (is3d
+      ? '<div class="scene3dHost" id="scene3dHost" style="position:absolute;inset:0;background:#0b1219"></div>'
+      : '<div class="sceneBgLayer" style="position:absolute;inset:0;background-image:url(\''+String(sc.background || '').replace(/'/g,'%27')+'\');background-size:cover;background-position:center;background-repeat:no-repeat"></div>'+
+        (peopleHtml || '<div class="sceneEmpty"><div class="emptyCard"><div class="emptyIcon">🍃</div><div class="emptyTitle">这里没有别人</div><div class="emptyHint">她可能还在路上，或者你可以回地图看看</div></div></div>')+spotsHtml)+
+  '</div>';
+  document.body.appendChild(d);
+  const sceneBox = d.querySelector('.sceneBox');
+  if (is3d) {
+    const host = d.querySelector('#scene3dHost');
+    const ok = window.DSH_SCENE_3D && window.DSH_SCENE_3D.render(host, { ...p, scene: sc });
+    if (!ok && host) host.innerHTML = '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9fb3c8;text-align:center;padding:24px">3D 接口已开启，但还没有注册 3D 渲染器。<br><span style="font-size:12px;color:#6f8499">window.DSH_SCENE_3D.register(fn)</span></div>';
+  }
+  const obstacleLayer = document.createElement('div');
+  obstacleLayer.className = 'sceneObstacleLayer';
+  sceneBox.appendChild(obstacleLayer);
+  const walkLayer = document.createElement('div');
+  walkLayer.className = 'sceneWalkLayer';
+  sceneBox.appendChild(walkLayer);
+  let paintObstacle = false;
+  let paintWalkable = false;
+  // 按现实时长来：睡觉是几个小时，不是几十秒
+  const behaviors = {
+    sleep: { min: 6 * 60, max: 9 * 60, name: '睡觉' },       // 分钟
+    read: { min: 30, max: 90, name: '看书' },
+    study: { min: 45, max: 120, name: '写作业' },
+    eat: { min: 20, max: 45, name: '吃饭' },
+    coffee: { min: 30, max: 60, name: '喝咖啡' },
+    phone: { min: 15, max: 45, name: '看手机' },
+    look: { min: 3, max: 10, name: '看看' },
+    idle: { min: 10, max: 30, name: '发呆' },
+  };
+  const isNightNow = () => { const h = new Date().getHours(); return h >= 22 || h < 7; };
+  const behaviorFor = (h) => {
+    const action = String((h && h.action) || '').trim();
+    if (behaviors[action]) return action;
+    const label = String((h && h.label) || '');
+    if (/床|睡|枕/.test(label)) return 'sleep';
+    if (/书架|阅读|图书|小说/.test(label)) return 'read';
+    if (/作业|课桌|黑板|书桌|学习/.test(label)) return 'study';
+    if (/饭|餐|食堂|窗口|吃/.test(label)) return 'eat';
+    if (/咖啡|吧台/.test(label)) return 'coffee';
+    if (/手机|电脑/.test(label)) return 'phone';
+    return 'look';
+  };
+  const behaviorDuration = (b) => {
+    const cfg = (b === 'sleep' && !isNightNow()) ? { min: 60, max: 120 } : (behaviors[b] || behaviors.idle);
+    return (cfg.min + Math.random() * (cfg.max - cfg.min)) * 60 * 1000;
+  };
+  const chooseBehaviorFor = (el, fallbackIdx) => {
+    let idx = fallbackIdx;
+    // 在家 + 深夜：真实行为是睡觉，优先找床
+    if (String(p.id) === 'home' && isNightNow()) {
+      const bed = spots.findIndex((h) => /床|睡|枕/.test(String(h.label || '')));
+      if (bed >= 0) return { behavior: 'sleep', index: bed };
+      return { behavior: 'sleep', index: fallbackIdx };
+    }
+    return { behavior: behaviorFor(spots[idx]), index: idx };
+  };
+  let sceneEdit = false;
+  let behaviorTimer = 0;
+  let userDragging = false;
+  let activeHotspotId = '';
+  let lastActivity = '';
+  const personStates = new Map();
+  const activeCharacter = () => (WORLD_CHARS.find((c) => c.isActive) || here[0] || null);
+  const activeEl = () => { const c = activeCharacter(); return c ? d.querySelector('.scenePerson[data-character="' + String(c.id).replace(/"/g,'') + '"]') : null; };
+  const collectCharacters = () => [...d.querySelectorAll('.scenePerson')].map((el) => ({
+    id: el.dataset.character,
+    x: Math.max(0, Math.min(1, (parseFloat(el.style.left) || 50) / 100)),
+    y: Math.max(0, Math.min(1, (parseFloat(el.style.top) || 72) / 100)),
+  })).filter((x) => x.id);
+  const persistScene = async () => {
+    if (!p.scene) return;
+    p.scene = { ...p.scene, characters: collectCharacters(), hotspots: spots };
+    try { await saveMap(); } catch (e) {}
+  };
+  const setPersonPos = (el, x, y) => {
+    if (!el) return;
+    x = Math.max(0.03, Math.min(0.97, x)); y = Math.max(0.08, Math.min(0.94, y));
+    el.dataset.x = String(x); el.dataset.y = String(y);
+    el.style.left = (x * 100) + '%'; el.style.top = (y * 100) + '%';
+  };
+  const nearestHotspotIndex = (el) => {
+    if (!spots.length) return 0;
+    const x = (parseFloat(el && el.style.left) || 50) / 100;
+    const y = (parseFloat(el && el.style.top) || 72) / 100;
+    let best = 0, bestD = Infinity;
+    spots.forEach((h, i) => { const dd = Math.abs(Number(h.x) - x) + Math.abs(Number(h.y) - y); if (dd < bestD) { bestD = dd; best = i; } });
+    return best;
+  };
+  const behaviorNameOf = (cid) => {
+    const st = personStates.get(cid);
+    return st ? (behaviors[st.behavior] || behaviors.idle).name : '';
+  };
+  const updateBehaviorStatus = () => {
+    const host = d.querySelector('#sceneBehavior'); const c = activeCharacter(); if (!host || !c) return;
+    const st = personStates.get(String(c.id));
+    if (!st) { host.textContent = ''; return; }
+    const until = new Date(st.until).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    host.textContent = (c.name || '她') + '：' + behaviorNameOf(String(c.id)) + ' · 到 ' + until;
+  };
+  const moveToHotspot = (el, idx) => {
+    const h = spots[idx]; if (!h || !el) return;
+    const jitter = 0.02;
+    setPersonPos(el, Number(h.x) + (Math.random() - 0.5) * jitter, Number(h.y) + 0.025 + (Math.random() - 0.5) * jitter);
+  };
+  const stopBehavior = () => { if (behaviorTimer) { clearInterval(behaviorTimer); behaviorTimer = 0; } };
+  const startBehavior = () => {
+    stopBehavior();
+    d.querySelectorAll('.scenePerson').forEach((el) => {
+      const cid = el.dataset.character; if (!cid) return;
+      const idx = nearestHotspotIndex(el);
+      const picked = chooseBehaviorFor(el, idx);
+      personStates.set(cid, { behavior: picked.behavior, until: Date.now() + behaviorDuration(picked.behavior), hotspotIndex: picked.index });
+      moveToHotspot(el, picked.index);
+    });
+    updateBehaviorStatus();
+    behaviorTimer = setInterval(() => {
+      if (sceneEdit || userDragging || !document.querySelector('#sceneOverlay')) return;
+      const now = Date.now();
+      let changed = false;
+      d.querySelectorAll('.scenePerson').forEach((el) => {
+        const cid = el.dataset.character; if (!cid) return;
+        let st = personStates.get(cid);
+        if (!st) { const i = nearestHotspotIndex(el); st = { behavior: behaviorFor(spots[i]), until: now + 2000, hotspotIndex: i }; personStates.set(cid, st); }
+        if (now < st.until) return;
+        let idx = st.hotspotIndex;
+        if (spots.length > 1) { let n = 0; do { idx = Math.floor(Math.random() * spots.length); n++; } while (idx === st.hotspotIndex && n < 8); }
+        const picked = chooseBehaviorFor(el, idx);
+        st.behavior = picked.behavior; st.hotspotIndex = picked.index; st.until = now + behaviorDuration(picked.behavior);
+        moveToHotspot(el, picked.index);
+        if (cid === (activeCharacter() || {}).id) activeHotspotId = spots[picked.index].id || spots[picked.index].label || '';
+        changed = true;
+        updateBehaviorStatus();
+      });
+      if (changed) persistScene();
+    }, 1000);
+  };
+  const closeScene = () => { stopBehavior(); stopServerSceneSync(); persistScene(); d.remove(); };
+  saveJson('/api/scene/focus', { placeId: p.id }).catch(() => {});
+  d.addEventListener('click', (e) => { if (e.target === d) closeScene(); });
+  d.querySelector('[data-close]').onclick = closeScene;
+  d.querySelector('[data-talk]').onclick = async () => {
+    try { await saveJson('/api/scene/focus', { placeId: p.id }); } catch (e) {}
+    window.open('/', '_blank');
+  };
+  const renderObstacles = () => {
+    const list = Array.isArray(p.scene && p.scene.obstacles) ? p.scene.obstacles : [];
+    obstacleLayer.innerHTML = list.map((o, i) => '<div class="obsRect" data-obs="' + i + '" style="left:' + (o.x * 100) + '%;top:' + (o.y * 100) + '%;width:' + (o.w * 100) + '%;height:' + (o.h * 100) + '%" title="点击删除"></div>').join('');
+    obstacleLayer.querySelectorAll('[data-obs]').forEach((el) => el.addEventListener('pointerdown', (ev) => {
+      if (!paintObstacle) return;
+      ev.stopPropagation(); ev.preventDefault();
+      const idx = Number(el.dataset.obs);
+      const arr = Array.isArray(p.scene.obstacles) ? p.scene.obstacles.slice() : [];
+      arr.splice(idx, 1); p.scene = { ...p.scene, obstacles: arr };
+      persistScene(); renderObstacles(); toast('已删除障碍');
+    }));
+  };
+  const setPaint = (on) => {
+    paintObstacle = on;
+    if (on) { paintWalkable = false; walkLayer.classList.remove('active'); const wb = d.querySelector('[data-walkable]'); if (wb) wb.textContent = '🚶 可走'; }
+    obstacleLayer.classList.toggle('active', on);
+    const btn = d.querySelector('[data-obstacle]');
+    if (btn) btn.textContent = on ? '🧱 画障碍中' : '🧱 障碍';
+    if (on) {
+      sceneEdit = true; sceneBox.classList.add('editing');
+      const eb = d.querySelector('[data-edit]'); if (eb) eb.textContent = '✅ 完成布局';
+      stopServerSceneSync();
+    }
+    renderObstacles();
+    if (on) toast('在场景里拖一个框画出障碍；点已有障碍可删除');
+  };
+  d.querySelector('[data-obstacle]').onclick = () => setPaint(!paintObstacle);
+  d.querySelector('[data-edit]').onclick = (ev) => {
+    sceneEdit = !sceneEdit;
+    ev.currentTarget.textContent = sceneEdit ? '✅ 完成布局' : '✏️ 布局';
+    sceneBox.classList.toggle('editing', sceneEdit);
+    if (sceneEdit) stopServerSceneSync(); else startServerSceneSync(d, p);
+    if (sceneEdit) { renderObstacles(); renderWalkable(); } else { setPaint(false); setWalk(false); }
+    toast(sceneEdit ? '布局模式：拖动热点和角色' : '已退出布局模式');
+  };
+  let obsDrag = null;
+  obstacleLayer.addEventListener('pointerdown', (ev) => {
+    if (!paintObstacle || ev.button !== 0) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const r = sceneBox.getBoundingClientRect();
+    obsDrag = { sx: ev.clientX, sy: ev.clientY, r };
+    try { obstacleLayer.setPointerCapture(ev.pointerId); } catch (e) {}
+  });
+  obstacleLayer.addEventListener('pointermove', (ev) => {
+    if (!obsDrag) return;
+    const { r, sx, sy } = obsDrag;
+    const x = Math.min(ev.clientX, sx) - r.left, y = Math.min(ev.clientY, sy) - r.top;
+    const w = Math.abs(ev.clientX - sx), h = Math.abs(ev.clientY - sy);
+    let temp = obstacleLayer.querySelector('.obsTemp');
+    if (!temp) { temp = document.createElement('div'); temp.className = 'obsRect obsTemp'; obstacleLayer.appendChild(temp); }
+    temp.style.left = (x / r.width * 100) + '%'; temp.style.top = (y / r.height * 100) + '%';
+    temp.style.width = (w / r.width * 100) + '%'; temp.style.height = (h / r.height * 100) + '%';
+  });
+  obstacleLayer.addEventListener('pointerup', (ev) => {
+    if (!obsDrag) return;
+    const { r, sx, sy } = obsDrag; obsDrag = null;
+    const x = Math.min(ev.clientX, sx) - r.left, y = Math.min(ev.clientY, sy) - r.top;
+    const w = Math.abs(ev.clientX - sx), h = Math.abs(ev.clientY - sy);
+    obstacleLayer.querySelector('.obsTemp')?.remove();
+    if (w / r.width < 0.02 || h / r.height < 0.02) return;
+    const arr = Array.isArray(p.scene && p.scene.obstacles) ? p.scene.obstacles.slice() : [];
+    arr.push({ x: Math.max(0, Math.min(1, x / r.width)), y: Math.max(0, Math.min(1, y / r.height)), w: Math.min(1, w / r.width), h: Math.min(1, h / r.height) });
+    p.scene = { ...(p.scene || {}), obstacles: arr };
+    persistScene(); renderObstacles(); toast('已保存障碍');
+  });
+
+  const renderWalkable = () => {
+    const list = Array.isArray(p.scene && p.scene.walkable) ? p.scene.walkable : [];
+    walkLayer.innerHTML = list.map((o, i) => '<div class="walkRect" data-walk="' + i + '" style="left:' + (o.x * 100) + '%;top:' + (o.y * 100) + '%;width:' + (o.w * 100) + '%;height:' + (o.h * 100) + '%" title="点击删除"></div>').join('');
+    walkLayer.querySelectorAll('[data-walk]').forEach((el) => el.addEventListener('pointerdown', (ev) => {
+      if (!paintWalkable) return;
+      ev.stopPropagation(); ev.preventDefault();
+      const idx = Number(el.dataset.walk);
+      const arr = Array.isArray(p.scene.walkable) ? p.scene.walkable.slice() : [];
+      arr.splice(idx, 1); p.scene = { ...p.scene, walkable: arr };
+      persistScene(); renderWalkable(); toast('已删除可走区域');
+    }));
+  };
+  const setWalk = (on) => {
+    paintWalkable = on;
+    if (on) setPaint(false);
+    walkLayer.classList.toggle('active', on);
+    const btn = d.querySelector('[data-walkable]');
+    if (btn) btn.textContent = on ? '🚶 画可走中' : '🚶 可走';
+    if (on) { sceneEdit = true; sceneBox.classList.add('editing'); const eb = d.querySelector('[data-edit]'); if (eb) eb.textContent = '✅ 完成布局'; stopServerSceneSync(); }
+    renderWalkable();
+    if (on) toast('在场景里拖框画出可走区域；点已有区域可删除');
+  };
+  d.querySelector('[data-walkable]').onclick = () => setWalk(!paintWalkable);
+  let walkDrag = null;
+  walkLayer.addEventListener('pointerdown', (ev) => {
+    if (!paintWalkable || ev.button !== 0) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const r = sceneBox.getBoundingClientRect(); walkDrag = { sx: ev.clientX, sy: ev.clientY, r };
+    try { walkLayer.setPointerCapture(ev.pointerId); } catch (e) {}
+  });
+  walkLayer.addEventListener('pointermove', (ev) => {
+    if (!walkDrag) return;
+    const { r, sx, sy } = walkDrag;
+    const x = Math.min(ev.clientX, sx) - r.left, y = Math.min(ev.clientY, sy) - r.top;
+    const w = Math.abs(ev.clientX - sx), h = Math.abs(ev.clientY - sy);
+    let temp = walkLayer.querySelector('.walkTemp');
+    if (!temp) { temp = document.createElement('div'); temp.className = 'walkRect walkTemp'; walkLayer.appendChild(temp); }
+    temp.style.left = (x / r.width * 100) + '%'; temp.style.top = (y / r.height * 100) + '%';
+    temp.style.width = (w / r.width * 100) + '%'; temp.style.height = (h / r.height * 100) + '%';
+  });
+  walkLayer.addEventListener('pointerup', (ev) => {
+    if (!walkDrag) return;
+    const { r, sx, sy } = walkDrag; walkDrag = null;
+    const x = Math.min(ev.clientX, sx) - r.left, y = Math.min(ev.clientY, sy) - r.top;
+    const w = Math.abs(ev.clientX - sx), h = Math.abs(ev.clientY - sy);
+    walkLayer.querySelector('.walkTemp')?.remove();
+    if (w / r.width < 0.02 || h / r.height < 0.02) return;
+    const arr = Array.isArray(p.scene && p.scene.walkable) ? p.scene.walkable.slice() : [];
+    arr.push({ x: Math.max(0, Math.min(1, x / r.width)), y: Math.max(0, Math.min(1, y / r.height)), w: Math.min(1, w / r.width), h: Math.min(1, h / r.height) });
+    p.scene = { ...(p.scene || {}), walkable: arr };
+    persistScene(); renderWalkable(); toast('已保存可走区域');
+  });
+  // 点击热点 = 走到热点旁；布局模式 = 拖动热点
+  d.querySelectorAll('[data-hotspot]').forEach((pin) => {
+    pin.addEventListener('click', () => {
+      if (sceneEdit || pin.dataset.dragged === '1') { pin.dataset.dragged = '0'; return; }
+      const h = spots[Number(pin.dataset.hotspot)];
+      if (!h) return;
+      const el = activeEl();
+      if (el) setPersonPos(el, Number(h.x), Number(h.y) + 0.02);
+      const cid = el && el.dataset.character;
+      if (cid) personStates.set(cid, { behavior: behaviorFor(h), until: Date.now() + behaviorDuration(behaviorFor(h)), hotspotIndex: Number(pin.dataset.hotspot) });
+      updateBehaviorStatus();
+      activeHotspotId = h.id || h.label || String(Number(pin.dataset.hotspot));
+      saveJson('/api/scene/focus', { placeId: p.id, hotspotId: activeHotspotId }).catch(() => {});
+      saveJson('/api/life/act', { characterId: (activeCharacter() || {}).id || '', placeId: p.id, hotspotId: activeHotspotId }).catch(() => {});
+      persistScene();
+      hideSceneActivityTip();
+      toast(h.label || '看看');
+    });
+    let drag = false, dragged = false;
+    pin.addEventListener('pointerdown', (ev) => {
+      if (!sceneEdit || ev.button !== 0) return;
+      ev.preventDefault(); ev.stopPropagation(); drag = true; dragged = false;
+      try { pin.setPointerCapture(ev.pointerId); } catch (e) {}
+    });
+    pin.addEventListener('pointermove', (ev) => {
+      if (!drag) return;
+      const r = sceneBox.getBoundingClientRect();
+      const x = Math.max(0.03, Math.min(0.97, (ev.clientX - r.left) / Math.max(1, r.width)));
+      const y = Math.max(0.08, Math.min(0.94, (ev.clientY - r.top) / Math.max(1, r.height)));
+      dragged = true;
+      pin.dataset.x = String(x); pin.dataset.y = String(y);
+      pin.style.left = (x * 100) + '%'; pin.style.top = (y * 100) + '%';
+    });
+    pin.addEventListener('pointerup', async () => {
+      if (!drag) return; drag = false;
+      if (!dragged) return;
+      pin.dataset.dragged = '1';
+      const idx = Number(pin.dataset.hotspot); const h = spots[idx];
+      if (h) { h.x = Number(pin.dataset.x); h.y = Number(pin.dataset.y); }
+      await persistScene();
+      toast('已保存热点位置');
+    });
+    pin.addEventListener('pointercancel', () => { drag = false; });
+  });
+
+  d.querySelectorAll('.scenePerson').forEach((el) => {
+    const cid = el.dataset.character || '';
+    el.onmouseenter = async () => {
+      if (!cid || el.dataset.dragging === '1') return;
+      const st = personStates.get(cid);
+      const hid = st && spots[st.hotspotIndex] ? (spots[st.hotspotIndex].id || spots[st.hotspotIndex].label || '') : activeHotspotId;
+      const text = await sceneActivityText(cid, p.id, hid);
+      lastActivity = text;
+      if (document.querySelector('#sceneOverlay') && el.isConnected) showSceneActivityTip(el, text);
+    };
+    el.onmouseleave = hideSceneActivityTip;
+    let dragging = false, moved = false;
+    el.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault(); ev.stopPropagation();
+      dragging = true; moved = false; userDragging = true;
+      el.dataset.dragging = '1'; el.classList.add('dragging'); hideSceneActivityTip();
+      try { el.setPointerCapture(ev.pointerId); } catch (e) {}
+    });
+    el.addEventListener('pointermove', (ev) => {
+      if (!dragging) return;
+      const r = sceneBox.getBoundingClientRect();
+      const x = Math.max(0.03, Math.min(0.97, (ev.clientX - r.left) / Math.max(1, r.width)));
+      const y = Math.max(0.08, Math.min(0.94, (ev.clientY - r.top) / Math.max(1, r.height)));
+      if (Math.abs(x - Number(el.dataset.x || 0)) + Math.abs(y - Number(el.dataset.y || 0)) > 0.002) moved = true;
+      setPersonPos(el, x, y);
+    });
+    const finish = async () => {
+      if (!dragging) return;
+      dragging = false; userDragging = false;
+      delete el.dataset.dragging; el.classList.remove('dragging');
+      try { el.releasePointerCapture?.(0); } catch (e) {}
+      if (!moved) return;
+      personStates.delete(cid);
+      try { await saveJson('/api/life/position', { characterId: cid, x: Number(el.dataset.x), y: Number(el.dataset.y) }); } catch (e) {}
+      await persistScene();
+      toast('已保存角色位置');
+    };
+    el.addEventListener('pointerup', finish);
+    el.addEventListener('pointercancel', () => { dragging = false; userDragging = false; delete el.dataset.dragging; el.classList.remove('dragging'); });
+  });
+
+  startServerSceneSync(d, p);
+}
+function toggleCharSpread(){
+  CHAR_SPREAD = !CHAR_SPREAD;
+  renderWorldChars();
+  toast(CHAR_SPREAD ? '头像已分开显示' : '头像已收起');
+}
+function renderWorldChars(){
+  const pinHost = document.getElementById('charPins');
+  const groups = {};
+  if (pinHost) {
+    pinHost.innerHTML = '';
+    const sameMapAll = WORLD_CHARS.filter((c) => c.sameMap && Number.isFinite(Number(c.x)) && Number.isFinite(Number(c.y)));
+    const groupLists = {};
+    sameMapAll.forEach((c) => { const k = String(c.placeId || c.placeName || 'x'); (groupLists[k] = groupLists[k] || []).push(c); });
+    Object.keys(groupLists).forEach((k) => { groups[k] = groupLists[k].length; });
+    const visible = sameMapAll.filter((c) => !c.isActive);
+    visible.forEach((c, i) => {
+      const el = document.createElement('div');
+      el.className = 'charPin' + (c.samePlace ? ' same' : '');
+      const gk = String(c.placeId || c.placeName || 'x'), total = groups[gk] || 1;
+      const idx = (groupLists[gk] || []).findIndex((x) => x.id === c.id);
+      const offset = CHAR_SPREAD && total > 1 ? (idx - (total - 1) / 2) * 28 : 0;
+      el.style.left = (Number(c.x) * 100) + '%';
+      el.style.marginLeft = offset + 'px';
+      el.style.top = (Number(c.y) * 100) + '%';
+      const style = c.avatar ? ' style="background-image:url(\''+String(c.avatar).replace(/'/g,'%27')+'\')"' : '';
+      el.innerHTML = '<div class="cAva"'+style+'>'+(c.avatar ? '' : esc((c.name || '她').slice(0,1)))+'</div><div class="cName">'+esc(c.name || '')+(c.samePlace ? ' · 同处' : '')+'</div>';
+      el.onclick = (ev) => { ev.stopPropagation(); showCharCard(c); };
+      pinHost.appendChild(el);
+    });
+  }
+  const spreadBtn = document.getElementById('charSpreadBtn');
+  if (spreadBtn) {
+    const anyMulti = Object.values(groups).some((n) => n > 1);
+    spreadBtn.style.display = anyMulti ? '' : 'none';
+    spreadBtn.textContent = CHAR_SPREAD ? '👥 收起头像' : '👥 分开头像';
+  }
+  const host = document.getElementById('worldCharList');
+  if (host) {
+    host.innerHTML = WORLD_CHARS.map((c) => '<div class="wrow" data-id="'+esc(c.id)+'">'+
+      charAvaHtml(c,'pAva')+
+      '<div style="flex:1;min-width:0"><div class="wname">'+esc(c.name || c.id)+(c.isActive ? ' <span class="chip">当前</span>' : '')+'</div>'+
+      '<div class="wmeta">'+esc(c.mapName || '')+' · '+esc(charStatus(c))+(c.samePlace ? ' · 同处' : '')+'</div></div>'+
+    '</div>').join('') || '<div class="small">还没有角色信息</div>';
+    host.querySelectorAll('.wrow').forEach((row) => {
+      row.onclick = () => { const c = WORLD_CHARS.find((x) => x.id === row.dataset.id); if (c) showCharCard(c); };
+    });
+    const cnt = document.getElementById('worldCount');
+    if (cnt) cnt.textContent = String(WORLD_CHARS.filter((c) => c.sameMap).length) + ' 人在图上';
+  }
+}
+async function loadWorldChars(){
+  try {
+    const r = await api('/api/world/characters');
+    WORLD_CHARS = Array.isArray(r.characters) ? r.characters : [];
+    LAST_WORLD_LOAD = Date.now();
+    renderWorldChars();
+  } catch (e) {}
 }
 function pathPoints(){ const tv = CURRENT && CURRENT.traveling; return (tv && Array.isArray(tv.path) && tv.path.length > 1) ? tv.path : null; }
 function pointAt(path, progress){
@@ -459,6 +1202,7 @@ function renderPlaceList(){
     + '<button class="btn" onclick="document.getElementById(\'placeImgFile-'+i+'\').click()">换图标图</button>'
     + '<input type="file" id="placeImgFile-'+i+'" accept="image/*" style="display:none" onchange="uploadPlaceImage('+i+', this)">'
     + (p.image ? '<button class="btn danger" onclick="clearPlaceImage('+i+')">清图标图</button>' : '')
+    + '<button class="btn" onclick="editPlaceScene('+i+')">内部场景</button>'
     + '<button class="btn" onclick="goHere('+i+')">让她来这里</button></div></div>').join('');
 }
 async function loadRoutine(){
@@ -590,6 +1334,7 @@ function startTicker(){
         try { const loc = await api('/api/location'); await loadMapData(); renderCurrent(loc.location); } catch(e){}
       }
     }
+    if (Date.now() - LAST_WORLD_LOAD > 2500) loadWorldChars();
   }, 150);
 }
 async function loadMapData(){
@@ -602,6 +1347,30 @@ async function loadMapData(){
   ENERGY = Number(DATA.energy) || 0;
   const wsel = document.getElementById('weather');
   if (wsel && DATA.weather) wsel.value = DATA.weather;
+  try {
+    const ss = await api('/api/scene/settings');
+    const cb = document.getElementById('sceneAI'); if (cb) cb.checked = !!ss.ai;
+    const pc = document.getElementById('scenePhotoChance');
+    if (pc) { pc.value = String(Math.round((Number(ss.photoChance ?? 0.25)) * 100)); const pv = document.getElementById('scenePhotoChanceVal'); if (pv) pv.textContent = pc.value + '%'; }
+  } catch (e) {}
+  try {
+    const ls = await api('/api/life/settings'); const s = ls.settings || {};
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    const le = document.getElementById('lifeEnabled'); if (le) le.checked = s.enabled !== false;
+    set('lifeGap', s.minEventGapMin ?? 90); set('lifeDaily', s.maxDaily ?? 8);
+    set('lifeQuietStart', s.quietStart ?? 23); set('lifeQuietEnd', s.quietEnd ?? 8);
+    const st = await api('/api/life/state'); if (st && st.state) {
+      const line = document.getElementById('lifeStateLine');
+      if (line) line.textContent = st.state.placeName + ' · ' + st.state.behaviorLabel;
+    }
+  } catch (e) {}
+  try {
+    const v = await api('/api/vm-chat/settings'); const s = v.settings || {};
+    const be = document.getElementById('vmChatEnabled'); if (be) be.checked = !!s.enabled;
+    const bc = document.getElementById('vmChatCheck'); if (bc) bc.checked = s.checkMessages !== false;
+    const bi = document.getElementById('vmChatInterval'); if (bi) bi.value = String(s.checkIntervalMin || 15);
+    const bs = document.getElementById('vmChatShutdown'); if (bs) bs.checked = s.idleShutdown !== false;
+  } catch (e) {}
   renderCaps();
   document.getElementById('mapSel').innerHTML = DATA.maps.map(m => '<option value="'+esc(m.id)+'"'+(m.id===DATA.activeMapId?' selected':'')+'>'+esc(m.name)+'（'+m.placeCount+' 个地点）</option>').join('');
   document.getElementById('widthMeters').value = DATA.map.widthMeters || 2000;
@@ -628,6 +1397,7 @@ async function loadMapData(){
   renderCurrent(DATA.location);
   loadMoneyLine();
   renderPlaceList(); renderSchedList(); renderPins(); drawTheme(); renderScale();
+  loadWorldChars();
   loadWeatherData();
   sync3dUi();
   startTicker();
@@ -710,6 +1480,79 @@ function renderCaps(){
   const sel = document.getElementById('transport');
   const carOpt = sel && sel.querySelector('option[value="car"]');
   if (carOpt) { carOpt.disabled = !CAPS.license; if (!CAPS.license && sel.value === 'car') sel.value = 'auto'; }
+}
+function editPlaceScene(i){
+  const p = PLACES[i]; if (!p) return;
+  const sc = p.scene || {};
+  let bg = String(sc.background || '');
+  let spots = (Array.isArray(sc.hotspots) ? sc.hotspots : []).map((h) => ({ label: String(h.label || ''), x: Math.max(0, Math.min(1, Number(h.x) || 0.5)), y: Math.max(0, Math.min(1, Number(h.y) || 0.5)), action: String(h.action || '') }));
+  let photos = (Array.isArray(sc.photos) ? sc.photos : []).map(String);
+  let obstacles = (Array.isArray(sc.obstacles) ? sc.obstacles : []).map((o) => ({ x: Number(o.x) || 0, y: Number(o.y) || 0, w: Number(o.w) || 0.05, h: Number(o.h) || 0.05 }));
+  let walkable = (Array.isArray(sc.walkable) ? sc.walkable : []).map((o) => ({ x: Number(o.x) || 0, y: Number(o.y) || 0, w: Number(o.w) || 0.05, h: Number(o.h) || 0.05 }));
+  let sceneMode = sc.mode === '3d' ? '3d' : '2d';
+  let model3dUrl = sc.model3d && sc.model3d.url ? String(sc.model3d.url) : '';
+  const d = openWorldModal(
+    '<h3>内部场景 · ' + esc(p.name) + '</h3>' +
+    '<div class="desc">背景图填 /models/ 路径，或上传本地图片；热点是场景里可点的位置。</div>' +
+    '<div class="row" style="margin-top:8px"><label>视图</label><select id="scMode" style="width:90px"><option value="2d"' + (sceneMode === '2d' ? ' selected' : '') + '>2D</option><option value="3d"' + (sceneMode === '3d' ? ' selected' : '') + '>3D</option></select><input id="scModel3d" type="text" value="' + esc(model3dUrl) + '" placeholder="3D 模型 /models/room.glb" style="flex:1"></div>' +
+    '<div class="row"><label>背景图</label><input id="scBg" type="text" value="' + esc(bg) + '" placeholder="/models/scenes/home.jpg" style="flex:1"></div>' +
+    '<div class="row"><label>上传</label><input id="scFile" type="file" accept="image/*" style="flex:1"><span class="small" id="scStatus"></span></div>' +
+    '<div class="row"><label>照片 URL</label><input id="scPhotos" type="text" placeholder="活动照片，一行一个 /models/..." value="' + esc(photos.join(' ')) + '" style="flex:1"><span class="small">可留空</span></div>' +
+    '<div class="row"><label>障碍</label><input id="scObstacles" type="text" placeholder="[{\"x\":0.1,\"y\":0.4,\"w\":0.2,\"h\":0.1}]" value="' + esc(JSON.stringify(obstacles)) + '" style="flex:1"><span class="small">JSON</span></div>' +
+    '<div class="row"><label>可走</label><input id="scWalkable" type="text" placeholder="[{\"x\":0.1,\"y\":0.2,\"w\":0.8,\"h\":0.7}]" value="' + esc(JSON.stringify(walkable)) + '" style="flex:1"><span class="small">JSON</span></div>' +
+    '<div class="row" style="margin-top:10px;align-items:center"><strong style="flex:1">热点</strong><button class="btn" id="scAdd">+ 热点</button></div>' +
+    '<div id="scSpots"></div>' +
+    '<div class="actions"><button class="btn primary" id="scSave">保存</button><button class="btn" data-close>取消</button></div>'
+  );
+  d.querySelector('.box').classList.add('wide');
+  const bgEl = d.querySelector('#scBg'), fileEl = d.querySelector('#scFile'), spotsEl = d.querySelector('#scSpots'), statusEl = d.querySelector('#scStatus');
+  const collect = () => {
+    spots = [...spotsEl.querySelectorAll('[data-row]')].map((row) => ({
+      label: String(row.querySelector('[data-k="label"]').value || '').trim(),
+      x: Math.max(0, Math.min(1, Number(row.querySelector('[data-k="x"]').value) || 0.5)),
+      y: Math.max(0, Math.min(1, Number(row.querySelector('[data-k="y"]').value) || 0.5)),
+      action: String(row.querySelector('[data-k="action"]')?.value || '').trim(),
+    })).filter((h) => h.label);
+  };
+  const renderSpots = () => {
+    spotsEl.innerHTML = spots.map((h, idx) => '<div class="row" data-row="' + idx + '">'
+      + '<input data-k="label" placeholder="热点名字" value="' + esc(h.label) + '" style="flex:1;min-width:120px">'
+      + '<input data-k="x" type="number" step="0.01" min="0" max="1" value="' + h.x + '" style="width:64px" title="x">'
+      + '<input data-k="y" type="number" step="0.01" min="0" max="1" value="' + h.y + '" style="width:64px" title="y">'
+      + '<input data-k="action" placeholder="行为 sleep/read/eat" value="' + esc(h.action || '') + '" style="width:118px">'
+      + '<button class="btn danger" data-del="' + idx + '">删</button></div>').join('') || '<div class="small">还没有热点</div>';
+    spotsEl.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => { collect(); spots.splice(Number(b.dataset.del), 1); renderSpots(); });
+  };
+  d.querySelector('#scAdd').onclick = () => { collect(); spots.push({ label: '', x: 0.5, y: 0.5, action: '' }); renderSpots(); };
+  fileEl.onchange = () => {
+    const f = fileEl.files && fileEl.files[0]; if (!f) return;
+    statusEl.textContent = '上传中…';
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const r = await saveJson('/api/scene/image', { dataUrl: String(reader.result || '') });
+        if (r && r.ok) { bg = r.url; bgEl.value = r.url; statusEl.textContent = '已上传'; }
+        else statusEl.textContent = (r && r.error) || '上传失败';
+      } catch (e) { statusEl.textContent = '上传失败'; }
+    };
+    reader.readAsDataURL(f);
+  };
+  d.querySelector('#scSave').onclick = async () => {
+    collect();
+    const url = bgEl.value.trim();
+    const photoUrls = String(d.querySelector('#scPhotos').value || '').split(/[\s,]+/).map((x) => x.trim()).filter((x) => x.startsWith('/models/'));
+    let obs = [];
+    try { const v = JSON.parse(String(d.querySelector('#scObstacles')?.value || '[]')); if (Array.isArray(v)) obs = v.map((o) => ({ x: Number(o.x) || 0, y: Number(o.y) || 0, w: Number(o.w) || 0.05, h: Number(o.h) || 0.05 })); } catch (e) {}
+    let walk = [];
+    try { const v = JSON.parse(String(d.querySelector('#scWalkable')?.value || '[]')); if (Array.isArray(v)) walk = v.map((o) => ({ x: Number(o.x) || 0, y: Number(o.y) || 0, w: Number(o.w) || 0.05, h: Number(o.h) || 0.05 })); } catch (e) {}
+    const mode = String(d.querySelector('#scMode')?.value || '2d') === '3d' ? '3d' : '2d';
+    const m3 = String(d.querySelector('#scModel3d')?.value || '').trim();
+    p.scene = url ? { background: url, characters: Array.isArray(sc.characters) ? sc.characters : [], hotspots: spots.map((h) => ({ label: h.label, x: h.x, y: h.y, action: h.action || '' })), photos: photoUrls, obstacles: obs, walkable: walk, mode, model3d: mode === '3d' && m3.startsWith('/models/') ? { url: m3, scale: 1, rotationY: 0 } : null } : null;
+    d.remove();
+    await saveMap();
+    toast(url ? '已保存「' + p.name + '」的内部场景' : '已清除「' + p.name + '」的内部场景');
+  };
+  renderSpots();
 }
 async function goHere(i){
   const p = PLACES[i];
@@ -913,6 +1756,45 @@ async function saveMapModel(){
   } : null;
   const r = await saveJson('/api/map', { mapId: DATA.map.id, model, has3d: !!model });
   if (r.ok) { toast(model ? '地图模型已设置，打开 /model 查看' : '已清除地图模型'); await loadMapData(); }
+}
+async function saveVmChatSettings(){
+  const be = document.getElementById('vmChatEnabled');
+  const bc = document.getElementById('vmChatCheck');
+  const bi = document.getElementById('vmChatInterval');
+  const bs = document.getElementById('vmChatShutdown');
+  try {
+    await saveJson('/api/vm-chat/settings', { enabled: !!be?.checked, checkMessages: !!bc?.checked, checkIntervalMin: Number(bi?.value || 15), idleShutdown: !!bs?.checked, autoStart: true });
+    toast('VM 聊天设置已保存');
+  } catch (e) { toast('VM 设置失败'); }
+}
+async function checkVmChat(){
+  const el = document.getElementById('vmChatStatus'); if (el) el.textContent = '检测中…';
+  try {
+    const r = await api('/api/vm-chat/status');
+    const s = r.status || {};
+    if (el) el.textContent = (s.running ? '运行中' : '未运行') + ' · ' + ((s.apps || []).map((a) => a.name).slice(0, 6).join(' / ') || '没有检测到社交应用');
+  } catch (e) { if (el) el.textContent = '检测失败：' + e.message; }
+}
+async function saveLifeSettings(){
+  const val = (id, def) => { const el = document.getElementById(id); return el ? Number(el.value) : def; };
+  const enabled = !!document.getElementById('lifeEnabled')?.checked;
+  try {
+    await saveJson('/api/life/settings', { enabled, minEventGapMin: val('lifeGap', 90), maxDaily: val('lifeDaily', 8), quietStart: val('lifeQuietStart', 23), quietEnd: val('lifeQuietEnd', 8), photoChance: Number(document.getElementById('scenePhotoChance')?.value || 25) / 100 });
+    toast('生活模拟设置已保存');
+  } catch (e) { toast('设置失败'); }
+}
+async function saveScenePhotoChance(){
+  const pc = document.getElementById('scenePhotoChance');
+  const value = Math.max(0, Math.min(100, Number(pc && pc.value) || 0)) / 100;
+  try {
+    await saveJson('/api/scene/settings', { photoChance: value });
+    await saveJson('/api/life/settings', { photoChance: value });
+    toast('主动发图概率：' + Math.round(value * 100) + '%');
+  } catch (e) { toast('设置失败'); }
+}
+async function saveSceneAISetting(){
+  const cb = document.getElementById('sceneAI');
+  try { await saveJson('/api/scene/settings', { ai: !!(cb && cb.checked) }); toast(cb && cb.checked ? '场景活动 AI 已开启' : '场景活动 AI 已关闭，使用本地文案'); } catch (e) { toast('设置失败'); }
 }
 async function saveWeatherMode(){
   const mode = document.getElementById('weatherMode').value;
