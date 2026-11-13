@@ -17,28 +17,29 @@
 
 | 项目 | 状态 |
 |---|---|
-| 源码版本 | **0.7.19** |
+| 源码版本 | **0.7.20** |
 | Git main | `d8d015b` |
-| Git tag | `v0.7.19` |
-| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.19` |
-| npm latest | **0.7.19**（提交后需等 npm 审核可见） |
+| Git tag | `v0.7.20` |
+| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.20` |
+| npm latest | **0.7.20**（提交后需等 npm 审核可见） |
 | npm 0.7.13 | 已上线 |
 | npm 0.7.14 | 已上线但有金额显示 bug（勿用，等 0.7.16） |
 | npm 0.7.15 | 审核中 |
 | npm 0.7.16 | 已发布但有 forbidden site 回归（勿用） |
 | npm 0.7.17 | 已发布但含 CSP 白屏问题（勿用） |
-| npm 0.7.18 | 已发布但桌宠属性悬停修复不完整（勿用，等 0.7.19） |
+| npm 0.7.18 | 已发布但桌宠属性悬停修复不完整（勿用） |
+| npm 0.7.19 | 已发布（属性面板常显版） |
 | 发布产物 | `F:\屏幕彼端\发布产物\` |
 | 最新备份 | 见 `D:\dsh-companion\backups\` 最新 `backup-*.zip` |
 | 当前运行服务 | `http://127.0.0.1:8900` |
 
-> 2026-11-13：第二轮全量修复随 **0.7.19** 提交（npm 审核中 / GitHub Release 已建），摘要见 §8.6，完整清单见 `docs/FIXES-2026-11-13.md`。
+> 2026-11-13：第二轮全量修复随 **0.7.20** 提交（npm 审核中 / GitHub Release 已建），摘要见 §8.6，完整清单见 `docs/FIXES-2026-11-13.md`。
 
 ### 产物
 
-- `dsh-screen-beyond-0.7.19.tgz`
-- `dsh-screen-beyond-0.7.19.zip`
-- `RELEASE-0.7.19.md`
+- `dsh-screen-beyond-0.7.20.tgz`
+- `dsh-screen-beyond-0.7.20.zip`
+- `RELEASE-0.7.20.md`
 - 源码目录已初始化 git，工作区干净
 
 ### 发布注意
@@ -560,6 +561,11 @@ ID：
 - **问题**：0.7.18 里给透明窗口内容加了 alpha=1 背景并绑定 MouseEnter/Leave，但 WPF `AllowsTransparency` 的命中测试在部分环境仍不可靠，悬停大概率收不到事件 → 属性面板不显示（用户反馈"依然没有"）。
 - **修复**：属性面板改为**默认常显**（名字/地点/活动/精力/余额），悬停只做高亮（opacity 1 ↔ 0.86）；再加 `GetCursorPos + GetWindowRect` 每 120ms 光标轮询兜底，不依赖 WPF 鼠标事件。
 - **验证**：pet.log 记录 `hover True/False` 与面板状态（Visible/Opacity/5 个胶囊/left=12 top=80）；截图确认桌宠左侧常显「小鲸 / 🛒 超市 / 玩游戏 / 精力不足 / 余额 ¥6.56 · 今日 ¥…」。
+### 8.12 2026-11-13 0.7.20 桌宠属性按钮
+
+- 属性面板（名字/地点/活动/精力/余额）默认常显，悬停高亮加深。
+- 右侧按钮新增第 4 个「属性」：点击显示/隐藏属性面板（`Toggle-AttrPanel`，隐藏时忽略悬停自动显示）。
+- 截图确认：桌宠右侧为 chat / look / 大小 / 属性 四个按钮，左侧属性胶囊常显（小鲸 / 🛒 超市 / 玩游戏 / 精力很足 / 余额 ¥6.23 · 今日 ¥…）。
 ## 9. 接下来计划
 
 ### P0：虚拟机聊天闭环

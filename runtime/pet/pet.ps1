@@ -91,6 +91,7 @@ function Pulse-PetUi() {
 }
 function Fade-AttrPanel([bool]$show) {
   if (-not $script:attrPanel) { return }
+  if ($script:attrUserHidden) { return }
   try {
     if ($show) { $script:attrPanel.Visibility = 'Visible'; $script:attrPanel.Opacity = 1 }
     $a = New-Object System.Windows.Media.Animation.DoubleAnimation
@@ -503,6 +504,13 @@ function Cycle-PetSize() {
   Update-Image
   try { ApiPost '/api/pet' @{ size = $next } | Out-Null; Show-Bubble ('桌宠大小：' + $next) 1400 } catch {}
 }
+function Toggle-AttrPanel() {
+  try {
+    $script:attrUserHidden = -not $script:attrUserHidden
+    if ($script:attrUserHidden) { $script:attrPanel.Visibility = 'Collapsed' }
+    else { $script:attrPanel.Visibility = 'Visible'; $script:attrPanel.Opacity = 1 }
+  } catch {}
+}
 function Build-Button($b) {
   $border = New-Object System.Windows.Controls.Border
   $border.Width = 54; $border.Height = 38
@@ -573,6 +581,7 @@ function Build-Button($b) {
       'chat' { Toggle-Chat }
       'look' { Set-PetExpression 'look' 600; Send-Act 'look' $null $null }
       'size' { Cycle-PetSize }
+      'attr' { Toggle-AttrPanel }
       'prompt' { if ($tag.prompt) { Send-Act 'gesture' $null ([string]$tag.prompt) } }
       default {
         if ($tag.prompt) { Send-Act 'gesture' $null ([string]$tag.prompt) }
@@ -717,6 +726,7 @@ $statusBorder.Visibility = 'Collapsed'
 
 $script:attrPanel = New-Object System.Windows.Controls.StackPanel
 $script:attrPanel.Width = 116
+$script:attrUserHidden = $false
 $script:attrPanel.Visibility = 'Visible'
 $outer.Children.Add($script:attrPanel) | Out-Null
 [System.Windows.Controls.Canvas]::SetLeft($script:attrPanel, 8)
@@ -777,6 +787,8 @@ $btnPanel.HorizontalAlignment = 'Center'
 $script:btnPanel = $btnPanel
 $btnPanel.Margin = [System.Windows.Thickness]::new(0, 0, 0, 0)
 foreach ($b in @($script:pet.buttons)) { $btnPanel.Children.Add((Build-Button $b)) | Out-Null }
+# 右侧第 4 个按钮：显示/隐藏属性面板
+try { $btnPanel.Children.Add((Build-Button ([pscustomobject]@{ id = 'attr'; label = '属性'; title = '显示/隐藏属性'; action = 'attr'; icon = '' }))) | Out-Null } catch {}
 $outer.Children.Add($btnPanel) | Out-Null
 [System.Windows.Controls.Canvas]::SetLeft($btnPanel, 350)
 [System.Windows.Controls.Canvas]::SetTop($btnPanel, 64)
