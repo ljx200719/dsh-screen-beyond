@@ -116,7 +116,7 @@ function Update-PetLayout() {
     $imgLeft = 140
     $imgTop = 12
     $attrTop = 80
-    $btnTop = 100
+    $btnTop = 64
     $tokenTop = $imgTop + $size + 10
     # 固定窗口尺寸，缩放时只移动 UI，避免窗口 resize 造成的延迟
     [System.Windows.Controls.Canvas]::SetLeft($script:img, $imgLeft)
@@ -258,7 +258,8 @@ function Update-Image([string]$expression = 'idle') {
     $eff.BlurRadius = 18; $eff.ShadowDepth = 4; $eff.Opacity = 0.24; $eff.Direction = 270
     $script:img.Effect = $eff
   } catch {}
-  $script:img.ToolTip = '摸摸头 · 搓一搓 · 戳一下 · 看屏幕'
+  # 悬停不再显示手势提示（改成显示左侧状态面板，含余额/今日消耗）
+$script:img.ToolTip = $null
   $sw.Stop(); Log ('image ' + [IO.Path]::GetFileName($path) + ' ' + $sw.ElapsedMilliseconds + 'ms')
 }
 
@@ -415,8 +416,10 @@ function Refresh-Status() {
       if ($script:statusText) {
         $script:statusText.ToolTip = ('真实余额：{0}{1}{2}今日消耗（估算，含同一 Key 的其它程序）：{0}{3:0.00}{4}今日 token：{5:N0}{6}她的零花：{7} 元（虚拟）' -f $cur, [string]$bal.total, [Environment]::NewLine, $todayRmb, [Environment]::NewLine, [double]$t.dailyUsed, [Environment]::NewLine, [string]$t.spendable)
       }
+      if ($script:attrBalance) { $script:attrBalance.Text = ('余额 {0}{1} · 今日 ¥{2:0.00}' -f $cur, [string]$bal.total, $todayRmb) }
     } else {
       if ($script:statusText) { $script:statusText.ToolTip = '暂时读不到 DeepSeek 真实余额（不会用虚拟货币代替）' }
+      if ($script:attrBalance) { $script:attrBalance.Text = '余额读取失败' }
     }
   }
   $loc = ''; if ($st.place) { $loc = [string]$st.place.icon + ' ' + [string]$st.place.name }
@@ -694,6 +697,7 @@ $script:attrName = New-AttrBox '小鲸' '#5A4B3D'
 $script:attrPlace = New-AttrBox '🏠 家' '#5E7895'
 $script:attrAct = New-AttrBox '待着' '#8A6A4E'
 $script:attrEnergy = New-AttrBox '精力很足' '#5C8A70'
+$script:attrBalance = New-AttrBox '余额 —' '#A06A3C'
 
 # balance 行：贴着脚，做成一枚更明显的小胶囊
 $script:tokenText = New-Object System.Windows.Controls.TextBlock
@@ -729,7 +733,7 @@ $btnPanel.Margin = [System.Windows.Thickness]::new(0, 0, 0, 0)
 foreach ($b in @($script:pet.buttons)) { $btnPanel.Children.Add((Build-Button $b)) | Out-Null }
 $outer.Children.Add($btnPanel) | Out-Null
 [System.Windows.Controls.Canvas]::SetLeft($btnPanel, 350)
-[System.Windows.Controls.Canvas]::SetTop($btnPanel, 108)
+[System.Windows.Controls.Canvas]::SetTop($btnPanel, 64)
 [System.Windows.Controls.Panel]::SetZIndex($btnPanel, 10)
 
 # 位置

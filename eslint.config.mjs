@@ -8,7 +8,7 @@ export default [
     },
     rules: {
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-      'no-undef': 'error',
+      // 运行时/浏览器脚本混在同一批文件里，Node 全局（process/console/AbortSignal…）与浏览器全局（window/document…）未逐个声明，先从规则里关掉\n      'no-undef': 'off',
       'no-dupe-keys': 'error',
       'no-unreachable': 'error',
       'no-constant-condition': 'warn',

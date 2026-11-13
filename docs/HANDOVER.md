@@ -538,7 +538,7 @@ ID：
 - **小修**：设置页图片配置保存不再整页重绘（不冲掉未保存模型参数）；桌宠换形象改静默重启（去掉双重确认）；地图删除无入口死函数。
 - **页面渲染检查**：headless Edge 截图 map/model/stage/screen/settings 均有内容（settings 已含备份区）；chat 页在 headless 下截图超时，但真实 Edge iframe 嵌入测试已确认聊天 UI 正常。
 - 已知未做：eslint 依赖未安装；恢复未实测；VM 聊天发送/图片需登录 QQ 后真机验证；`config.json` 仍单文件；npm 未发布（等用户指示）。
-### 8.9 2026-11-13 配置拆分 / 桌宠素材 / 低余额提醒
+- **eslint**：`pnpm add -D eslint` 已装（9.39.5，本地 node_modules，不随包发布）；`npm run lint`（本机需用 node 直接跑 `node node_modules/eslint/bin/eslint.js runtime lib scripts`，因为 PATH 里没有 node）；配置里 no-undef 关闭（Node/浏览器全局混用），其余规则生效。`r`n- **桌宠 UI（2026-11-13 19:35 追加）**：去掉悬停手势 tooltip；状态面板（悬停显示）新增「余额 ¥x · 今日 ¥y」行；右侧三个按钮整体上移（btnTop 100→64）。`r`n### 8.9 2026-11-13 配置拆分 / 桌宠素材 / 低余额提醒
 
 - **config.json 拆分 + 原子写**：设置写 `config.json`（约 5KB），世界状态（worlds/maps/map/activeMapId/location）写 `data/world.json`；两者都用 `tmp+rename` 原子落盘并做内容变更去抖。旧单文件在启动时自动迁移（迁移前已备份 `config.pre-split-*.json`）。实测迁移后地图 2 张、位置 canteen 正常，config.json 86KB → 5KB。
 - **桌宠素材目录化**：`runtime/assets/pet/<角色>/<idle|look|pat|rub>.png` + `default/` 兜底；服务端按 新目录 → default → 旧命名 的顺序解析，老安装不受影响。实测 `/pet-sprite/idle.png` 返回新目录素材。

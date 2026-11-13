@@ -32,7 +32,7 @@
     "smoke": "node scripts/smoke-test.mjs"
   },
   "devDependencies": {
-    "eslint": "^9.0.0"
+    "eslint": "^9.39.5"
   },
   "dsh": {
     "bundle": {
