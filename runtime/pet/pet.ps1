@@ -560,6 +560,9 @@ try { $op = [double]$script:pet.opacity; if ($op -gt 0 -and $op -le 1) { $win.Op
 $outer = New-Object System.Windows.Controls.Canvas
 $outer.Width = 480
 $outer.Height = 440
+# WPF 里 Background=null 的 Canvas 不参与命中测试：透明窗口的空白区收不到鼠标事件。
+# 设成 Transparent 后，悬停整个桌宠窗口都能触发属性面板。
+$outer.Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.Color]::FromArgb(1,0,0,0)))
 $win.Content = $outer
 
 # 聊天气泡面板（默认收起）
@@ -753,6 +756,12 @@ $win.Add_LocationChanged({ if ($script:suppressSave) { return }; try { @{ x = [m
 
 $script:img.Add_MouseEnter({ Fade-AttrPanel $true })
 $script:img.Add_MouseLeave({ Fade-AttrPanel $false })
+# 悬停整个桌宠窗口（含空白边缘/按钮）也显示属性面板，避免只悬停图片才出现
+$outer.Add_MouseEnter({ Fade-AttrPanel $true })
+$outer.Add_MouseLeave({ Fade-AttrPanel $false })
+$win.Add_MouseEnter({ Fade-AttrPanel $true })
+$win.Add_MouseLeave({ Fade-AttrPanel $false })
+if ($statusBorder) { $statusBorder.Add_MouseEnter({ Fade-AttrPanel $true }) }
 $script:img.Add_MouseLeftButtonDown({ param($s, $e) $script:downPoint = $e.GetPosition($script:win); $script:isDragging = $false; Fade-AttrPanel $true })
 $script:img.Add_MouseMove({
   param($s, $e)

@@ -13,6 +13,19 @@
 
 ---
 
+## 0.7.18 更新
+
+本轮（2026-11-13）汇总修复与新增：
+
+- **面板白屏**：删掉 CSP `frame-ancestors` 与 iframe `loading=lazy`，DSH 面板 iframe 恢复正常渲染。
+- **安全**：恶意 Origin / 跨站脚本 / 非法 Host 拦截；可选 API token（`DSH_COMPANION_API_TOKEN`）；可选 DPAPI 密钥加密（`DSH_COMPANION_ENCRYPT_KEYS=1`）。
+- **稳定**：聊天回合超时 + `/api/chat/cancel` + typing 看门狗；上下文图片预算；进程级异常兜底；`events.jsonl` 8MB 轮转；economy / vm-chat-status / stage-stream 缓存；备份列表与恢复 UI。
+- **账目**：token 用量全局账本（切角色一致）、所有模型调用集中记账、换 API Key 重置今日基准；金额口径区分真实余额/今日估算/虚拟零花。
+- **配置**：`config.json` 拆为 `config.json` + `data/world.json`（原子写、启动自动迁移）。
+- **桌宠**：素材目录化；余额/今日消耗不再常显，悬停窗口显示属性面板（含余额行）；右侧按钮上移；低余额主动提醒（阈值/冷却可配）。
+- **VM 聊天**：联系人白名单、未读扫描、图片发送、应用健康守护、发送后校验、扫码登录页保护；视觉识别 reasoning 兜底。
+- **工程**：`npm run smoke`（22 项冒烟）、eslint 配置与依赖、`npm run check`。
+
 ## 0.7.17 更新
 
 紧急修复 `0.7.16` 的一个回归：安全加固里对 `Sec-Fetch-Site: cross-site` 的拦截把 DSH 面板 iframe 加载运行时页面的请求也拦了，导致所有页面显示 "forbidden site" 空白。
@@ -328,7 +341,7 @@
 
 ## 安装
 
-当前版本：0.7.17。
+当前版本：0.7.18。
 
 > 本地开发可用：
 pm run check（语法检查）、

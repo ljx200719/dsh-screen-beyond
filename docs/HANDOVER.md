@@ -17,26 +17,27 @@
 
 | 项目 | 状态 |
 |---|---|
-| 源码版本 | **0.7.17** |
+| 源码版本 | **0.7.18** |
 | Git main | `056af76` |
-| Git tag | `v0.7.17` |
-| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.17` |
-| npm latest | **0.7.17**（提交后需等 npm 审核可见） |
+| Git tag | `v0.7.18` |
+| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.18` |
+| npm latest | **0.7.18**（提交后需等 npm 审核可见） |
 | npm 0.7.13 | 已上线 |
 | npm 0.7.14 | 已上线但有金额显示 bug（勿用，等 0.7.16） |
 | npm 0.7.15 | 审核中 |
-| npm 0.7.16 | 已发布但有 forbidden site 回归（勿用，等 0.7.17） |
+| npm 0.7.16 | 已发布但有 forbidden site 回归（勿用） |
+| npm 0.7.17 | 已发布但含 CSP 白屏问题（勿用，等 0.7.18） |
 | 发布产物 | `F:\屏幕彼端\发布产物\` |
 | 最新备份 | 见 `D:\dsh-companion\backups\` 最新 `backup-*.zip` |
 | 当前运行服务 | `http://127.0.0.1:8900` |
 
-> 2026-11-13：第二轮全量修复随 **0.7.17** 提交（npm 审核中 / GitHub Release 已建），摘要见 §8.6，完整清单见 `docs/FIXES-2026-11-13.md`。
+> 2026-11-13：第二轮全量修复随 **0.7.18** 提交（npm 审核中 / GitHub Release 已建），摘要见 §8.6，完整清单见 `docs/FIXES-2026-11-13.md`。
 
 ### 产物
 
-- `dsh-screen-beyond-0.7.17.tgz`
-- `dsh-screen-beyond-0.7.17.zip`
-- `RELEASE-0.7.17.md`
+- `dsh-screen-beyond-0.7.18.tgz`
+- `dsh-screen-beyond-0.7.18.zip`
+- `RELEASE-0.7.18.md`
 - 源码目录已初始化 git，工作区干净
 
 ### 发布注意
@@ -545,6 +546,14 @@ ID：
 - **桌宠金额不再直接显示**：隐藏金额胶囊（tokenPill），把真实余额 / 今日消耗 / 今日 token / 零花放进「状态」文字的悬浮提示里。
 - **低余额主动提醒**：新增 `CONFIG.balanceAlert`（enabled / thresholdRmb 默认 5 / cooldownMin 默认 360 / lastAt）。后台每 10 分钟检查一次真实余额，低于阈值时她主动发一条提醒消息（有冷却防刷屏，force 可绕过）；设置页「经济」卡片新增开关、阈值、冷却输入与「保存」「发一条测试」按钮。实测阈值临时设为 100 时提醒消息成功写入聊天（role=her），随后恢复阈值 5。
 - **备份脚本**增加 `data/world.json`。
+### 8.10 2026-11-13 0.7.18 发布（含桌面端收尾）
+
+- **桌宠属性面板悬停修复**：WPF 透明窗口里 `Canvas` 无背景不参与命中测试，悬停空白区收不到鼠标事件；窗口内容改为 alpha=1 近透明背景（肉眼不可见但可命中），整个窗口悬停都会显示属性面板（名字/地点/活动/精力/余额）。
+- **桌宠 UI**：移除悬停手势 tooltip（摸摸头 · 搓一搓 · 戳一下 · 看屏幕）；右侧三个按钮上移（100→64）；余额/今日消耗移入属性面板，不再常显。
+- **eslint**：`pnpm add -D eslint`（9.39.5，本地 node_modules，不随包发布）；`no-undef` 关闭后 lint 0 error / 55 warning（unused-vars）。
+- **配置拆分**：`config.json`（约 5KB）+ `data/world.json`（约 81KB），原子写 + 内容去抖，启动自动迁移旧单文件；备份脚本包含 world.json。
+- **低余额提醒**：`CONFIG.balanceAlert`（默认阈值 5 元、冷却 360 分钟），后台 10 分钟检查，低于阈值她主动发消息；设置页经济卡片可改阈值/冷却并有测试按钮。
+- **交接文件**：`屏幕彼端-交接报告-2026-11-13.docx`、源码包、npm 包、数据备份（均在 `F:\屏幕彼端\发布产物\`）。
 ## 9. 接下来计划
 
 ### P0：虚拟机聊天闭环
