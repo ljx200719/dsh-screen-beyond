@@ -330,6 +330,12 @@
 
 当前版本：0.7.17。
 
+> 本地开发可用：
+pm run check（语法检查）、
+pm run smoke（隔离实例冒烟，22 项）、
+pm run lint（需先安装 eslint）。
+
+
 ### 纯聊天：独立运行（不需要 DSH）
 
 需要 **Node.js 18+** 和一个 **DeepSeek API Key**（也可在启动后的 设置 → 模型 里填）。

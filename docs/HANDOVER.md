@@ -526,6 +526,18 @@ ID：
 - **页面全黑 "forbidden site"（回归，P0）**：0.7.16 的安全加固无条件拒绝 `Sec-Fetch-Site: cross-site`，把 DSH 面板 iframe 加载运行时页面的导航请求也拦了。修复：只拦"没有可放行 Origin 的脚本类跨站请求"，页面导航放行，本机回环 Origin 的 fetch 正常放行并回 CORS 头。
 - **她的屏幕全黑（P0）**：VM 内 `x11vnc` 掉线（websockify 还在）时，旧的 TCP 6081 探测仍报"正常"，noVNC 打开就是黑屏；虚拟机闲置后 DPMS 关屏也会全黑。修复：`/api/screen/space/status` 改读 VM 内真实链路（x11vnc/websockify/6080，5s 缓存）；`ensure` 后按链路判定成功；启动看护 60s 巡检真实链路、断了自动修；`ensure` 时关闭 DPMS/屏保；看屏幕页恢复后自动重载 noVNC 画面。
 - 账目修复（全局 token 账本/集中记账/换 Key 重置）与 0.7.16 相同，不受影响。
+### 8.8 2026-11-13 收尾（0.7.17 本地后继，未发布）
+
+- **面板白屏彻底修复**：删掉 `Content-Security-Policy: frame-ancestors`（Electron 宿主来源会把 iframe 拦成纯白），并去掉 iframe `loading=lazy`；真实浏览器 iframe 嵌入实测正常渲染。
+- **VM 聊天视觉识别修复（P1）**：deepseek 推理模型偶尔把 token 全花在 reasoning_content 上、content 为空（finish_reason=length），导致「AI 没有看懂屏幕」。`chatCompletion()` 遇到空 content+length 自动加预算重试一次；vm-chat 解析同时兜底 reasoning_content，并把视觉调用预算提到 3600/3000。实测 analysis 恢复（app=QQ、未读会话 3 条、composer 位置可识别）。
+- **VM 聊天登录页保护（P0）**：新增 `requiresLogin` 判定（无当前会话/无 recent/note 含登录扫码验证码）与 `validPoint()`（0,0 视为无效坐标）；停在扫码页时发送/发图直接拒绝。实测：两次发送都返回「虚拟机聊天停在登录/扫码页」，截图确认没有误输入任何文字。
+- **可选 API token**（默认关，`DSH_COMPANION_API_TOKEN`）：开启后 `/api/*` 需 `x-companion-token` 或页面 cookie；HTML 响应下发 HttpOnly cookie；端口文件带 token；面板 client.js 自动取 token（`/api/token`）。
+- **可选 DPAPI 密钥加密**（默认关，`DSH_COMPANION_ENCRYPT_KEYS=1`）：新增 `runtime/env/dpapi.ps1`（UTF-8 stdin/stdout 已处理），`readSecretFile/writeSecretFile` 读写 `api-key.txt` / `image-api-key.txt`，启动时自动迁移明文；中文密钥往返测试通过。
+- **备份恢复 UI**：`GET /api/backup/list` + `POST /api/backup/restore`（校验 `backup-YYYYMMDD-HHMMSS.zip`，复用 `scripts/restore.ps1`）；设置页新增备份列表与「恢复」（两次确认）。**恢复流程未在真数据上执行验证**。
+- **工程化**：新增 `scripts/smoke-test.mjs`（隔离实例：6 页 + 安全矩阵 + token 模式 + DPAPI 加密，22/22 通过）、`eslint.config.mjs` 与 `lint`/`smoke` 脚本（eslint 依赖未安装，本机无 npm）。
+- **小修**：设置页图片配置保存不再整页重绘（不冲掉未保存模型参数）；桌宠换形象改静默重启（去掉双重确认）；地图删除无入口死函数。
+- **页面渲染检查**：headless Edge 截图 map/model/stage/screen/settings 均有内容（settings 已含备份区）；chat 页在 headless 下截图超时，但真实 Edge iframe 嵌入测试已确认聊天 UI 正常。
+- 已知未做：eslint 依赖未安装；恢复未实测；VM 聊天发送/图片需登录 QQ 后真机验证；`config.json` 仍单文件；npm 未发布（等用户指示）。
 ## 9. 接下来计划
 
 ### P0：虚拟机聊天闭环

@@ -403,7 +403,13 @@ async function petUploadImage(){
   rd.onload = async () => {
     try {
       const r = await saveJson('/api/pet/image', { dataUrl: rd.result });
-      if (r && r.ok) { toast('形象已更新'); await petRestart(); }
+      if (r && r.ok) {
+        toast('形象已更新，桌宠重启中…');
+        try {
+          await fetch('/api/pet/stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+          await fetch('/api/pet/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+        } catch (e) {}
+      }
       petRefresh();
     } catch (e) {}
   };
@@ -1245,7 +1251,7 @@ async function renderModel(){
     + '<div class="row"><label>尺寸</label><input type="text" id="imgSize" value="'+esc(IMG.size||'1024x1024')+'" style="width:140px"><span class="small">宽x高，如 1024x1024</span></div>'
     + '<div class="row"><label>API Key</label><input type="password" id="imgKey" placeholder="填入后保存；已配置可留空" style="flex:1"><button class="btn sm primary" onclick="saveImageCfg(this)">保存</button></div>'
     + '<div class="row"><label>生图开关</label><span class="small" style="flex:1">关闭时完全不会调用生图 API，不花钱</span><button class="btn '+(IMG.enabled?'primary':'ghost')+'" onclick="setImageEnabled()">'+(IMG.enabled?'已开启':'已关闭')+'</button></div>'
-    + '<div class="hint">当前：'+(IMG.apiKeySet?'已配置':'未配置')+' · 开启后她可以用 send_image 发图；自定义 HTTP 需返回 data[0].b64_json 或 data[0].url。</div></div>'
+    + '<div class="hint" id="imgCfgHint">当前：'+(IMG.apiKeySet?'已配置':'未配置')+' · 开启后她可以用 send_image 发图；自定义 HTTP 需返回 data[0].b64_json 或 data[0].url。</div></div>'
     + '<div class="card"><h2>模型兼容性</h2><div class="small">只验证过 DeepSeek 模型（默认 deepseek-flash）。换其它 OpenAI 兼容模型时，工具循环、reasoning_content 回传可能不兼容，这部分不做适配。</div></div>'
     + '<div class="card"><h2>聊天风格 <span class="tag">会影响她所有说话</span></h2>'
     + '<div class="row"><label>无括号模式</label><input type="checkbox" id="noParens" style="width:auto" '+(STYLE.noParens?'checked':'')+' onchange="setNoParens(this.checked)"><span class="small">开启后她不用括号表示动作/表情，只直接说话</span></div></div>'
@@ -1318,7 +1324,14 @@ async function saveImageCfg(btn){
   if (!done) return;
   try {
     const r = await saveJson('/api/image/config', body);
-    if (r && r.ok) { toast('图片反馈已保存'); renderModel(); }
+    if (r && r.ok) {
+      // 局部更新，不整页重绘：避免把同页未保存的模型参数重置掉
+      const cfg = (r && r.config) || {};
+      const hint = document.getElementById('imgCfgHint');
+      if (hint) hint.textContent = '当前：' + (cfg.apiKeySet ? '已配置' : '未配置') + ' · 开启后她可以用 send_image 发图；自定义 HTTP 需返回 data[0].b64_json 或 data[0].url。';
+      const keyEl = document.getElementById('imgKey'); if (keyEl) keyEl.value = '';
+      toast('图片反馈已保存');
+    }
   } catch (e) {} finally { done(); }
 }
 
@@ -1391,6 +1404,28 @@ async function renderTutorial(){
     if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
   }));
 }
+async function loadBackups(){
+  const el = document.getElementById('bkList');
+  if (!el) return;
+  el.textContent = '读取中…';
+  try {
+    const r = await (await fetch('/api/backup/list')).json();
+    if (!r || !r.ok) { el.textContent = '读取失败：' + ((r && r.error) || '未知错误'); return; }
+    if (!r.backups || !r.backups.length) { el.textContent = '还没有备份'; return; }
+    el.innerHTML = r.backups.map(function (b) {
+      return '<div class="row" style="border-top:1px solid rgba(255,255,255,.08);padding:6px 0"><span style="flex:1">' + esc(b.name) + ' · ' + (b.size / 1024 / 1024).toFixed(1) + ' MB</span><button class="btn ghost sm" onclick="restoreBackup(\'' + esc(b.name) + '\')">恢复</button></div>';
+    }).join('');
+  } catch (e) { el.textContent = '读取失败：' + e.message; }
+}
+async function restoreBackup(name){
+  if (!await uiConfirm('恢复备份 ' + name + '？会覆盖当前角色/配置/记忆数据。')) return;
+  if (!await uiConfirm('最后确认：真的要恢复吗？建议先「立即备份」一次。')) return;
+  toast('正在恢复，请稍候…');
+  try {
+    const r = await (await fetch('/api/backup/restore', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: name }) })).json();
+    toast(r && r.ok ? (r.message || '恢复完成，请重启 DSH') : ((r && r.error) || '恢复失败'));
+  } catch (e) { toast('恢复失败：' + e.message); }
+}
 async function doBackup(btn){
   if (!(await uiConfirm('现在备份数据目录？会写到数据目录下的 backups。', '立即备份'))) return;
   const done = busyBtn(btn, '备份中…');
@@ -1411,7 +1446,8 @@ async function renderData(){
   + '<div class="row"><label>记忆/日记/聊天</label><input type="text" value="'+esc(dp('data'))+'" disabled></div>'
   + '</div>'
   + '<div class="card"><h2>备份</h2><div class="small">导出把数据目录打包成 zip；导入覆盖恢复。系统每天凌晨 4 点后会自动备份一次。<br>备份/恢复也可以双击插件 scripts 目录里的 <b>backup.cmd</b> / <b>restore.cmd</b>，已使用 ExecutionPolicy Bypass，不需要你改系统执行策略。</div>'
-  + '<div class="row"><button class="btn primary" onclick="doBackup(this)">立即备份</button><span class="hint" style="flex:1;margin-left:8px">备份到数据目录下的 backups</span></div><button class="btn ghost" style="margin-top:8px" onclick="doBackup(this)">备份到数据目录</button></div>'
+  + '<div class="row"><button class="btn primary" onclick="doBackup(this)">立即备份</button><button class="btn ghost" onclick="loadBackups()">刷新列表</button><span class="hint" style="flex:1;margin-left:8px">备份到数据目录下的 backups</span></div>'
++ '<div id="bkList" class="small" style="margin-top:8px;opacity:.85">（点「刷新列表」查看已有备份）</div></div>'
   + '</div><div class="col side2"><div class="card"><h2>版本</h2><div class="small"><span class="verText">' + esc(APP_VERSION ? 'v' + APP_VERSION : 'v0.7.13') + '</span> · 本地运行时</div></div></div></div>';
 }
 

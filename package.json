@@ -27,7 +27,12 @@
   },
   "scripts": {
     "start": "node runtime/server.mjs",
-    "check": "node --check runtime/server.mjs && node --check runtime/vm-chat.mjs && node --check runtime/sync.mjs && node --check runtime/memory.mjs && node --check runtime/data-store.mjs && node --check lib/index.js && node --check lib/client.js"
+    "check": "node --check runtime/server.mjs && node --check runtime/vm-chat.mjs && node --check runtime/sync.mjs && node --check runtime/memory.mjs && node --check runtime/data-store.mjs && node --check lib/index.js && node --check lib/client.js",
+    "lint": "eslint runtime lib scripts",
+    "smoke": "node scripts/smoke-test.mjs"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0"
   },
   "dsh": {
     "bundle": {

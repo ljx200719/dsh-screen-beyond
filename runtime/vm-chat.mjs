@@ -50,6 +50,9 @@ export function createVmChat({ runPy, probeTcp, chatCompletion, getSettings, sav
     return !!got && got.includes(want);
   }
   /** 最近一条「自己」的消息文本（AI 识别结果里的 from 字段）。 */
+  function validPoint(p) {
+    return !!(p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y)) && !(Number(p.x) === 0 && Number(p.y) === 0));
+  }
   function lastSelfText(an) {
     const recent = Array.isArray(an && an.recent) ? an.recent : [];
     const mine = recent.filter((m) => /自己|me|self/i.test(String((m && m.from) || '')));
@@ -172,19 +175,19 @@ PY`;
       max_tokens: maxTokens, temperature: 0.4,
     });
     const msg = resp && resp.choices && resp.choices[0] && resp.choices[0].message;
-    return String((msg && msg.content) || '');
+    return { content: String((msg && msg.content) || ''), reasoning: String((msg && msg.reasoning_content) || '') };
   }
 
   async function vision(prompt, imagePath) {
     const img = imagePath ? dataUrl(imagePath) : '';
     if (!img) return null;
-    const first = await visionOnce(prompt, img, 2400);
-    const parsed = parseObj(first);
+    const first = await visionOnce(prompt, img, 3600);
+    let parsed = parseObj(first.content) || parseObj(first.reasoning);
     if (parsed) return parsed;
     // 长提示词有时会被推理吃掉；用短提示再要一次纯 JSON
     const shortPrompt = '看这张 Linux 虚拟机截图。右侧气泡是自己发的，左侧是对方发的。只输出一行 JSON，不要 markdown、不要解释：{"appName":"当前聊天软件","conversation":"当前会话","conversationRow":{"x":0,"y":0},"recent":[{"from":"自己|对方","text":""}],"lastFrom":"自己|对方","unread":[{"from":"","text":"","conversation":"","row":{"x":0,"y":0}}],"needReply":false,"reply":"要回就写一句自然回复","composer":{"x":0,"y":0},"note":"简述"}；composer 是输入框中心，坐标按屏幕 0-1000 归一化。';
-    const second = await visionOnce(shortPrompt, img, 1200);
-    return parseObj(second);
+    const second = await visionOnce(shortPrompt, img, 3000);
+    return parseObj(second.content) || parseObj(second.reasoning);
   }
 
   function profileFor(app) {
@@ -302,7 +305,10 @@ ${apps.map((a) => a.id + ' / ' + a.name + ' / ' + a.categories).join('\n') || '�
 {"appId":"哪个应用","appName":"","conversation":"当前会话名","conversationRow":{"x":0,"y":0},"recent":[{"from":"自己|对方","text":"","time":""}],"lastFrom":"自己|对方","unread":[{"from":"","text":"","conversation":"","row":{"x":0,"y":0}}],"composer":{"x":0,"y":0},"send":{"x":0,"y":0},"needReply":false,"reply":"如果要回，写一句自然回复","note":"你看到了什么"}
 ${extra}`;
     const v = await vision(prompt, shot);
-    return { ok: true, apps, windows: wins, screen: shot, analysis: v };
+    const note = String((v && v.note) || '');
+    const hasConv = !!(v && (String(v.conversation || '').trim() || (Array.isArray(v.recent) && v.recent.length)));
+    const requiresLogin = !hasConv || /登录|扫码|login|验证码|滑动验证/i.test(note);
+    return { ok: true, apps, windows: wins, screen: shot, analysis: v, requiresLogin };
   }
 
   let screenSize = null;
@@ -372,6 +378,8 @@ ${extra}`;
         if (!a.ok) return a;
         an = a.analysis;
         if (!an) return { ok: false, error: 'AI 没有看懂屏幕', screen: a.screen };
+        if (a.requiresLogin) return { ok: false, error: '虚拟机聊天停在登录/扫码页，先登录再发送', requiresLogin: true, analysis: an, screen: a.screen };
+        if (a.requiresLogin) return { ok: false, error: '虚拟机聊天停在登录/扫码页，先登录再发送', requiresLogin: true, analysis: an, screen: a.screen };
         if (!an.appId || !an.composer) {
           await ensureApp();
           const b = await analyze('刚打开了应用，请重新找会话和输入框。');
@@ -385,7 +393,7 @@ ${extra}`;
         an = (b.analysis) || an;
         composer = an.composer || an.send;
       }
-      if (!composer || !Number.isFinite(Number(composer.x)) || !Number.isFinite(Number(composer.y))) {
+      if (!validPoint(composer)) {
         return { ok: false, error: '没找到输入框', analysis: an, screen: null };
       }
       // 目标联系人白名单：会话名缺失时补一次只读确认，避免把消息发到别的会话
@@ -486,6 +494,8 @@ ${extra}`;
         if (!a.ok) return a;
         an = a.analysis;
         if (!an) return { ok: false, error: 'AI 没有看懂屏幕', screen: a.screen };
+        if (a.requiresLogin) return { ok: false, error: '虚拟机聊天停在登录/扫码页，先登录再发送', requiresLogin: true, analysis: an, screen: a.screen };
+        if (a.requiresLogin) return { ok: false, error: '虚拟机聊天停在登录/扫码页，先登录再发送', requiresLogin: true, analysis: an, screen: a.screen };
         if (!an.appId || !an.composer) {
           await ensureApp();
           const b = await analyze('刚打开了应用，请重新找会话和输入框。');
@@ -507,7 +517,7 @@ ${extra}`;
         an = (b.analysis) || an;
         composer = an.composer || an.send;
       }
-      if (!composer || !Number.isFinite(Number(composer.x)) || !Number.isFinite(Number(composer.y))) {
+      if (!validPoint(composer)) {
         return { ok: false, error: '没找到输入框', analysis: an };
       }
       const prevLastSelf = lastSelfText(an);

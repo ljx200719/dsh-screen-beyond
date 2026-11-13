@@ -1836,15 +1836,6 @@ async function saveDisplayMode(){
   if (r && r.ok) { toast(mode === '3d' ? '已切到 3D 视图（打开 /model 查看）' : '已切到 2D 平面视图'); await loadMapData(); }
   else toast((r && r.error) || '切换视图失败');
 }
-async function saveMapImageUrl(){
-  if (!await confirmDiscardMapChanges()) return;
-  const url = document.getElementById('mapImgUrl').value.trim();
-  try {
-    const r = await saveJson('/api/map', { mapId: DATA.map.id, image: url ? { url } : null });
-    if (r && r.ok) { await loadMapData(); toast(url ? '底图地址已设置' : '底图已清除'); }
-    else toast((r && r.error) || '保存底图地址失败');
-  } catch (e) { toast('保存底图地址失败：' + e.message); }
-}
 function openModelPreview(){ if (!(DATA.map && DATA.map.has3d)) { toast('这张地图没有 3D 资源'); return; } window.open('/model','_blank'); }
 async function saveVehicleModels(){
   if (!await confirmDiscardMapChanges()) return;

@@ -61,3 +61,9 @@ OPEN-015,未修复,低,—,同步,无手机/电脑离线合并,同步协议只�
 "BUG-045","已修复","低","0.7.16","工程","无 engines/无检查脚本；ROADMAP 过时","-","package.json engines + npm run check；ROADMAP 说明","-
 "BUG-046","已修复","P0","0.7.17","安全回归","0.7.16 后所有页面空白显示 forbidden site","无条件拒绝 Sec-Fetch-Site: cross-site，误伤 DSH 面板 iframe 导航","改为导航放行 + 本机回环 Origin 放行 + 仅拦无允许 Origin 的脚本请求","矩阵实测 403/200 正确，6 页面 200"
 "BUG-047","已修复","P0","0.7.17","她的屏幕","看屏幕页全黑；VNC 链路实际已断","x11vnc 掉线但 TCP 探测仍 ok；VM 闲置 DPMS 关屏","VM 内真实链路探测+60s 自动修复+关 DPMS/屏保+恢复后自动重载","status chain 全 true；页面自动重载"
+"BUG-048","已修复","P0","未发布","面板","插件面板所有 iframe 纯白","CSP frame-ancestors 拦掉 Electron 自定义来源的 iframe（连 * 也不可靠）","整条移除 CSP frame-ancestors；真实浏览器 iframe 渲染实测正常","真实 Edge iframe 嵌入截图"
+"BUG-049","已修复","P1","未发布","VM聊天","视觉识别返回「AI 没有看懂屏幕」，analysis 为 null","推理模型把 max_tokens 全花在 reasoning_content，content 为空（finish_reason=length）","chatCompletion 空 content+length 自动加预算重试；vm-chat 解析兜底 reasoning_content；提高视觉预算","直连探针复现并验证 analysis 恢复"
+"BUG-050","已修复","P0","未发布","VM聊天","停在 QQ 扫码页时发送可能点(0,0)并误输入","无登录态判定、0,0 坐标被视为有效","requiresLogin 判定 + 发送/发图拒绝 + validPoint","实测被拒绝，截图确认无输入"
+"BUG-051","已修复","中","未发布","安全","API 无 token、密钥明文","仅 Origin 防护","可选 DSH_COMPANION_API_TOKEN（header/cookie/端口文件）、可选 DPAPI 加密（DPAPI1）","冒烟 22/22（401/200/cookie/DPAPI1）"
+"BUG-052","已修复","低","未发布","设置页","图片配置保存整页重绘会重置未保存的模型参数；换形象双重确认","saveImageCfg 调 renderModel；petRestart 自带确认","改局部更新；换形象静默重启","代码复核"
+"BUG-053","已修复","低","未发布","工程","无冒烟测试/无 lint 配置","-","scripts/smoke-test.mjs（22 项）+ eslint.config.mjs + lint/smoke 脚本","实跑 22/22"

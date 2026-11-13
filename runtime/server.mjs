@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
 import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
 import { fileURLToPath } from 'node:url';
 import { MemoryStore } from './memory.mjs';
@@ -24,6 +25,35 @@ const HOME = process.env.USERPROFILE || process.env.HOME || '.';
 const ROOT = process.env.LINZHI_ROOT ? path.resolve(process.env.LINZHI_ROOT) : path.join(HOME, '.dsh-companion');
 const PREFERRED_PORT = Number(process.env.LINZHI_PORT) || 8900;
 const PORT_FILE = path.join(HOME, '.dsh-companion-port.json');
+// 可选 API 令牌（默认关）：设置后 /api/* 需要 header x-companion-token 或页面 cookie；端口文件里会带 token 供命令行用
+const API_TOKEN = String(process.env.DSH_COMPANION_API_TOKEN || '').trim();
+// 可选密钥加密（默认关）：设置后本插件自己写的 key 文件用 Windows DPAPI 当前用户加密（DPAPI1: 前缀）
+const ENCRYPT_KEYS = String(process.env.DSH_COMPANION_ENCRYPT_KEYS || '') === '1';
+const DPAPI_PS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'env', 'dpapi.ps1');
+const SECRET_CACHE = new Map();
+function dpapiRun(mode, text) {
+  const out = execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', DPAPI_PS, mode], { input: String(text || ''), encoding: 'utf8', timeout: 20000, windowsHide: true });
+  return String(out || '').trim();
+}
+function readSecretFile(file) {
+  try {
+    const raw = fs.readFileSync(file, 'utf8').trim();
+    if (!raw) return '';
+    const cacheKey = file + '|' + raw.length;
+    if (SECRET_CACHE.has(cacheKey)) return SECRET_CACHE.get(cacheKey);
+    const out = raw.startsWith('DPAPI1:') ? dpapiRun('decrypt', raw) : raw;
+    SECRET_CACHE.set(cacheKey, out);
+    return out;
+  } catch { return ''; }
+}
+function writeSecretFile(file, value) {
+  const v = String(value || '').trim();
+  if (!v) return;
+  let data = v;
+  if (ENCRYPT_KEYS) { const enc = dpapiRun('encrypt', v); data = enc.startsWith('DPAPI1:') ? enc : ('DPAPI1:' + enc); }
+  fs.writeFileSync(file, data, { encoding: 'utf8', mode: 0o600 });
+  SECRET_CACHE.clear();
+}
 // 手机端地基：设备身份 + 事件日志；不做合并，只提供受令牌保护的同步协议。
 const SYNC = new SyncStore(path.join(ROOT, 'sync'), { deviceName: os.hostname() });
 let LISTEN_PORT = 0;
@@ -1862,7 +1892,7 @@ function apiKey() {
   // 插件设置里自己保存的 key 优先于 DSH 其它插件留下的 key：
   // 用户在本插件设置里填了新 key，却被 ~/.dsh 下的旧 key 覆盖，是真实踩过的坑。
   const files = [path.join(ROOT, 'api-key.txt'), path.join(HOME, '.dsh', 'desktop', 'deepseek-api-key'), path.join(HOME, '.dsh', 'llm-deepseek', 'api-key'), path.join(HOME, '.dsh', 'deepseek-api-key')];
-  for (const f of files) { try { const s = fs.readFileSync(f, 'utf8').trim(); if (s) return s; } catch {} }
+  for (const f of files) { try { const s = readSecretFile(f); if (s) return s; } catch {} }
   try { const y = fs.readFileSync(path.join(HOME, '.dsh', '.credentials.yaml'), 'utf8'); const m = y.match(/(?:deepseek[_-]?api[_-]?key|DEEPSEEK_API_KEY)\s*:\s*(\S+)/i); if (m) return m[1].trim(); } catch {}
   throw new Error('没有找到 DeepSeek API Key');
 }
@@ -1885,6 +1915,26 @@ async function chatCompletion(body, opts = {}) {
   }
   const j = JSON.parse(text);
   try { if (j && j.usage) recordUsageTokens(j.usage); } catch {}
+  // 推理模型偶尔把输出预算全花在 reasoning_content 上，content 为空（finish_reason=length）：加预算自动重试一次
+  try {
+    const c0 = j && j.choices && j.choices[0];
+    const empty = !c0 || !c0.message || (!String(c0.message.content || '').trim() && !(c0.message.tool_calls && c0.message.tool_calls.length));
+    if (empty && c0 && c0.finish_reason === 'length') {
+      const payload2 = { ...payload, max_tokens: Math.max(2400, (Number(payload.max_tokens) || 900) * 3) };
+      const res2 = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer ' + apiKey(), 'content-type': 'application/json' },
+        body: JSON.stringify(payload2),
+        signal: AbortSignal.timeout(180000),
+      });
+      const txt2 = await res2.text();
+      if (res2.ok) {
+        const j2 = JSON.parse(txt2);
+        try { if (j2 && j2.usage) recordUsageTokens(j2.usage); } catch {}
+        return j2;
+      }
+    }
+  } catch {}
   return j;
 }
 
@@ -2134,13 +2184,13 @@ function loadImageCfg() {
   let keySet = false;
   try { keySet = !!(CONFIG.image && CONFIG.image.apiKeySet); } catch {}
   if (!keySet) {
-    try { keySet = fs.readFileSync(imageKeyPath(), 'utf8').trim().length > 0; } catch {}
+    try { keySet = readSecretFile(imageKeyPath()).length > 0; } catch {}
   }
   if (!keySet) keySet = !!(process.env.ARK_API_KEY || process.env.SEEDREAM_API_KEY || process.env.OPENAI_API_KEY);
   return { ...c, apiKeySet: keySet };
 }
 function imageApiKey() {
-  try { const s = fs.readFileSync(imageKeyPath(), 'utf8').trim(); if (s) return s; } catch {}
+  try { const s = readSecretFile(imageKeyPath()); if (s) return s; } catch {}
   return String(process.env.ARK_API_KEY || process.env.SEEDREAM_API_KEY || process.env.OPENAI_API_KEY || '').trim();
 }
 function saveImageCfg(patch = {}) {
@@ -2149,7 +2199,7 @@ function saveImageCfg(patch = {}) {
   if (typeof patch.watermark === 'boolean') cur.watermark = patch.watermark;
   if (typeof patch.enabled === 'boolean') cur.enabled = patch.enabled;
   if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
-    fs.writeFileSync(imageKeyPath(), patch.apiKey.trim(), { encoding: 'utf8', mode: 0o600 });
+    writeSecretFile(imageKeyPath(), patch.apiKey.trim());
     cur.apiKeySet = true;
   }
   delete cur.apiKey;
@@ -2856,7 +2906,12 @@ function sendStatic(res, file, types) {
   res.end(fs.readFileSync(file));
 }
 function pageFile(name) { const b = path.join(RUNTIME_DIR, name); if (fs.existsSync(b)) return b; const a = path.join(ROOT, name); return fs.existsSync(a) ? a : null; }
-function servePage(res, name) { const f = pageFile(name); if (!f) { res.writeHead(404); res.end('missing ' + name); return; } sendStatic(res, f, { '.html': 'text/html; charset=utf-8' }); }
+function servePage(res, name) {
+  const f = pageFile(name);
+  if (!f) { res.writeHead(404); res.end('missing ' + name); return; }
+  if (API_TOKEN) { try { res.setHeader('set-cookie', 'companion_token=' + encodeURIComponent(API_TOKEN) + '; Path=/; HttpOnly; SameSite=Lax'); } catch {} }
+  sendStatic(res, f, { '.html': 'text/html; charset=utf-8' });
+}
 function json(res, code, obj) {
   res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(obj));
@@ -2917,6 +2972,15 @@ const server = http.createServer(async (req, res) => {
     if (reqOrigin && !originAllowed(reqOrigin)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('forbidden origin'); return; }
     if (reqOrigin) { res.setHeader('access-control-allow-origin', reqOrigin); res.setHeader('vary', 'Origin'); }
     res.setHeader('x-content-type-options', 'nosniff');
+    // 可选 API 令牌校验（默认关闭；开启后脚本/命令行也要带 token，页面走 cookie）
+    if (API_TOKEN && url.pathname.startsWith('/api/') && url.pathname !== '/api/token' && req.method !== 'OPTIONS') {
+      const hdr = String((req.headers && req.headers['x-companion-token']) || '');
+      const cookie = String((req.headers && req.headers.cookie) || '');
+      const m = cookie.match(/(?:^|;\s*)companion_token=([^;]+)/);
+      const ck = m ? decodeURIComponent(m[1]) : '';
+      if (hdr !== API_TOKEN && ck !== API_TOKEN) { json(res, 401, { ok: false, error: '缺少或错误的 API token（x-companion-token）' }); return; }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/token') { json(res, 200, { ok: true, token: API_TOKEN }); return; }
     if (req.method === 'OPTIONS') {
       res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
       res.setHeader('access-control-allow-headers', 'authorization,content-type,x-sync-token');
@@ -2968,6 +3032,34 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/stage') return servePage(res, 'stage.html');
     if (req.method === 'GET' && url.pathname === '/model') return servePage(res, 'model.html');
     if (req.method === 'GET' && url.pathname === '/settings') return servePage(res, 'settings.html');
+    if (req.method === 'GET' && url.pathname === '/api/backup/list') {
+      try {
+        const dir = path.join(ROOT, 'backups');
+        const list = fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => /^backup-\d{8}-\d{6}\.zip$/.test(n)).map((n) => {
+          const st = fs.statSync(path.join(dir, n));
+          return { name: n, size: st.size, at: st.mtimeMs };
+        }).sort((a, b) => b.at - a.at).slice(0, 30) : [];
+        json(res, 200, { ok: true, dir, backups: list });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/backup/restore') {
+      const b = (req._json || {});
+      const name = String(b.name || '');
+      if (!/^backup-\d{8}-\d{6}\.zip$/.test(name)) { json(res, 400, { ok: false, error: '备份名不合法' }); return; }
+      const zipPath = path.join(ROOT, 'backups', name);
+      if (!fs.existsSync(zipPath)) { json(res, 404, { ok: false, error: '找不到这个备份' }); return; }
+      const script = path.join(pluginRootDir(), 'scripts', 'restore.ps1');
+      if (!fs.existsSync(script)) { json(res, 500, { ok: false, error: '安装包缺少 scripts/restore.ps1' }); return; }
+      try {
+        const { execFile } = await import('node:child_process');
+        const out = await new Promise((resolve) => {
+          execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Zip', zipPath], { timeout: 300000, windowsHide: true }, (e, stdout) => resolve({ e, out: String(stdout || '') }));
+        });
+        json(res, 200, { ok: !out.e, message: '恢复完成，请重启 DSH 让运行时重新加载数据', output: out.out.slice(-1500) });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/api/backup') {
       const r = await runBackup();
       if (!r.ok) { json(res, 500, { ok: false, error: r.error }); return; }
@@ -3697,7 +3789,7 @@ function importMemoryItems(raw) {
       const b = (req._json || {});
       const key = String(b.key || '').trim();
       if (key.length < 10) { json(res, 400, { ok: false, error: 'API Key 太短' }); return; }
-      try { fs.writeFileSync(path.join(ROOT, 'api-key.txt'), key, { mode: 0o600 }); json(res, 200, { ok: true }); }
+      try { writeSecretFile(path.join(ROOT, 'api-key.txt'), key); json(res, 200, { ok: true }); }
       catch (e) { json(res, 500, { ok: false, error: '保存失败' }); }
       return;
     }
@@ -4226,7 +4318,7 @@ function stagePayload() {
 }
 
 // ---------- startup ----------
-function writePortFile(port) { writeJson(PORT_FILE, { port, root: ROOT, pid: process.pid, version: VERSION, at: Date.now() }); }
+function writePortFile(port) { writeJson(PORT_FILE, { port, root: ROOT, pid: process.pid, version: VERSION, at: Date.now(), ...(API_TOKEN ? { token: API_TOKEN } : {}) }); }
 function tryListen(port, attempt = 0) {
   server.once('error', (e) => {
     if (e && e.code === 'EADDRINUSE' && attempt < 20) { setTimeout(() => tryListen(port + 1, attempt + 1), 200); }
@@ -4394,6 +4486,11 @@ function boot() {
       } catch {}
     }, 60 * 1000).unref?.();
   } catch {}
+  if (ENCRYPT_KEYS) {
+    for (const f of [path.join(ROOT, 'api-key.txt'), imageKeyPath()]) {
+      try { const raw = fs.readFileSync(f, 'utf8').trim(); if (raw && !raw.startsWith('DPAPI1:')) writeSecretFile(f, raw); } catch {}
+    }
+  }
   tryListen(PREFERRED_PORT);
 }
 async function watchScreenTick() {
