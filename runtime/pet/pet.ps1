@@ -126,7 +126,7 @@ function Start-HoverProbe() {
     if ($script:hoverTimer) { return }
     $script:hoverTick = 0
     $script:hoverTimer = New-Object System.Windows.Threading.DispatcherTimer
-    $script:hoverTimer.Interval = [TimeSpan]::FromMilliseconds(120)
+    $script:hoverTimer.Interval = [TimeSpan]::FromMilliseconds(220)
     $script:hoverTimer.Add_Tick({
       try {
         $script:hoverTick = [int]$script:hoverTick + 1
@@ -885,7 +885,7 @@ $script:reactionUntil = [DateTime]::MinValue
 $script:animPhase = 0.0
 $script:animBase = @{ img = 12.0; btn = 108.0; token = 320.0; attr = 92.0 }
 $script:uiAnimTimer = New-Object System.Windows.Threading.DispatcherTimer
-$script:uiAnimTimer.Interval = [TimeSpan]::FromMilliseconds(45)
+$script:uiAnimTimer.Interval = [TimeSpan]::FromMilliseconds(60)
 $script:uiAnimTimer.Add_Tick({
   try {
     $script:animPhase += 0.11
@@ -904,7 +904,7 @@ $script:uiAnimTimer.Add_Tick({
   } catch {}
 })
 $script:charWatchTimer = New-Object System.Windows.Threading.DispatcherTimer
-$script:charWatchTimer.Interval = [TimeSpan]::FromMilliseconds(300)
+$script:charWatchTimer.Interval = [TimeSpan]::FromMilliseconds(2000)
 $script:charWatchTimer.Add_Tick({
   try {
     $st = ApiGet '/api/pet/status'
@@ -930,7 +930,7 @@ $win.Add_Loaded({
   Refresh-Status
   $script:mainTimer.Start()
   $script:clampTimer = New-Object System.Windows.Threading.DispatcherTimer
-  $script:clampTimer.Interval = [TimeSpan]::FromMilliseconds(250)
+  $script:clampTimer.Interval = [TimeSpan]::FromMilliseconds(1000)
   $script:clampTimer.Add_Tick({ $script:clampTimer.Stop(); Clamp-Window })
   $script:clampTimer.Start()
 })
