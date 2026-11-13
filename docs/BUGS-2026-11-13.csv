@@ -44,3 +44,5 @@ OPEN-015,未修复,低,—,同步,无手机/电脑离线合并,同步协议只�
 "BUG-028","已修复","中","0.7.13-dev","舞台","3D 地面/道路/地形每秒重建不 dispose；2D pins 每秒全量重建","无 key 守卫/无 dispose","补 dispose（共享材质保护）、key 守卫、签名增量渲染、rAF 隐藏暂停","代码复核+语法检查"
 "BUG-029","已修复","中","0.7.13-dev","上下文","设置页历史按钮 compact/minimal 无效、off 不生效","UI 值与后端枚举/实现不一致","服务端接受并实现 full/short/compact/minimal/off；UI 文案改 30/8/不带历史","隔离冒烟已验证"
 "BUG-030","已修复","中","0.7.13-dev","VM 聊天","截图文件无限堆积；重启后对同一消息重复回复","screenshot 无清理；lastHandled 只在内存","只保留最近 20 张；lastHandledKey 持久化到设置","代码复核"
+"BUG-031","已修复","高","0.7.15","经济/桌宠","每日收入到期后 /api/economy 500、tokenStats 返回 null（桌宠不显示金额）","loadWallet 的 lastIncomeAt 被声明为 const 又在收入分支赋值，抛 Assignment to constant variable","改 let；隔离环境造 3 天未领收入验证：tokens/economy 正常、dailyUsed 保留","隔离复现+线上验证"
+"BUG-032","已修复","中","0.7.15","插件","健康检查发现运行时版本/数据目录不一致时无法自动重启（旧代码一直被复用）","ensureRunning 里 state.child 非空会短路 startRuntime；/info 内联探测又绕过版本校验直接写 ok","ensureRunning 检测到不一致时先结束子进程（交给 exit 处理器重启）；/info 改走 healthCheck()","node --check + 代码复核"

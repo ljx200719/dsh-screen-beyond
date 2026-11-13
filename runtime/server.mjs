@@ -1479,7 +1479,7 @@ function loadWallet() {
   let balance = Number.isFinite(Number(raw.balance)) ? Number(raw.balance) : econ.initialBalance;
   const usedTokens = Number(raw.usedTokens) || 0;
   let changed = !Number.isFinite(Number(raw.balance));
-  const lastIncomeAt = Number(raw.lastIncomeAt) || 0;
+  let lastIncomeAt = Number(raw.lastIncomeAt) || 0;
   if (econ.enabled && now - lastIncomeAt >= 86400000) { balance += Number(econ.dailyIncome) || 0; changed = true; lastIncomeAt = now; }
   let lastWageAt = Number(raw.lastWageAt) || now;
   try {
