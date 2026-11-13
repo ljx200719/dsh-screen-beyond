@@ -1,7 +1,7 @@
-# 屏幕彼端（dsh-screen-beyond）交接记录
+﻿# 屏幕彼端（dsh-screen-beyond）交接记录
 
 > 记录时间：2026-11-13  
-> 当前源码版本：**0.7.13**  
+> 当前源码版本：**0.7.23**  
 > 交接对象：接手插件维护、测试、发布的人  
 > 原则：本文件不含任何 API Key、密码、Git token 明文。
 
@@ -17,11 +17,11 @@
 
 | 项目 | 状态 |
 |---|---|
-| 源码版本 | **0.7.22** |
-| Git main | `10104e1` |
-| Git tag | `v0.7.22` |
-| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.22` |
-| npm latest | **0.7.22**（提交后需等 npm 审核可见） |
+| 源码版本 | **0.7.23** |
+| Git main | 0.7.23 发布提交（见 `git log`） |
+| Git tag | `v0.7.23` |
+| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.23` |
+| npm latest | **0.7.23**（提交后需等 npm 审核可见） |
 | npm 0.7.13 | 已上线 |
 | npm 0.7.14 | 已上线但有金额显示 bug（勿用，等 0.7.16） |
 | npm 0.7.15 | 审核中 |
@@ -39,9 +39,9 @@
 
 ### 产物
 
-- `dsh-screen-beyond-0.7.22.tgz`
-- `dsh-screen-beyond-0.7.22.zip`
-- `RELEASE-0.7.22.md`
+- `dsh-screen-beyond-0.7.23.tgz`
+- `dsh-screen-beyond-0.7.23.zip`
+- `RELEASE-0.7.23.md`
 - 源码目录已初始化 git，工作区干净
 
 ### 发布注意
@@ -578,6 +578,12 @@ ID：
 - 桌宠属性面板：「余额 ¥x」与「今日 ¥y」拆成两个独立胶囊（原来一行显示看不清）。
 - 性能：桌宠状态轮询 300ms→2000ms、动画 45ms→60ms、光标轮询 120ms→220ms、窗口夹取 250ms→1000ms（commit 7217c7a）；虚拟机内停用/屏蔽 packagekit 与 gnome-software 后台更新扫描，宿主机 CPU 由 12% 降到 2~8%。
 - 布局保持：气泡顶部居中、形象居中、属性左列、右侧四按钮 chat/look/大小/属性。
+### 8.15 2026-11-13 0.7.23（聊天 400 修复 + 分屏舞台 UI）
+
+- **修复「她不回话」**：`runtime/server.mjs` 的 `buildMessages()` 原来把她（`role=her`）带图片的历史消息按 `assistant` 角色连同 `image_url` 发给 DeepSeek，接口返回 `400 Image in assistant message is not supported` → 之后每一轮聊天都失败。现在只有用户消息能带图片进上下文，她的历史图片只以文字进入上下文（聊天记录里仍显示图片）。
+- **聊天页分屏舞台 UI**：`lib/client.js` —— 舞台头部常驻 2D/3D 切换；拖动分界线调宽 20%–85%（双击回 50%）；放大/还原、弹出新窗口、隐藏；记忆 2D/3D 与宽度；工具栏去除冗余地址文本。
+- 验证：`node --check` 通过、隔离冒烟 22/22、本机 0.7.23 六页面 200、`/api/preview` 真实模型调用正常。
+- 注意：`lib/client.js` 为 DSH 面板客户端半，需刷新页面/重启 DSH 加载。
 ## 9. 接下来计划
 
 ### P0：虚拟机聊天闭环
