@@ -51,11 +51,41 @@ input, textarea, select { border-radius: 9px; }
 <script>
 const $ = (s) => document.querySelector(s);
 let timer = null, mode = 'space', spaceTimer = null;
+let noVncUrl = 'http://127.0.0.1:6081/vnc.html';
+// noVNC 地址优先用后端下发，取不到再退回本机默认端口
+function vncSrc(bust){
+  const base = noVncUrl || 'http://127.0.0.1:6081/vnc.html';
+  const q = 'autoconnect=1&reconnect=1&reconnect_delay=2000&resize=scale';
+  return base + (base.includes('?') ? '&' : '?') + q + (bust ? '&t=' + Date.now() : '');
+}
+function updatePowerBtn(id, running, label){
+  const b = document.getElementById(id);
+  if (b) b.textContent = (running ? '关闭' : '启动') + label;
+}
+async function refreshPowerButtons(){
+  try {
+    const r = await (await fetch('/api/resources')).json();
+    updatePowerBtn('btnSpacePower', !!r.space, '她的屏幕');
+    updatePowerBtn('btnPhonePower', !!r.phone, '她的手机');
+  } catch (e) {}
+}
+async function initVncUrl(){
+  try {
+    const r = await (await fetch('/api/screen/info')).json();
+    if (r && r.spaceUrl) noVncUrl = r.spaceUrl;
+  } catch (e) {}
+}
 async function checkSpace(){
+  refreshPowerButtons();
   const dot = document.getElementById('spaceDot'), txt = document.getElementById('spaceText');
   if (!dot || !txt) return;
   try {
     const r = await (await fetch('/api/screen/space/status')).json();
+    if (r.url && r.url !== noVncUrl) {
+      noVncUrl = r.url;
+      const f = document.getElementById('spaceFrame');
+      if (f && r.http) f.src = vncSrc(false);
+    }
     if (r.http) { dot.style.background = '#22c55e'; txt.textContent = '已连接'; }
     else if (!r.vm) { dot.style.background = '#ef4444'; txt.innerHTML = '她的屏幕没开 <button onclick="ensureSpace()" style="margin-left:6px;background:#2563eb;color:#fff;border:0;border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer">启动</button>'; }
     else { dot.style.background = '#f59e0b'; txt.innerHTML = '连接掉了 <button onclick="ensureSpace()" style="margin-left:6px;background:#2563eb;color:#fff;border:0;border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer">修复屏幕</button>'; }
@@ -68,7 +98,7 @@ async function ensureSpace(){
     await fetch('/api/screen/space/ensure', { method: 'POST', headers: {'content-type':'application/json'}, body: '{}' });
   } catch (e) {}
   const f = document.getElementById('spaceFrame');
-  if (f) f.src = 'http://127.0.0.1:6081/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=2000&resize=scale&t=' + Date.now();
+  if (f) f.src = vncSrc(true);
   setTimeout(checkSpace, 1500);
 }
 function clearView(){ const v=$('#view'); [...v.children].forEach(c=>{ if(c.id!=='msg') c.remove(); }); if(timer){clearInterval(timer);timer=null;} if(spaceTimer){clearInterval(spaceTimer);spaceTimer=null;} }
@@ -82,7 +112,7 @@ function show(which){
     hideMsg();
     const f = document.createElement('iframe');
     f.id = 'spaceFrame';
-    f.src = 'http://127.0.0.1:6081/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=2000&resize=scale';
+    f.src = vncSrc(false);
     f.title = '她的屏幕';
     $('#view').appendChild(f);
     const bar = document.createElement('div');
@@ -133,12 +163,20 @@ async function togglePower(kind){
     const act = running ? 'stop' : 'start';
     const out = await (await fetch('/api/' + kind + '/' + act, { method: 'POST', headers: {'content-type':'application/json'}, body: '{}' })).json();
     const tip = act === 'stop' ? ('已关闭' + label + '，释放了内存') : ('正在启动' + label + '（约 1 分钟）');
-    if (r.http && running) { /* space 关闭时同步更新状态 */ }
+    updatePowerBtn(kind === 'space' ? 'btnSpacePower' : 'btnPhonePower', act === 'start', label);
     $('#hint').textContent = (out && out.message) || tip;
-    if (kind === 'space' && running) { const f = document.getElementById('spaceFrame'); if (f) f.src = 'about:blank'; }
+    if (kind === 'space') {
+      const f = document.getElementById('spaceFrame');
+      if (f) f.src = act === 'stop' ? 'about:blank' : vncSrc(true);
+    }
     if (kind === 'phone' && running) { const img = document.getElementById('snap'); if (img) img.src = ''; }
+    setTimeout(refreshPowerButtons, 6000);
     setTimeout(checkSpace, 1500);
   } catch (e) { $('#hint').textContent = '操作失败：' + e.message; }
 }
-show(new URLSearchParams(location.search).get('v') || 'space');
+(async () => {
+  await initVncUrl();
+  show(new URLSearchParams(location.search).get('v') || 'space');
+  refreshPowerButtons();
+})();
 </script></body></html>

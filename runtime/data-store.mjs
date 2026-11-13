@@ -24,7 +24,7 @@ export class DataStore {
   }
 
   readJson(file, dflt) {
-    try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return dflt; }
+    try { return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '')); } catch { return dflt; }
   }
 
   writeJson(file, obj, meta) {

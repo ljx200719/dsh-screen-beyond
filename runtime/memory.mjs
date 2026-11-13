@@ -46,8 +46,12 @@ export class MemoryStore {
   }
 
   setParams(params = {}) {
-    for (const k of ['halfLifeDays', 'forgetThreshold', 'reinforceBoost', 'maxInjected', 'coreStrength', 'maxPromptChars']) {
-      if (params[k] !== undefined && Number.isFinite(Number(params[k]))) this.cfg[k] = Number(params[k]);
+    const bounds = { halfLifeDays: [0.5, 365], forgetThreshold: [0.01, 0.9], reinforceBoost: [0, 1], maxInjected: [0, 100], coreStrength: [0.1, 1], maxPromptChars: [100, 5000] };
+    for (const k of Object.keys(bounds)) {
+      if (params[k] !== undefined && Number.isFinite(Number(params[k]))) {
+        const lo = bounds[k][0], hi = bounds[k][1];
+        this.cfg[k] = Math.min(hi, Math.max(lo, Number(params[k])));
+      }
     }
     return this.cfg;
   }

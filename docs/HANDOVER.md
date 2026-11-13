@@ -27,6 +27,8 @@
 | 最新备份 | 见 `D:\dsh-companion\backups\` 最新 `backup-*.zip` |
 | 当前运行服务 | `http://127.0.0.1:8900` |
 
+> 2026-11-13：审查修复已提交到工作区（未发版、未 bump 版本），摘要见 §8.4，完整清单见 `docs/FIXES-2026-11-13.md`。
+
 ### 产物
 
 - `dsh-screen-beyond-0.7.13.tgz`
@@ -483,6 +485,22 @@ ID：
 
 ---
 
+### 8.4 2026-11-13 审查修复（未发版）
+
+> 完整清单与验证证据见 `docs/FIXES-2026-11-13.md`。
+
+| 分类 | 修复内容 | 验证 |
+|---|---|---|
+| 环境 | 清理早期「林芝运行时」开机自启项/旧实例/调试计划任务；端口文件恢复 8900 + 0.7.13 | 页面全 200，`/info` ok:true |
+| 安全 | `/api/*` 与 SSE 增加 Origin 校验（非回环 403、回环回显 ACAO）；角色删除与 characterId 接口白名单+路径前缀校验；JSON 读取剥 BOM | 恶意 Origin 403；穿越删除 400 |
+| 稳定性 | 插件健康检查校验版本+数据根（旧运行时会停掉重启）；`lifeTick` const 修复；`petRunning` 去同步子进程；`readBody` Buffer/413；wallet 字段保留；备份结果真实返回；`historyMode` 三端对齐；travel/memory 参数 clamp | 隔离冒烟 15/15 |
+| 前端 | map 二次编辑丢数据/请求风暴/空热点崩溃/XSS 面；chat 吞输入/图片限额/防连点；settings 默认值回写/权限弹回/非法 hash；model/stage 高频泄漏与增量渲染；screen 电源按钮/noVNC 恢复 | 内联脚本语法全过 |
+| 桌宠 | 切换角色不再重复下载/全尺寸解码：sprite 缓存命中、WebClient 下载、DecodePixelWidth、位图缓存、头像版本缓存 | pet.log：切换加载 6~10ms（此前约 1~2s） |
+| 脚本 | `restore.ps1` 恢复改目录内容合并（原写法生成 lib\lib 等于没恢复）；backup 补 data/images、screens、pet；ps1 存 UTF-8 BOM | Parser 0 错误 |
+
+### 8.5 仍未处理
+
+设置页脏检查重构、map 道路草稿/编辑器坐标基准/未保存覆盖、model WebGL 兜底与相机自适应、VM 聊天图片发送、`confirmDanger` 白名单化、API 一次性 token、`image-api-key.txt` 明文迁 DPAPI、`events.jsonl` 轮转；`runtime/assets/pet/xiaojing|xiaoke-*` 旧资源仍按角色名命名（代码已能回退）。
 ## 9. 接下来计划
 
 ### P0：虚拟机聊天闭环

@@ -43,6 +43,10 @@ $script:pet = $null
 $script:status = $null
 $script:lastMsgId = 0
 $script:lastBubbleId = 0
+$script:bmpCache = @{}
+$script:lastImageKey = ''
+$script:petCacheCleaned = $false
+$script:avatarDownloadedUrl = ''
 $script:statusText = $null
 $script:tokenText = $null
 $script:img = $null
@@ -151,7 +155,7 @@ $script:bubbleTimer = $null
       )
     }
   }
-  Clean-PetCache
+  if (-not $script:petCacheCleaned) { $script:petCacheCleaned = $true; Clean-PetCache }
   if (-not $script:pet.expressions) { try { $script:pet.expressions = [pscustomobject]@{ idle='/pet-sprite/idle.png'; pat='/pet-sprite/pat.png'; rub='/pet-sprite/rub.png'; look='/pet-sprite/look.png' } } catch {} }
 }
 function Clean-PetCache() {
@@ -169,11 +173,12 @@ function Resolve-ImagePath([string]$spec = '') {
   if (-not $spec) { $spec = [string]$script:pet.image }
   if (-not $spec -or $spec -eq 'avatar') {
     $dest = Join-Path $DataDir 'pet-avatar.png'
+    $ver = [string]$script:lastAvatarUrl
+    if ((Test-Path $dest) -and ((Get-Item $dest).Length -gt 1024) -and $ver -and ($ver -eq [string]$script:avatarDownloadedUrl)) { return $dest }
     try {
-      $resp = Invoke-WebRequest -Uri ($Base + '/api/pet/avatar') -TimeoutSec 15 -UseBasicParsing
-      $bytes = $resp.Content
-      if ($bytes -is [byte[]]) { [IO.File]::WriteAllBytes($dest, $bytes) }
-      else { [IO.File]::WriteAllBytes($dest, [Text.Encoding]::UTF8.GetBytes([string]$bytes)) }
+      $wc = New-Object System.Net.WebClient
+      $wc.DownloadFile(($Base + '/api/pet/avatar'), $dest)
+      $script:avatarDownloadedUrl = $ver
       return $dest
     } catch { Log 'avatar download failed'; return (Join-Path $PSScriptRoot 'default-avatar.png') }
   }
@@ -181,9 +186,14 @@ function Resolve-ImagePath([string]$spec = '') {
     $leaf = [IO.Path]::GetFileName($spec)
     $cacheName = if ($script:petCharId) { 'sprite-' + $script:petCharId + '-' + $leaf } else { 'sprite-' + $leaf }
     $dest = Join-Path $DataDir $cacheName
+    # 已缓存就直接用：之前每次切角色/切表情都会重新 HTTP 下载 ~0.4s 的 PNG，这是桌宠延迟的主因
+    if ((Test-Path $dest) -and ((Get-Item $dest).Length -gt 1024)) { return $dest }
     for ($i = 0; $i -lt 4; $i++) {
-      try { Invoke-WebRequest -Uri ($Base + $spec) -OutFile $dest -TimeoutSec 15 -UseBasicParsing; return $dest }
-      catch { Start-Sleep -Milliseconds 400 }
+      try {
+        $wc = New-Object System.Net.WebClient
+        $wc.DownloadFile(($Base + $spec), $dest)
+        if ((Test-Path $dest) -and ((Get-Item $dest).Length -gt 1024)) { return $dest }
+      } catch { Start-Sleep -Milliseconds 300 }
     }
     # 服务启动瞬间可能还没就绪：优先用同角色缓存，再退回旧缓存，至少不要变成空桌宠
     if (Test-Path $dest) { Log ('sprite download retry fallback: ' + $cacheName); return $dest }
@@ -205,23 +215,35 @@ function Resolve-ImagePath([string]$spec = '') {
 
 function Make-Bitmap([string]$path) {
   try {
+    $ticks = 0
+    try { $ticks = (Get-Item $path).LastWriteTimeUtc.Ticks } catch {}
+    $hit = $script:bmpCache[$path]
+    if ($hit -and $hit.ticks -eq $ticks -and $hit.bmp) { return $hit.bmp }
     $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
     $bmp.BeginInit()
     $bmp.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
     $bmp.UriSource = New-Object System.Uri($path)
+    # 按桌宠显示尺寸解码，避免每次把 1MB 大图全尺寸解码（切角色/切表情卡顿来源之一）
+    try { $bmp.DecodePixelWidth = [int]([math]::Max(256, [math]::Min(1024, [double]$script:pet.size * 2))) } catch {}
     $bmp.EndInit(); $bmp.Freeze()
+    $script:bmpCache[$path] = @{ ticks = $ticks; bmp = $bmp }
     return $bmp
   } catch { Log ('bitmap err: ' + $_.Exception.Message); return $null }
 }
 function Update-Image([string]$expression = 'idle') {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
   $spec = [string]$script:pet.image
   try {
     if ($expression -and $script:pet.expressions -and $script:pet.expressions.$expression) { $spec = [string]$script:pet.expressions.$expression }
   } catch {}
   $path = Resolve-ImagePath $spec
   if (-not $path) { return }
+  $ticks = 0; try { $ticks = (Get-Item $path).LastWriteTimeUtc.Ticks } catch {}
+  $key = $path + '|' + $ticks + '|' + [string]$script:pet.size
+  if ($key -eq $script:lastImageKey) { return }
   $bmp = Make-Bitmap $path
   if (-not $bmp) { return }
+  $script:lastImageKey = $key
   $size = [double]$script:pet.size; if ($size -le 0 -or $size -gt 600) { $size = 300 }
   $ratio = $bmp.PixelWidth / [double]$bmp.PixelHeight; if ($ratio -le 0) { $ratio = 0.75 }
   $script:img.Source = $bmp
@@ -235,6 +257,7 @@ function Update-Image([string]$expression = 'idle') {
     $script:img.Effect = $eff
   } catch {}
   $script:img.ToolTip = '摸摸头 · 搓一搓 · 戳一下 · 看屏幕'
+  $sw.Stop(); Log ('image ' + [IO.Path]::GetFileName($path) + ' ' + $sw.ElapsedMilliseconds + 'ms')
 }
 
 $script:expressionTimer = $null
@@ -814,6 +837,8 @@ $script:charWatchTimer.Add_Tick({
       $script:petCharId = [string]$st.character.id
       $script:bubbleUntil = [DateTime]::MinValue
       $script:lastBubbleId = 0
+      $script:lastImageKey = ''
+      Log ('char -> ' + $script:petCharId)
       try { if ($script:statusBorder) { $script:statusBorder.Visibility = 'Collapsed' } } catch {}
       Load-Manifest
       Update-Image 'idle'

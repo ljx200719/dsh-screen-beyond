@@ -266,6 +266,10 @@ window.addEventListener('load', () => {
 #nameDlg input{width:100%;box-sizing:border-box;background:#0a121c;border:1px solid #2f465d;color:#e6eef8;border-radius:9px;padding:9px 11px;font:inherit;margin-bottom:14px}
 #nameDlg .row{display:flex;justify-content:flex-end;gap:8px}
 #nameDlg button{padding:7px 14px}
+/* 移动端：窄屏改成上下布局，避免 370px 侧栏把地图挤爆 */
+@media (max-width:900px){ main{flex-direction:column} aside{width:auto;max-width:none} }
+/* 触屏拖动图钉/角色时不要触发页面滚动 */
+#mapPins .pin, .scenePerson { touch-action:none; }
 </style>
 
 
@@ -521,7 +525,8 @@ function charStatus(c){
   return '在' + (c.placeName || '某个地方');
 }
 function charAvaHtml(c, cls){
-  const style = c.avatar ? ' style="background-image:url(\''+String(c.avatar).replace(/'/g,'%27')+'\')"' : '';
+  // URL 先 esc 再单引号转义，避免服务端返回的头像地址打断 style 属性
+  const style = c.avatar ? ' style="background-image:url(\''+esc(String(c.avatar)).replace(/'/g,'%27')+'\')"' : '';
   // 有头像图时不要再把名字首字叠在图上；只有没有图时才用文字兜底
   return '<span class="'+cls+'"'+style+'>'+(c.avatar ? '' : esc((c.name || '她').slice(0,1)))+'</span>';
 }
@@ -543,11 +548,13 @@ function showCharCard(c){
     } catch (e) { toast('切换失败：' + e.message); }
   };
   d.querySelector('[data-chat]').onclick = async () => {
+    // 先同步开窗再 await，否则会被弹窗拦截
+    const w = window.open('about:blank', '_blank');
     try {
       const r = await saveJson('/api/characters', { action: 'switch', id: c.id });
-      if (r && r.ok) window.open('/', '_blank');
-      else toast((r && r.error) || '切换失败');
-    } catch (e) { toast('切换失败：' + e.message); }
+      if (r && r.ok) { if (w) w.location.href = '/'; else toast('浏览器拦截了新窗口，请允许弹窗后重试'); }
+      else { if (w) w.close(); toast((r && r.error) || '切换失败'); }
+    } catch (e) { if (w) w.close(); toast('切换失败：' + e.message); }
   };
 }
 function showPlaceCard(p){
@@ -638,7 +645,7 @@ async function showMapPreview(id){
     const active = String(r.activeMapId || '') === String(id);
     const d = document.createElement('div'); d.id = 'mapPreview';
     d.innerHTML = '<div class="mpBox"><div class="mpHead"><h3>👁 ' + esc(m.name) + ' · ' + (m.places || []).length + ' 个地点</h3><button class="btn" data-close>关闭</button></div>'
-      + '<div class="mpStage" style="background-image:url(\'' + String(bg).replace(/'/g, '%27') + '\')">' + pins + '</div>'
+      + '<div class="mpStage" style="background-image:url(\'' + esc(String(bg)).replace(/'/g, '%27') + '\')">' + pins + '</div>'
       + '<div class="mpFoot"><span>预览模式，角色还在「' + esc((r.location && r.location.name) || '原地') + '」</span><span class="spacer"></span>'
       + (active ? '<span class="small">当前地图</span>' : '<button class="btn primary" data-go>让她直接过去</button>') + '</div></div>';
     document.body.appendChild(d);
@@ -728,7 +735,7 @@ function openScene(p){
     '<div class="sceneTop"><h3>'+(p.icon||'📍')+' '+esc(p.name)+'<span class="small" style="margin-left:8px;color:#9fb3c8;font-weight:400">按真实行为停留/走动 · 可拖动角色</span><span class="small" id="sceneBehavior" style="margin-left:10px;color:#f3d6a2"></span></h3><button class="btn" data-edit>✏️ 布局</button><button class="btn" data-obstacle>🧱 障碍</button><button class="btn" data-walkable>🚶 可走</button><button class="btn" data-talk>和她说话</button><button class="btn" data-close>关闭</button></div>'+
     (is3d
       ? '<div class="scene3dHost" id="scene3dHost" style="position:absolute;inset:0;background:#0b1219"></div>'
-      : '<div class="sceneBgLayer" style="position:absolute;inset:0;background-image:url(\''+String(sc.background || '').replace(/'/g,'%27')+'\');background-size:cover;background-position:center;background-repeat:no-repeat"></div>'+
+      : '<div class="sceneBgLayer" style="position:absolute;inset:0;background-image:url(\''+esc(String(sc.background || '')).replace(/'/g,'%27')+'\');background-size:cover;background-position:center;background-repeat:no-repeat"></div>'+
         (peopleHtml || '<div class="sceneEmpty"><div class="emptyCard"><div class="emptyIcon">🍃</div><div class="emptyTitle">这里没有别人</div><div class="emptyHint">她可能还在路上，或者你可以回地图看看</div></div></div>')+spotsHtml)+
   '</div>';
   document.body.appendChild(d);
@@ -798,8 +805,11 @@ function openScene(p){
     y: Math.max(0, Math.min(1, (parseFloat(el.style.top) || 72) / 100)),
   })).filter((x) => x.id);
   const persistScene = async () => {
-    if (!p.scene) return;
-    p.scene = { ...p.scene, characters: collectCharacters(), hotspots: spots };
+    // 注意：saveMap() 成功后 loadMapData() 会重建 PLACES，闭包里的 p 会变成旧对象。
+    // 所以每次保存前按 id 找「当前」地点，把最新 scene 快照写过去，否则第二次之后编辑会丢。
+    const cur = PLACES.find((x) => String(x.id) === String(p.id));
+    if (!cur || !cur.scene) return;
+    cur.scene = { ...(p.scene || cur.scene), characters: collectCharacters(), hotspots: spots };
     try { await saveMap(); } catch (e) {}
   };
   const setPersonPos = (el, x, y) => {
@@ -857,7 +867,7 @@ function openScene(p){
         const picked = chooseBehaviorFor(el, idx);
         st.behavior = picked.behavior; st.hotspotIndex = picked.index; st.until = now + behaviorDuration(picked.behavior);
         moveToHotspot(el, picked.index);
-        if (cid === (activeCharacter() || {}).id) activeHotspotId = spots[picked.index].id || spots[picked.index].label || '';
+        if (cid === (activeCharacter() || {}).id) { const hs = spots[picked.index]; if (hs) activeHotspotId = hs.id || hs.label || ''; }
         changed = true;
         updateBehaviorStatus();
       });
@@ -869,8 +879,10 @@ function openScene(p){
   d.addEventListener('click', (e) => { if (e.target === d) closeScene(); });
   d.querySelector('[data-close]').onclick = closeScene;
   d.querySelector('[data-talk]').onclick = async () => {
+    // 先同步开窗再 await，否则浏览器会当成非用户手势而拦截弹窗
+    const w = window.open('about:blank', '_blank');
     try { await saveJson('/api/scene/focus', { placeId: p.id }); } catch (e) {}
-    window.open('/', '_blank');
+    if (w) w.location.href = '/';
   };
   const renderObstacles = () => {
     const list = Array.isArray(p.scene && p.scene.obstacles) ? p.scene.obstacles : [];
@@ -1062,11 +1074,11 @@ function openScene(p){
       if (Math.abs(x - Number(el.dataset.x || 0)) + Math.abs(y - Number(el.dataset.y || 0)) > 0.002) moved = true;
       setPersonPos(el, x, y);
     });
-    const finish = async () => {
+    const finish = async (ev) => {
       if (!dragging) return;
       dragging = false; userDragging = false;
       delete el.dataset.dragging; el.classList.remove('dragging');
-      try { el.releasePointerCapture?.(0); } catch (e) {}
+      try { if (ev && ev.pointerId !== undefined) el.releasePointerCapture?.(ev.pointerId); } catch (e) {}
       if (!moved) return;
       personStates.delete(cid);
       try { await saveJson('/api/life/position', { characterId: cid, x: Number(el.dataset.x), y: Number(el.dataset.y) }); } catch (e) {}
@@ -1103,7 +1115,7 @@ function renderWorldChars(){
       el.style.left = (Number(c.x) * 100) + '%';
       el.style.marginLeft = offset + 'px';
       el.style.top = (Number(c.y) * 100) + '%';
-      const style = c.avatar ? ' style="background-image:url(\''+String(c.avatar).replace(/'/g,'%27')+'\')"' : '';
+      const style = c.avatar ? ' style="background-image:url(\''+esc(String(c.avatar)).replace(/'/g,'%27')+'\')"' : '';
       el.innerHTML = '<div class="cAva"'+style+'>'+(c.avatar ? '' : esc((c.name || '她').slice(0,1)))+'</div><div class="cName">'+esc(c.name || '')+(c.samePlace ? ' · 同处' : '')+'</div>';
       el.onclick = (ev) => { ev.stopPropagation(); showCharCard(c); };
       pinHost.appendChild(el);
@@ -1129,13 +1141,20 @@ function renderWorldChars(){
     if (cnt) cnt.textContent = String(WORLD_CHARS.filter((c) => c.sameMap).length) + ' 人在图上';
   }
 }
+let worldLoading = false;
 async function loadWorldChars(){
+  if (worldLoading) return; // 防重入：ticker 150ms 一次，请求没回来之前不再发
+  worldLoading = true;
   try {
     const r = await api('/api/world/characters');
     WORLD_CHARS = Array.isArray(r.characters) ? r.characters : [];
-    LAST_WORLD_LOAD = Date.now();
     renderWorldChars();
-  } catch (e) {}
+  } catch (e) {
+    // 失败也把水位推进，否则 LAST_WORLD_LOAD 不更新，ticker 会每 150ms 重发
+  } finally {
+    worldLoading = false;
+    LAST_WORLD_LOAD = Date.now();
+  }
 }
 function pathPoints(){ const tv = CURRENT && CURRENT.traveling; return (tv && Array.isArray(tv.path) && tv.path.length > 1) ? tv.path : null; }
 function pointAt(path, progress){
@@ -1165,7 +1184,7 @@ function renderMe(){
   const path = pathPoints();
   let x, y;
   if (path) {
-    const prog = Math.min(1, Math.max(0, (Date.now() - CURRENT.traveling.startedAt) / Math.max(1, CURRENT.traveling.durationMs)));
+    const prog = Math.min(1, Math.max(0, (Date.now() - CURRENT.traveling.startedAt) / Math.max(1, Number(CURRENT.traveling.durationMs) || 1)));
     const pt = pointAt(path, prog);
     x = pt.x; y = pt.y;
     document.getElementById('meTag').textContent = CURRENT.traveling.modeIcon + ' ' + CURRENT.traveling.modeLabel + '中';
@@ -1309,6 +1328,8 @@ function renderCurrent(cur){
 }
 function startTicker(){
   if (TIMER) clearInterval(TIMER);
+  // 防止上一次整页刷新还没结束、下一个 150ms tick 又触发一轮 loadMapData
+  let reloading = false;
   TIMER = setInterval(async () => {
     if (!CURRENT) return;
     if (CURRENT.traveling || CURRENT.intercity) {
@@ -1331,7 +1352,11 @@ function startTicker(){
         document.getElementById('bigProg').style.width = Math.round(ic.progress*100) + '%';
       }
       if ((t && Date.now() - t.startedAt >= t.durationMs) || (ic && ic.progress >= 1)) {
-        try { const loc = await api('/api/location'); await loadMapData(); renderCurrent(loc.location); } catch(e){}
+        if (!reloading) {
+          reloading = true;
+          try { const loc = await api('/api/location'); await loadMapData(); renderCurrent(loc.location); } catch(e){}
+          finally { reloading = false; }
+        }
       }
     }
     if (Date.now() - LAST_WORLD_LOAD > 2500) loadWorldChars();
@@ -1485,7 +1510,7 @@ function editPlaceScene(i){
   const p = PLACES[i]; if (!p) return;
   const sc = p.scene || {};
   let bg = String(sc.background || '');
-  let spots = (Array.isArray(sc.hotspots) ? sc.hotspots : []).map((h) => ({ label: String(h.label || ''), x: Math.max(0, Math.min(1, Number(h.x) || 0.5)), y: Math.max(0, Math.min(1, Number(h.y) || 0.5)), action: String(h.action || '') }));
+  let spots = (Array.isArray(sc.hotspots) ? sc.hotspots : []).map((h) => ({ id: String(h.id || h.label || ''), label: String(h.label || ''), x: Math.max(0, Math.min(1, Number(h.x) || 0.5)), y: Math.max(0, Math.min(1, Number(h.y) || 0.5)), action: String(h.action || '') }));
   let photos = (Array.isArray(sc.photos) ? sc.photos : []).map(String);
   let obstacles = (Array.isArray(sc.obstacles) ? sc.obstacles : []).map((o) => ({ x: Number(o.x) || 0, y: Number(o.y) || 0, w: Number(o.w) || 0.05, h: Number(o.h) || 0.05 }));
   let walkable = (Array.isArray(sc.walkable) ? sc.walkable : []).map((o) => ({ x: Number(o.x) || 0, y: Number(o.y) || 0, w: Number(o.w) || 0.05, h: Number(o.h) || 0.05 }));
@@ -1508,6 +1533,7 @@ function editPlaceScene(i){
   const bgEl = d.querySelector('#scBg'), fileEl = d.querySelector('#scFile'), spotsEl = d.querySelector('#scSpots'), statusEl = d.querySelector('#scStatus');
   const collect = () => {
     spots = [...spotsEl.querySelectorAll('[data-row]')].map((row) => ({
+      id: String(row.dataset.hid || ''),
       label: String(row.querySelector('[data-k="label"]').value || '').trim(),
       x: Math.max(0, Math.min(1, Number(row.querySelector('[data-k="x"]').value) || 0.5)),
       y: Math.max(0, Math.min(1, Number(row.querySelector('[data-k="y"]').value) || 0.5)),
@@ -1515,7 +1541,7 @@ function editPlaceScene(i){
     })).filter((h) => h.label);
   };
   const renderSpots = () => {
-    spotsEl.innerHTML = spots.map((h, idx) => '<div class="row" data-row="' + idx + '">'
+    spotsEl.innerHTML = spots.map((h, idx) => '<div class="row" data-row="' + idx + '" data-hid="' + esc(h.id || '') + '">'
       + '<input data-k="label" placeholder="热点名字" value="' + esc(h.label) + '" style="flex:1;min-width:120px">'
       + '<input data-k="x" type="number" step="0.01" min="0" max="1" value="' + h.x + '" style="width:64px" title="x">'
       + '<input data-k="y" type="number" step="0.01" min="0" max="1" value="' + h.y + '" style="width:64px" title="y">'
@@ -1547,7 +1573,12 @@ function editPlaceScene(i){
     try { const v = JSON.parse(String(d.querySelector('#scWalkable')?.value || '[]')); if (Array.isArray(v)) walk = v.map((o) => ({ x: Number(o.x) || 0, y: Number(o.y) || 0, w: Number(o.w) || 0.05, h: Number(o.h) || 0.05 })); } catch (e) {}
     const mode = String(d.querySelector('#scMode')?.value || '2d') === '3d' ? '3d' : '2d';
     const m3 = String(d.querySelector('#scModel3d')?.value || '').trim();
-    p.scene = url ? { background: url, characters: Array.isArray(sc.characters) ? sc.characters : [], hotspots: spots.map((h) => ({ label: h.label, x: h.x, y: h.y, action: h.action || '' })), photos: photoUrls, obstacles: obs, walkable: walk, mode, model3d: mode === '3d' && m3.startsWith('/models/') ? { url: m3, scale: 1, rotationY: 0 } : null } : null;
+    const cur = PLACES.find((x) => String(x.id) === String(p.id)) || p;
+    const hotspots = spots.map((h) => ({ id: h.id || h.label || '', label: h.label, x: h.x, y: h.y, action: h.action || '' }));
+    // 只清背景时保留障碍/可走/热点/3D 等字段，不要整体置 null
+    cur.scene = url
+      ? { background: url, characters: Array.isArray(cur.scene && cur.scene.characters) ? cur.scene.characters : (Array.isArray(sc.characters) ? sc.characters : []), hotspots, photos: photoUrls, obstacles: obs, walkable: walk, mode, model3d: mode === '3d' && m3.startsWith('/models/') ? { url: m3, scale: 1, rotationY: 0 } : null }
+      : (cur.scene ? { ...cur.scene, background: '' } : null);
     d.remove();
     await saveMap();
     toast(url ? '已保存「' + p.name + '」的内部场景' : '已清除「' + p.name + '」的内部场景');
@@ -1624,14 +1655,20 @@ async function uploadMapImage(input){
   if (f.size > 12 * 1024 * 1024) { toast('图片太大（<12MB）'); return; }
   const reader = new FileReader();
   reader.onload = async () => {
-    const r = await saveJson('/api/map/image', { mapId: DATA.map.id, dataUrl: reader.result });
-    if (r.ok) { toast('底图已上传'); await loadMapData(); }
+    try {
+      const r = await saveJson('/api/map/image', { mapId: DATA.map.id, dataUrl: reader.result });
+      if (r && r.ok) { toast('底图已上传'); await loadMapData(); }
+      else toast((r && r.error) || '底图上传失败');
+    } catch (e) { toast('底图上传失败：' + e.message); }
   };
   reader.readAsDataURL(f);
 }
 async function clearMapImage(){
-  const r = await saveJson('/api/map/image', { mapId: DATA.map.id, dataUrl: '' });
-  if (r.ok) { toast('底图已清除'); await loadMapData(); }
+  try {
+    const r = await saveJson('/api/map/image', { mapId: DATA.map.id, dataUrl: '' });
+    if (r && r.ok) { toast('底图已清除'); await loadMapData(); }
+    else toast((r && r.error) || '清除底图失败');
+  } catch (e) { toast('清除底图失败：' + e.message); }
 }
 async function importPlacesFile(input){
   const f = input.files && input.files[0];
@@ -1655,7 +1692,8 @@ function exportPlaces(){
   URL.revokeObjectURL(a.href);
   toast('已导出 ' + PLACES.length + ' 个地点');
 }
-function roadsVisible() { return localStorage.getItem('mapShowRoads') !== '0'; }
+// 画道路时强制显示路径，否则隐藏状态下点地图完全看不到反馈
+function roadsVisible() { if (EDITING_ROADS) return true; return localStorage.getItem('mapShowRoads') !== '0'; }
 function renderRoads(){
   const layer = document.getElementById('roadLayer');
   if (!layer) return;
@@ -1701,14 +1739,20 @@ async function uploadPlaceImage(i, input){
   if (f.size > 6 * 1024 * 1024) { toast('图片太大（<6MB）'); return; }
   const reader = new FileReader();
   reader.onload = async () => {
-    const r = await saveJson('/api/place/image', { mapId: DATA.map.id, placeId: PLACES[i].id, dataUrl: reader.result });
-    if (r.ok) { toast('图标已换'); await loadMapData(); }
+    try {
+      const r = await saveJson('/api/place/image', { mapId: DATA.map.id, placeId: PLACES[i].id, dataUrl: reader.result });
+      if (r && r.ok) { toast('图标已换'); await loadMapData(); }
+      else toast((r && r.error) || '图标上传失败');
+    } catch (e) { toast('图标上传失败：' + e.message); }
   };
   reader.readAsDataURL(f);
 }
 async function clearPlaceImage(i){
-  const r = await saveJson('/api/place/image', { mapId: DATA.map.id, placeId: PLACES[i].id, dataUrl: '' });
-  if (r.ok) { toast('已恢复 emoji 图标'); await loadMapData(); }
+  try {
+    const r = await saveJson('/api/place/image', { mapId: DATA.map.id, placeId: PLACES[i].id, dataUrl: '' });
+    if (r && r.ok) { toast('已恢复 emoji 图标'); await loadMapData(); }
+    else toast((r && r.error) || '恢复图标失败');
+  } catch (e) { toast('恢复图标失败：' + e.message); }
 }
 async function useBuiltinScene(){
   const r = await saveJson('/api/map', {
@@ -1728,8 +1772,11 @@ async function saveDisplayMode(){
 }
 async function saveMapImageUrl(){
   const url = document.getElementById('mapImgUrl').value.trim();
-  await saveJson('/api/map', { mapId: DATA.map.id, image: url ? { url } : null });
-  await loadMapData(); toast(url ? '底图地址已设置' : '底图已清除');
+  try {
+    const r = await saveJson('/api/map', { mapId: DATA.map.id, image: url ? { url } : null });
+    if (r && r.ok) { await loadMapData(); toast(url ? '底图地址已设置' : '底图已清除'); }
+    else toast((r && r.error) || '保存底图地址失败');
+  } catch (e) { toast('保存底图地址失败：' + e.message); }
 }
 function openModelPreview(){ if (!(DATA.map && DATA.map.has3d)) { toast('这张地图没有 3D 资源'); return; } window.open('/model','_blank'); }
 async function saveVehicleModels(){

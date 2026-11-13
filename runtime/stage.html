@@ -98,6 +98,25 @@ function fitMapView(){
   v.style.width = w + 'px'; v.style.height = h + 'px';
   v.style.left = ((sw - w) / 2) + 'px'; v.style.top = ((sh - h) / 2) + 'px';
 }
+// 地点标只在数据变化时重建，避免每秒重建 DOM/重载图片
+let pinsSig = '';
+function renderPins(map) {
+  const places = Array.isArray(map.places) ? map.places : [];
+  const sig = String(map.theme) + '|' + JSON.stringify(places.map(p => [p.id, p.x, p.y, p.icon || '', p.image || '', p.name || '']));
+  if (sig === pinsSig) return;
+  pinsSig = sig;
+  const pins = document.getElementById('pins');
+  if (!pins) return;
+  pins.innerHTML = '';
+  for (const p of places) {
+    const el = document.createElement('div');
+    el.className = 'pin';
+    el.style.left = (p.x * 100) + '%'; el.style.top = (p.y * 100) + '%';
+    const iconHtml = p.image ? '<img src="' + esc(p.image) + '" alt="" style="width:24px;height:24px;object-fit:contain">' : esc(p.icon);
+    el.innerHTML = '<div class="icon">' + iconHtml + '</div><div class="label">' + esc(p.name) + '</div>';
+    pins.appendChild(el);
+  }
+}
 function render(payload){
   DATA = payload;
   const ch = payload.character, map = payload.map, loc = payload.location;
@@ -110,6 +129,7 @@ function render(payload){
     const st = document.getElementById('status');
     if (st) st.textContent = '这张地图没有 2D 资源';
     const pinsEl = document.getElementById('pins'); if (pinsEl) pinsEl.innerHTML = '';
+    pinsSig = '';
     const meEl = document.getElementById('me'); if (meEl) meEl.style.display = 'none';
     const bgEl = document.getElementById('bgLayer'); if (bgEl) bgEl.style.display = 'none';
     return;
@@ -131,9 +151,10 @@ function render(payload){
     : '';
 
   $('#me').style.display = 'block';
-  let x, y, tag;
+  let x = 0.5, y = 0.7, tag = '';
   if (loc.state === 'stationary') {
-    const p = map.places.find(pp => pp.id === loc.placeId);
+    const places = Array.isArray(map.places) ? map.places : [];
+    const p = places.find(pp => pp.id === loc.placeId);
     if (p) { x = p.x; y = p.y; } else { x = 0.5; y = 0.5; }
     tag = '在这里';
   } else if (loc.state === 'traveling' && loc.traveling) {
@@ -149,10 +170,14 @@ function render(payload){
     x = pt.x; y = pt.y; tag = t.modeIcon + ' ' + t.modeLabel + '中';
   } else if (loc.state === 'intercity' && loc.intercity) {
     x = 0.5; y = 0.08; tag = loc.intercity.modeIcon + ' ' + loc.intercity.modeLabel + '中';
+  } else {
+    // 未知状态：用默认坐标并隐藏标签，避免 NaN% / undefined
+    tag = '';
   }
   $('#me').style.left = (x * 100) + '%';
   $('#me').style.top = (y * 100) + '%';
   $('#meTag').textContent = tag;
+  $('#meTag').style.display = tag ? '' : 'none';
   const model = ch.model || { type: 'none', url: '', scale: 1 };
   const sprite = document.getElementById('meSprite');
   const ava = document.getElementById('meAva');
@@ -192,33 +217,32 @@ function render(payload){
   }
   const dm = map.displayMode || '2d';
   // 舞台只做 2D，不提供 3D 入口
-  const bgLayer = document.getElementById('bgLayer'), bgImg = document.getElementById('bgImg'), themeEl = document.getElementById('themeSvg');
+  const bgLayer = document.getElementById('bgLayer'), bgImg = document.getElementById('bgImg');
   const mapImg = map.image && map.image.url ? map.image.url : '';
   if (bgLayer && bgImg) {
-    if (mapImg) { bgLayer.style.display = 'block'; bgImg.src = mapImg; if (themeEl) themeEl.style.display = 'none'; try { const oldSvg = document.getElementById('themeSvg'); if (oldSvg) oldSvg.remove(); } catch(e) {} }
-    else { bgLayer.style.display = 'none'; bgImg.src = ''; if (themeEl) themeEl.style.display = ''; }
+    if (mapImg) { bgLayer.style.display = 'block'; bgImg.src = mapImg; }
+    else { bgLayer.style.display = 'none'; bgImg.src = ''; }
   }
-  const pins = document.getElementById('pins');
-  pins.innerHTML = '';
-  map.places.forEach(p => {
-    const el = document.createElement('div');
-    el.className = 'pin';
-    el.style.left = (p.x * 100) + '%'; el.style.top = (p.y * 100) + '%';
-    const iconHtml = p.image ? '<img src="' + esc(p.image) + '" alt="" style="width:24px;height:24px;object-fit:contain">' : esc(p.icon);
-    el.innerHTML = '<div class="icon">' + iconHtml + '</div><div class="label">' + esc(p.name) + '</div>';
-    pins.appendChild(el);
-  });
-  if (THEME !== map.theme) {
-    THEME = map.theme;
-    const old = document.getElementById('themeSvg'); if (old) old.remove();
-    // 有官方底图时不再叠程序化 SVG 地图，避免地点标和底图错位
-    if (!mapImg) {
-      const holder = document.createElement('div');
+  renderPins(map);
+  // 主题 SVG：有官方底图时只隐藏不删除；无底图时保证它存在（主题变了才重建）
+  if (!mapImg) {
+    let holder = document.getElementById('themeSvg');
+    if (holder && holder.dataset.theme !== String(map.theme)) { holder.remove(); holder = null; }
+    if (!holder) {
+      holder = document.createElement('div');
       holder.id = 'themeSvg';
+      holder.dataset.theme = String(map.theme);
       holder.style.cssText = 'position:absolute;inset:0';
-      holder.innerHTML = themeSvg(THEME);
+      holder.innerHTML = themeSvg(map.theme);
       $('#stage').insertBefore(holder, $('#stage').firstChild);
+    } else if (holder.style.display === 'none') {
+      holder.style.display = '';
     }
+    THEME = map.theme;
+  } else {
+    const holder = document.getElementById('themeSvg');
+    if (holder) holder.style.display = 'none';
+    THEME = map.theme;
   }
   const t = loc.traveling;
   $('#status').textContent = loc.state === 'traveling'

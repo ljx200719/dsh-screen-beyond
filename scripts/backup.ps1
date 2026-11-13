@@ -1,4 +1,4 @@
-# 备份插件 + 运行时 + 角色数据（改动前跑一次）
+﻿# 备份插件 + 运行时 + 角色数据（改动前跑一次）
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File scripts\backup.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\backup.ps1 -DataRoot "D:\你的数据目录"
@@ -42,6 +42,9 @@ Copy-Block (Join-Path $DataRoot 'config.json') 'data\config.json'
 Copy-Block (Join-Path $DataRoot 'sync') 'data\sync'
 Copy-Block (Join-Path $DataRoot 'data\characters') 'data\characters'
 Copy-Block (Join-Path $DataRoot 'models') 'data\models'
+Copy-Block (Join-Path $DataRoot 'data\images') 'data\images'
+Copy-Block (Join-Path $DataRoot 'data\screens') 'data\screens'
+Copy-Block (Join-Path $DataRoot 'pet') 'data\pet'
 Copy-Block (Join-Path $DataRoot 'data\messages.json') 'data\messages.json.legacy'
 
 # 3) 清单

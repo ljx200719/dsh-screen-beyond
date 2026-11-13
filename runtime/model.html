@@ -52,6 +52,38 @@ window.addEventListener('unhandledrejection', (e) => { const el = document.getEl
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+// 资源释放：切换地面/地形/模型时避免 GPU 内存泄漏
+function disposeMaterial(m, keepMaterials) {
+  if (!m || (keepMaterials && keepMaterials.has(m))) return;
+  for (const k of ['map', 'normalMap', 'emissiveMap']) if (m[k]) m[k].dispose();
+  m.dispose();
+}
+function disposeObject3D(obj, keepMaterials) {
+  if (!obj || typeof obj.traverse !== 'function') return;
+  obj.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => disposeMaterial(m, keepMaterials));
+  });
+}
+function disposeChildren(group, keepMaterials) {
+  if (!group) return;
+  for (const c of group.children.slice()) disposeObject3D(c, keepMaterials);
+  group.clear();
+}
+function hudError(msg, id) {
+  const elId = id || 'hudErr';
+  let el = document.getElementById(elId);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = elId;
+    el.className = 'row';
+    el.style.color = '#ff9a9a';
+    const hud = document.getElementById('hud');
+    if (hud) hud.appendChild(el);
+  }
+  el.textContent = String(msg || '');
+}
+
 const app = document.getElementById('app');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -92,9 +124,12 @@ scene.add(basePlane);
 
 // 地面 + 主题
 const themeColors = { town: 0x1d3a33, coast: 0x14425c, city: 0x22303c, forest: 0x1b3325 };
-let ground, grid;
-function buildGround(theme, imageUrl) {
-  if (ground) { scene.remove(ground); ground.geometry.dispose(); ground.material.dispose(); ground = null; }
+let ground, grid, groundKey = '';
+function buildGround(theme, imageUrl, has3d) {
+  const key = String(theme) + '|' + (imageUrl || '') + '|' + (has3d ? '3d' : '2d');
+  if (key === groundKey) return;
+  groundKey = key;
+  if (ground) { scene.remove(ground); disposeObject3D(ground); ground = null; }
   const g = new THREE.PlaneGeometry(WORLD_W, WORLD_H);
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0 });
   if (imageUrl) {
@@ -123,7 +158,7 @@ function buildGround(theme, imageUrl) {
     grid.position.y = 0; grid.visible = false; scene.add(grid);
   }
   // 道路（简化十字路）
-  for (const r of roadMeshes || []) scene.remove(r);
+  for (const r of roadMeshes || []) { scene.remove(r); disposeObject3D(r); }
   roadMeshes = [];
   const roadMat = new THREE.MeshStandardMaterial({ color: 0x2a3a44, roughness: 0.9 });
   const road1 = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_W, 7), roadMat);
@@ -163,7 +198,7 @@ function buildPlaces(places) {
   const key = JSON.stringify(places.map(p => [p.id, p.x, p.y, p.name, p.icon]));
   if (key === placesKey) return;
   placesKey = key;
-  markerGroup.clear();
+  disposeChildren(markerGroup);
   for (const p of places) {
     const v = toWorld(p.x, p.y);
     // 3D 地点只保留悬浮名牌，不再放蓝色圆柱体
@@ -176,9 +211,14 @@ let townGroup = new THREE.Group();
 scene.add(townGroup);
 let townKey = '';
 const TOWN_MAT = new Map();
+const TOWN_MAT_SHARED = new Set(); // 共享材质：清空分组时只释放 geometry，不释放这些材质
 function townMat(color, rough = .86, metal = .02) {
   const k = color + '|' + rough + '|' + metal;
-  if (!TOWN_MAT.has(k)) TOWN_MAT.set(k, new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal }));
+  if (!TOWN_MAT.has(k)) {
+    const m = new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
+    TOWN_MAT.set(k, m);
+    TOWN_MAT_SHARED.add(m);
+  }
   return TOWN_MAT.get(k);
 }
 function townBox(w, h, d, color, x, y, z) {
@@ -216,7 +256,7 @@ function buildTown(places) {
   const key = JSON.stringify((places || []).map(p => [p.id, p.x, p.y]));
   if (key === townKey) return;
   townKey = key;
-  townGroup.clear();
+  disposeChildren(townGroup, TOWN_MAT_SHARED);
   for (const p of (places || [])) {
     const v = toWorld(p.x, p.y);
     const g = new THREE.Group();
@@ -359,7 +399,7 @@ function buildOfficialTerrain(map) {
   const key = JSON.stringify(places.map(p => [p.id, p.x, p.y])) + JSON.stringify(map.vehicles || {}) + JSON.stringify(map.roads || []);
   if (key === terrainKey) return;
   terrainKey = key;
-  terrainGroup.clear();
+  disposeChildren(terrainGroup, TOWN_MAT_SHARED);
   if (basePlane) basePlane.visible = false;
   if (ground) ground.visible = false;
   if (grid) grid.visible = false;
@@ -600,19 +640,24 @@ function ensureVehicles(map) {
   const key = JSON.stringify(map.vehicles || {});
   if (key === vehiclesKey) return;
   vehiclesKey = key;
-  vehicleGroup.clear();
+  disposeChildren(vehicleGroup, TOWN_MAT_SHARED);
   const cfg = map.vehicles || {};
   const makeGroup = (kind) => {
     const g = new THREE.Group(); g.visible = false;
     const c = cfg[kind];
     if (c && c.url) {
       new GLTFLoader().load(c.url, (gltf) => {
+        if (vehiclesKey !== key) { disposeObject3D(gltf.scene); return; }
         const obj = gltf.scene;
         obj.scale.setScalar(Number(c.scale) || 1);
         obj.rotation.y = Number(c.rotationY) || 0;
         obj.position.y = .12;
         g.add(obj);
-      }, undefined, () => { g.add(kind === 'car' ? vehicleCar() : vehicleBike()); });
+      }, undefined, () => {
+        if (vehiclesKey !== key) return;
+        hudError('载具模型加载失败，已用默认模型：' + c.url);
+        g.add(kind === 'car' ? vehicleCar() : vehicleBike());
+      });
     } else {
       g.add(kind === 'car' ? vehicleCar() : vehicleBike());
     }
@@ -644,9 +689,9 @@ function playCharClip(name, manual) {
 window.playCharClip = playCharClip;
 let spriteTex = null, spritePlane = null, fallbackBody = null, shadowBlob = null;
 function clearChar() {
-  charGroup.clear();
+  disposeChildren(charGroup, TOWN_MAT_SHARED);
   if (mixer) { mixer.stopAllAction(); mixer = null; }
-  if (spriteTex) { spriteTex.dispose(); spriteTex = null; }
+  spriteTex = null;
   spritePlane = null; charModel = null; fallbackBody = null; charActions = []; activeCharAction = null;
 }
 function buildChibi(character) {
@@ -685,6 +730,7 @@ async function buildChar(character) {
   const loader = new THREE.TextureLoader();
   const makeSprite = (url, height = 20) => new Promise((resolve) => {
     loader.load(url, (tex) => {
+      if (charKind !== kindKey) { tex.dispose(); resolve(); return; }
       spriteTex = tex;
       const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, fog: false });
       const sp = new THREE.Sprite(mat);
@@ -708,6 +754,7 @@ async function buildChar(character) {
   if (model.type === '3d' && model.url) {
     try {
       const gltf = await new GLTFLoader().loadAsync(model.url);
+      if (charKind !== kindKey) { disposeObject3D(gltf.scene); return; }
       gltf.scene.traverse((o) => { if (o.isMesh) o.castShadow = true; });
       charModel = gltf.scene;
       charModel.scale.setScalar(scale);
@@ -718,18 +765,25 @@ async function buildChar(character) {
       const clips = gltf.animations || [];
       charActions = clips.map((clip) => new THREE.AnimationMixer(charModel).clipAction(clip));
       if (charActions.length) { mixer = new THREE.AnimationMixer(charModel); charActions = clips.map((clip) => mixer.clipAction(clip)); playCharClip(desiredCharClip || 'Idle'); }
-    } catch (e) { makeFallback(); }
+    } catch (e) {
+      if (charKind !== kindKey) return;
+      makeFallback();
+      hudError('角色模型加载失败，已用兜底形象：' + (e && e.message ? e.message : e));
+    }
   } else if ((model.type === 'sprite' || model.type === 'live2d') && model.url) {
     await makeSprite(model.url, 9 * scale);
+    if (charKind !== kindKey) return;
     if (!spritePlane) makeFallback();
   } else if (character.avatar) {
     await makeSprite(character.avatar, 9 * scale);
+    if (charKind !== kindKey) return;
     // 3D 视图里头像贴图会变成一块大白板，先用位置标记代替，保持画面干净
     if (spritePlane) spritePlane.visible = false;
     if (!spritePlane) makeFallback();
   } else {
     makeFallback();
   }
+  if (charKind !== kindKey) return;
   if (fallbackBody) fallbackBody.visible = false;
   if (spritePlane) spritePlane.visible = false;
   // 3D/GLB 模型已经加载时不要再叠一个程序化小人，否则会出现两个小鲸
@@ -739,7 +793,7 @@ async function buildChar(character) {
 // 路径线
 let routeLine = null;
 function drawPath(path) {
-  if (routeLine) { scene.remove(routeLine); routeLine.geometry.dispose(); routeLine = null; }
+  if (routeLine) { scene.remove(routeLine); disposeObject3D(routeLine); routeLine = null; }
   if (!path || path.length < 2) return;
   const pts = path.map(p => { const v = toWorld(p.x, p.y); v.y = 0.3; return v; });
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
@@ -748,10 +802,19 @@ function drawPath(path) {
 }
 
 // 状态轮询
-let stage = null;
+let stage = null, pollBusy = false;
 async function poll() {
-  try { const r = await fetch('/api/stage'); stage = await r.json(); apply(); }
-  catch (e) { const el = document.getElementById('loading'); if (el) el.textContent = 'stage 拉取失败：' + e.message; }
+  if (pollBusy) return;          // 上一轮未完成，跳过本轮，避免请求堆积/数据乱序
+  pollBusy = true;
+  try {
+    const r = await fetch('/api/stage');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    stage = await r.json(); apply(); hudError('', 'hudErrPoll');
+  } catch (e) {
+    hudError('stage 拉取失败：' + (e && e.message ? e.message : e), 'hudErrPoll');
+  } finally {
+    pollBusy = false;
+  }
 }
 function characterWorldPos() {
   if (!stage) return new THREE.Vector3();
@@ -814,7 +877,7 @@ function apply() {
   dir.intensity = (wxKind === 'rain' || wxKind === 'snow' ? 1.5 : (wxKind === 'sunny' ? 2.4 : 2.0)) * dayFactor;
   const mapImageUrl = stage.map.image && stage.map.image.url ? stage.map.image.url : '';
   const official3d = String(mapImageUrl).includes('official-map');
-  buildGround(stage.map.theme, official3d ? '' : mapImageUrl);
+  buildGround(stage.map.theme, official3d ? '' : mapImageUrl, stage.map.has3d === true);
   buildEnv(stage.map);
   buildTown(stage.map.places);
   if (official3d) {
@@ -826,7 +889,7 @@ function apply() {
     if (basePlane) basePlane.visible = false;
     try { roadMeshes.forEach((rm) => { rm.visible = false; }); } catch (e) {}
   } else {
-    terrainGroup.clear(); terrainKey = '';
+    disposeChildren(terrainGroup, TOWN_MAT_SHARED); terrainKey = '';
     terrainGroup.visible = false;
     if (ground) ground.visible = true;
     if (basePlane) basePlane.visible = true;
@@ -866,7 +929,7 @@ async function buildEnv(map) {
   const key = model && model.url ? (model.url + '|' + (model.scale || 1) + '|' + (model.rotationY || 0) + '|' + (model.yOffset || 0)) : 'proc|' + (map.theme || 'town');
   if (key === envKey) return;
   envKey = key;
-  envGroup.clear();
+  disposeChildren(envGroup, TOWN_MAT_SHARED);
   const hideProcedural = !!(model && model.url);
   if (ground) ground.visible = !hideProcedural;
   if (grid) grid.visible = !hideProcedural;
@@ -874,6 +937,7 @@ async function buildEnv(map) {
   if (!hideProcedural) return;
   try {
     const gltf = await new GLTFLoader().loadAsync(model.url);
+    if (envKey !== key) { disposeObject3D(gltf.scene); return; }
     const obj = gltf.scene;
     obj.scale.setScalar(Number(model.scale) || 1);
     obj.rotation.y = (Number(model.rotationY) || 0) * Math.PI / 180;
@@ -881,8 +945,11 @@ async function buildEnv(map) {
     obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     envGroup.add(obj);
   } catch (e) {
-    document.getElementById('hStatus').textContent = '地图模型加载失败：' + (e && e.message ? e.message : e);
+    if (envKey !== key) return;
+    hudError('地图模型加载失败：' + (e && e.message ? e.message : e));
     if (ground) ground.visible = true;
+    if (grid) grid.visible = true;
+    for (const r of roadMeshes || []) r.visible = true;
   }
 }
 
@@ -902,12 +969,15 @@ renderer.domElement.addEventListener('wheel', (e) => {
   e.preventDefault();
   dist = Math.min(260, Math.max(30, dist + (e.deltaY > 0 ? 8 : -8)));
 }, { passive: false });
+const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
+  const delta = Math.min(clock.getDelta(), 0.1);
+  if (document.hidden) return;   // 页面隐藏时跳过渲染；delta 已封顶，恢复时不会跳帧
   const p = characterWorldPos();
   // 站在建筑前侧，避免小鲸被地点建筑盖住
   p.x += 1.6; p.z += 2.6;
-  const focus = p.clone().multiplyScalar(0.35);
+  const focus = p.clone();
   camTarget.lerp(focus, 0.08);
   const cx = camTarget.x + Math.sin(yaw) * Math.cos(pitch) * dist;
   const cz = camTarget.z + Math.cos(yaw) * Math.cos(pitch) * dist;
@@ -935,7 +1005,7 @@ function animate() {
   } else {
     charGroup.position.y *= 0.9;
   }
-  if (mixer) mixer.update(0.016);
+  if (mixer) mixer.update(delta);
   renderer.render(scene, camera);
 }
 window.addEventListener('resize', () => {

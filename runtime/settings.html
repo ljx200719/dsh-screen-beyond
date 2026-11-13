@@ -247,7 +247,7 @@ html[data-theme="lavender"] #toast{background:#8877c9}
       <a href="#tutorial" data-tab="tutorial"><span>📖</span>教程</a>
     </nav>
     <div class="themeBox"><div class="themeLabel">配色</div><div class="themeDots" id="themeDots"></div></div>
-    <div class="sidefoot">v0.7.13 · <span id="sideMode">…</span><br><a href="/screen" target="_blank" style="color:#3b82f6;text-decoration:none;margin-right:10px">看屏幕</a><a href="/" style="color:#3b82f6;text-decoration:none">回到聊天</a></div>
+    <div class="sidefoot"><span id="verText">v0.7.13</span> · <span id="sideMode">…</span><br><a href="/screen" target="_blank" style="color:#3b82f6;text-decoration:none;margin-right:10px">看屏幕</a><a href="/" style="color:#3b82f6;text-decoration:none">回到聊天</a></div>
   </aside>
 
   <div class="main">
@@ -266,6 +266,9 @@ html[data-theme="lavender"] #toast{background:#8877c9}
 const $ = (s) => document.querySelector(s);
 let PERSONA = null, LIFE = null, MEM = null, CHARS = null;
 let currentTab = 'role';
+// 配置是否已成功从后端读取；读取失败时禁止把页面默认值保存回去
+let DATA_LOADED = { env: false, model: false, economy: false };
+let APP_VERSION = '';
 const TABS = {
   role: { title: '角色', sub: '人设卡决定她是谁、怎么说话' },
   life: { title: '生活', sub: '她的作息、什么时候做什么、空闲时干什么' },
@@ -275,9 +278,32 @@ const TABS = {
   data: { title: '数据', sub: '存哪里、怎么备份' },
   tutorial: { title: '教程', sub: '怎么给她搭一台自己的电脑' },
 };
-function toast(t){ const el=$('#toast'); el.textContent=t; el.style.opacity=1; setTimeout(()=>el.style.opacity=0,1800); }
-async function api(path, opts){ const r = await fetch(path, opts); if(!r.ok) throw new Error('HTTP '+r.status); return await r.json(); }
-async function saveJson(path, obj){ return await api(path, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj) }); }
+let _toastTimer = 0;
+function toast(t){ const el=$('#toast'); el.textContent=t; el.style.opacity=1; clearTimeout(_toastTimer); _toastTimer = setTimeout(()=>el.style.opacity=0,1800); }
+async function api(path, opts){
+  let r;
+  try { r = await fetch(path, opts); } catch (e) { throw new Error('网络错误：' + ((e && e.message) || '请求失败')); }
+  let data = null;
+  try { data = await r.json(); } catch (e) { data = null; }
+  if (!r.ok) {
+    const err = new Error((data && (data.error || data.message)) || ('HTTP ' + r.status));
+    err.status = r.status;
+    err.body = data;
+    throw err;
+  }
+  return data;
+}
+async function saveJson(path, obj){
+  let r;
+  try {
+    r = await api(path, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj) });
+  } catch (e) {
+    toast('保存失败：' + ((e && e.message) || '网络错误'));
+    throw e;
+  }
+  if (r && r.ok === false) toast(r.error || '保存失败');
+  return r;
+}
 function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 async function loadPersona(){ PERSONA = await api('/api/persona'); renderNavAva(); }
@@ -590,6 +616,7 @@ function renderLife(){
 async function loadEconomyUi(){
   try {
     const r = await api('/api/economy');
+    DATA_LOADED.economy = true;
     const e = r.economy || {}, w = r.wallet || {};
     const setV = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
     setV('ecoInitial', e.initialBalance); setV('ecoDaily', e.dailyIncome); setV('ecoWage', e.wagePerHour);
@@ -602,9 +629,10 @@ async function loadEconomyUi(){
     if (wt) wt.textContent = w.tokenMode
       ? '用户实时余额 ' + (rb.ok ? '¥' + Number(rb.total).toFixed(2) : '读取失败') + ' · 今日消耗 ¥' + (rb.ok && rb.todayRmb !== undefined ? Number(rb.todayRmb).toFixed(2) : '0.00') + ' · 你的虚拟零花钱 ' + (w.spendable !== undefined ? w.spendable : '-') + ' 元'
       : '虚拟余额 ' + (w.spendable !== undefined ? w.spendable : '-') + ' 元 · Token 已用 ' + Number(w.usedTokens || 0).toLocaleString();
-  } catch (err) {}
+  } catch (err) { DATA_LOADED.economy = false; }
 }
 async function saveEconomyUi(){
+  if (!DATA_LOADED.economy) { toast('经济配置读取失败，先刷新再保存'); return; }
   const body = {
     enabled: document.getElementById('ecoEnabled').checked,
     initialBalance: Number(document.getElementById('ecoInitial').value),
@@ -616,8 +644,10 @@ async function saveEconomyUi(){
     tokenBudget: Number(document.getElementById('ecoTokenBudget').value),
     tokensPerYuan: Number(document.getElementById('ecoPerYuan').value),
   };
-  const r = await saveJson('/api/economy', body);
-  if (r.ok) { toast('经济设置已保存'); loadEconomyUi(); }
+  try {
+    const r = await saveJson('/api/economy', body);
+    if (r && r.ok) { toast('经济设置已保存'); loadEconomyUi(); }
+  } catch (e) {}
 }
 const WX_ROWS = [
   ['sunny', '☀️ 晴天'], ['cloudy', '☁️ 多云'], ['rain', '🌧️ 下雨'], ['snow', '❄️ 下雪'],
@@ -961,14 +991,17 @@ async function manageArchived(){
 }
 
 // ================= 环境/模型/数据 =================
-async function renderEnv(){
+async function renderEnv(renderOnly){
   $('#topAction').innerHTML = '<button class="btn primary" onclick="saveEnv()">保存</button>';
   const inChat = ((window._mode||{}).effective === 'chat');
-  let env = { pc: 'gui', space: 'gui', phone: 'gui', confirmDanger: true };
-  let res = { space: false, phone: false, mem: [] };
-  let WATCH = { enabled: false, minMinutes: 20, maxMinutes: 40, nextAt: 0 };
-  try { const envResp = await api('/api/env'); env = envResp.env || env; res = envResp.resources || res; } catch(e){}
-  try { WATCH = (await api('/api/watch-screen')).watch || WATCH; } catch(e){}
+  let env = window._env || { pc: 'gui', space: 'gui', phone: 'gui', confirmDanger: true };
+  let res = window._res || { space: false, phone: false, mem: [] };
+  let WATCH = window._watch || { enabled: false, minMinutes: 20, maxMinutes: 40, nextAt: 0 };
+  if (!renderOnly) {
+    DATA_LOADED.env = false;
+    try { const envResp = await api('/api/env'); env = envResp.env || env; res = envResp.resources || res; DATA_LOADED.env = true; } catch(e){}
+    try { WATCH = (await api('/api/watch-screen')).watch || WATCH; } catch(e){}
+  }
   window._res = res;
   window._env = env;
   window._watch = WATCH;
@@ -1028,7 +1061,8 @@ async function renderEnv(){
     + '<div class="small" style="margin-top:6px">· 人设里也会告诉她当前权限，她不会越权。</div></div>'
     + '</div></div>';
 }
-function setPerm(k, v){ window._env[k] = v; renderEnv(); }
+// 只更新本地状态并重绘选中态；renderOnly=true 不会重新 GET 覆盖掉刚点的选择
+function setPerm(k, v){ window._env[k] = v; renderEnv(true); }
 async function toggleWatchScreen(){
   const next = !(window._watch && window._watch.enabled);
   try {
@@ -1038,6 +1072,7 @@ async function toggleWatchScreen(){
   } catch(e){ toast('保存失败'); }
 }
 async function saveEnv(){
+  if (!DATA_LOADED.env) { toast('配置读取失败，先刷新再保存'); return; }
   const env = {
     pc: window._env.pc, space: window._env.space, phone: window._env.phone,
     confirmDanger: document.getElementById('confirmDanger').checked,
@@ -1047,9 +1082,10 @@ async function saveEnv(){
 }
 async function renderModel(){
   $('#topAction').innerHTML = '<button class="btn primary" onclick="saveModel()">保存</button>';
+  DATA_LOADED.model = false;
   let m = { name: 'deepseek-flash', reasoningEffort: 'low', temperature: 0.9, maxTokens: 900 };
   let usage = null;
-  try { const r = await api('/api/model'); m = r.model || m; usage = r.usage; } catch(e){}
+  try { const r = await api('/api/model'); m = r.model || m; usage = r.usage; DATA_LOADED.model = true; } catch(e){}
   let CTX = { historyMode: 'full', memoryInject: 8 };
   try { CTX = (await api('/api/context')).context || CTX; } catch(e){}
   let SETUP = null;
@@ -1108,13 +1144,13 @@ async function renderModel(){
     + '<div class="card"><h2>上下文档位 <span class="tag">省 token 的力度，随时切换</span></h2>'
     + '<div class="small" style="margin-bottom:6px">聊天历史</div>'
     + '<div class="flex">'
-    + [['full','完整 10 条'],['compact','精简 6 条 + 摘要'],['minimal','极简 4 条 + 摘要']].map(o => '<button class="btn '+(CTX.historyMode===o[0]?'primary':'ghost')+'" onclick="setCtx(&quot;historyMode&quot;,&quot;'+o[0]+'&quot;)">'+o[1]+'</button>').join('')
+    + [['full','完整 30 条'],['short','精简 8 条'],['off','不带历史']].map(o => '<button class="btn '+(CTX.historyMode===o[0]?'primary':'ghost')+'" onclick="setCtx(&quot;historyMode&quot;,&quot;'+o[0]+'&quot;)">'+o[1]+'</button>').join('')
     + '</div>'
     + '<div class="small" style="margin:12px 0 6px">每轮注入记忆</div>'
     + '<div class="flex">'
     + [4,6,8].map(n => '<button class="btn '+(Number(CTX.memoryInject)===n?'primary':'ghost')+'" onclick="setCtx(&quot;memoryInject&quot;,'+n+')">'+n+' 条</button>').join('')
     + '</div>'
-    + '<div class="hint" style="margin-top:10px">精简/极简会额外花一次很便宜的调用来生成"刚才聊到…"摘要；记忆条数越少越省，但经历感会淡一点。</div>'
+    + '<div class="hint" style="margin-top:10px">精简会在需要时额外花一次很便宜的调用生成"刚才聊到…"摘要；不带历史最省，但短期连贯性会差一点。</div>'
     + '</div>'
     + '</div><div class="col side2">'
     + '<div class="card"><h2>最近用量</h2><div class="small">'+(usage?('输入 '+usage.prompt_tokens+' / 输出 '+usage.completion_tokens+'（缓存命中 '+((usage.prompt_cache_hit_tokens)||0)+'）'):'暂无')+'</div></div>'
@@ -1129,28 +1165,40 @@ async function setEffort(v){
     else toast(r && r.error ? r.error : '保存失败');
   } catch(e){ toast('保存失败'); }
 }
-async function setCtx(k, v){ window._ctx[k] = v; const r = await saveJson('/api/context', window._ctx); if(r.ok) renderModel(); }
+async function setCtx(k, v){
+  if (!DATA_LOADED.model) { toast('配置读取失败，先刷新再保存'); return; }
+  window._ctx[k] = v;
+  try { const r = await saveJson('/api/context', window._ctx); if (r && r.ok) renderModel(); } catch (e) {}
+}
 async function setSaving(key){
+  if (!DATA_LOADED.model) { toast('配置读取失败，先刷新再保存'); return; }
   const cur = window._saving || {};
   const body = {}; body[key] = !cur[key];
-  try { const r = await api('/api/token-saving', { method: 'POST', body: JSON.stringify(body) }); if(r && r.ok) toast('已切换'); } catch(e){ toast('保存失败'); }
+  try { const r = await api('/api/token-saving', { method: 'POST', body: JSON.stringify(body) }); if(r && r.ok) toast('已切换'); else toast((r && r.error) || '保存失败'); } catch(e){ toast('保存失败：' + ((e && e.message) || '网络错误')); }
   renderModel();
 }
 async function setImageEnabled(){
+  if (!DATA_LOADED.model) { toast('配置读取失败，先刷新再保存'); return; }
   const cur = (window._img && window._img.enabled) || false;
-  const r = await saveJson('/api/image/config', { enabled: !cur });
-  if (r.ok) { toast(!cur ? '图片反馈已开启' : '图片反馈已关闭'); renderModel(); } else toast(r.error || '保存失败');
+  try {
+    const r = await saveJson('/api/image/config', { enabled: !cur });
+    if (r && r.ok) { toast(!cur ? '图片反馈已开启' : '图片反馈已关闭'); renderModel(); }
+  } catch (e) {}
 }
 
 async function saveImageCfg(){
+  if (!DATA_LOADED.model) { toast('配置读取失败，先刷新再保存'); return; }
   const body = { provider: document.getElementById('imgProvider').value, baseURL: document.getElementById('imgBase').value, model: document.getElementById('imgModel').value, size: document.getElementById('imgSize').value };
   const key = document.getElementById('imgKey').value.trim();
   if (key) body.apiKey = key;
-  const r = await saveJson('/api/image/config', body);
-  if (r.ok) { toast('图片反馈已保存'); renderModel(); } else toast(r.error || '保存失败');
+  try {
+    const r = await saveJson('/api/image/config', body);
+    if (r && r.ok) { toast('图片反馈已保存'); renderModel(); }
+  } catch (e) {}
 }
 
 async function saveModel(){
+  if (!DATA_LOADED.model) { toast('配置读取失败，先刷新再保存'); return; }
   const body = {
     name: document.getElementById('mName').value,
     reasoningEffort: window._model.reasoningEffort,
@@ -1158,8 +1206,10 @@ async function saveModel(){
     maxTokens: Number(document.getElementById('mMaxTok').value),
     maxSteps: Number(document.getElementById('mSteps').value),
   };
-  const r = await saveJson('/api/model', body);
-  if(r.ok){ toast('模型设置已保存'); renderModel(); }
+  try {
+    const r = await saveJson('/api/model', body);
+    if(r.ok){ toast('模型设置已保存'); renderModel(); }
+  } catch (e) {}
 }
 async function renderTutorial(){
   $('#topAction').innerHTML = '<button class="btn" onclick="location.hash=\'env\'">回到环境</button>';
@@ -1230,7 +1280,7 @@ async function renderData(){
   + '</div>'
   + '<div class="card"><h2>备份</h2><div class="small">导出把数据目录打包成 zip；导入覆盖恢复。系统每天凌晨 4 点后会自动备份一次。<br>备份/恢复也可以双击插件 scripts 目录里的 <b>backup.cmd</b> / <b>restore.cmd</b>，已使用 ExecutionPolicy Bypass，不需要你改系统执行策略。</div>'
   + '<div class="row"><button class="btn primary" onclick="doBackup()">立即备份</button><span class="hint" style="flex:1;margin-left:8px">备份到数据目录下的 backups</span></div><button class="btn ghost" style="margin-top:8px" onclick="doBackup()">备份到数据目录</button></div>'
-  + '</div><div class="col side2"><div class="card"><h2>版本</h2><div class="small">v0.7.13 · 本地运行时</div></div></div></div>';
+  + '</div><div class="col side2"><div class="card"><h2>版本</h2><div class="small"><span class="verText">' + esc(APP_VERSION ? 'v' + APP_VERSION : 'v0.7.13') + '</span> · 本地运行时</div></div></div></div>';
 }
 
 
@@ -1258,9 +1308,20 @@ async function chooseUiTheme(id){
   renderThemeDots();
   try { await saveJson('/api/ui-theme', {id}); toast('配色已切换'); } catch(e) { toast('保存失败'); }
 }
+// 版本号不写死在 HTML 里：成功后用 /api/status 的 version 覆盖两处文本
+async function loadVersion(){
+  try {
+    const st = await api('/api/status');
+    const v = st && st.version ? String(st.version).replace(/^v/i, '') : '';
+    if (!v) return;
+    APP_VERSION = v;
+    document.querySelectorAll('#verText, .verText').forEach(el => { el.textContent = 'v' + v; });
+  } catch (e) {}
+}
 
 // ================= router =================
 async function go(tab){
+  if (!TABS[tab]) tab = Object.keys(TABS)[0]; // 非法 hash（手改 URL/旧书签）回落到第一个 tab，避免读 undefined.title 崩掉
   currentTab = tab;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on', a.dataset.tab===tab));
   $('#tabTitle').textContent = TABS[tab].title;
@@ -1308,5 +1369,5 @@ async function setMode(m){
 document.querySelectorAll('.nav a').forEach(a=>a.onclick = () => { location.hash = a.dataset.tab; });
 window.addEventListener('hashchange', () => go((location.hash||'#role').slice(1)));
 loadUiTheme();
-go((location.hash||'#role').slice(1));
+go((location.hash||'#role').slice(1)).then(() => loadVersion());
 </script></body></html>

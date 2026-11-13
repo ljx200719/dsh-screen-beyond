@@ -88,8 +88,11 @@ export class SyncStore {
   }
 
   record(type, entity, entityId, payload) {
-    const events = this.#readEvents();
-    const seq = events.length ? (Number(events[events.length - 1].seq) || 0) + 1 : 1;
+    if (this._seq === undefined) {
+      const events0 = this.#readEvents();
+      this._seq = events0.length ? (Number(events0[events0.length - 1].seq) || 0) : 0;
+    }
+    const seq = ++this._seq;
     const ev = {
       id: randomUUID(),
       seq,
@@ -107,13 +110,14 @@ export class SyncStore {
   /** 接受另一台设备推来的事件；按事件 id 去重，不做业务合并。 */
   acceptRemote(rawEvents) {
     const list = Array.isArray(rawEvents) ? rawEvents.slice(0, 200) : [];
-    const existing = new Map(this.#readEvents().map((ev) => [ev.id, ev]));
+    const eventsAll = this.#readEvents();
+    const existing = new Map(eventsAll.map((ev) => [ev.id, ev]));
+    let seq = eventsAll.length ? (Number(eventsAll[eventsAll.length - 1].seq) || 0) : 0;
     let accepted = 0;
     for (const raw of list) {
       if (!raw || typeof raw !== 'object' || !raw.id || existing.has(raw.id)) continue;
       if (!raw.type || raw.payload === undefined) continue;
-      const events = this.#readEvents();
-      const seq = events.length ? (Number(events[events.length - 1].seq) || 0) + 1 : 1;
+      seq += 1;
       const ev = {
         ...raw,
         seq,
@@ -127,6 +131,7 @@ export class SyncStore {
       existing.set(ev.id, ev);
       accepted++;
     }
+    this._seq = seq;
     const events = this.#readEvents();
     return {
       accepted,

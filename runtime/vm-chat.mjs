@@ -108,6 +108,11 @@ PY`;
   async function screenshot() {
     const dir = path.join(dataRoot, 'vm-chat');
     fs.mkdirSync(dir, { recursive: true });
+    // 只保留最近 20 张截图，避免每天几十张 ~190KB 的 PNG 无限堆积
+    try {
+      const olds = fs.readdirSync(dir).filter((f) => /^screen-\d+\.png$/.test(f)).map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs })).sort((a, b) => b.t - a.t);
+      for (const x of olds.slice(20)) { try { fs.unlinkSync(path.join(dir, x.f)); } catch {} }
+    } catch {}
     const p = path.join(dir, 'screen-' + Date.now() + '.png');
     const r = await space(['shot', p]);
     return r.ok && fs.existsSync(p) ? p : null;
@@ -299,7 +304,7 @@ ${extra}`;
     }
   }
 
-  let lastHandled = null;
+  let lastHandled = String(cfg().lastHandledKey || '') || null;
   async function checkAndReply() {
     if (busy) return { ok: false, error: 'busy' };
     let a = await analyze('看当前聊天软件的当前会话最近消息。左侧是对方（用户）发的，右侧是自己发的。判断最后一条是不是对方发的、要不要回；要回就给一句自然的回复。');
@@ -338,7 +343,7 @@ ${extra}`;
     let sent = null;
     if (an.needReply && an.reply) {
       sent = await sendText(an.reply, { appId: an.appId, composer: an.composer, conversation: an.conversation });
-      if (sent && sent.ok) lastHandled = key;
+      if (sent && sent.ok) { lastHandled = key; saveSettings({ lastHandledKey: key }); }
     }
     last = { at: Date.now(), action: 'check', unread: 0, recent: recent.length, analysis: an };
     return { ok: true, unread: 0, recent: recent.length, sent, analysis: an, screen: a.screen };

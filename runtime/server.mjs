@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
 import { createHash, randomUUID } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+
 import { fileURLToPath } from 'node:url';
 import { MemoryStore } from './memory.mjs';
 import { SyncStore } from './sync.mjs';
@@ -14,6 +14,7 @@ import { createVmChat } from './vm-chat.mjs';
 
 const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url));
 const VERSION = (() => {
+  if (process.env.DSH_COMPANION_VERSION) return String(process.env.DSH_COMPANION_VERSION);
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(RUNTIME_DIR, '..', 'package.json'), 'utf8'));
     return pkg.version || '0.0.0';
@@ -34,7 +35,7 @@ let SCENE_AI_LAST = 0;
 
 // ---------- utils ----------
 function readJson(file, dflt) { return DATA.readJson(file, dflt); }
-function writeJson(file, obj, meta) { try { return DATA.writeJson(file, obj, meta); } catch { return false; } }
+function writeJson(file, obj, meta) { try { return DATA.writeJson(file, obj, meta); } catch (e) { try { console.error('[companion] write failed:', file, e && e.message); } catch {} return false; } }
 function writeText(file, text) { try { return DATA.writeText(file, text); } catch { return false; } }
 function guardRev(res, entity, id, expected) {
   if (expected === undefined || expected === null || expected === '') return true;
@@ -46,7 +47,17 @@ function guardRev(res, entity, id, expected) {
   }
   return true;
 }
-function readBody(req) { return new Promise((resolve, reject) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > 40 * 1024 * 1024) req.destroy(); }); req.on('end', () => resolve(b)); req.on('error', reject); }); }
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let size = 0, done = false;
+    const ok = (v) => { if (done) return; done = true; resolve(v); };
+    const fail = (e) => { if (done) return; done = true; reject(e); };
+    req.on('data', (c) => { if (done) return; chunks.push(c); size += c.length; if (size > 40 * 1024 * 1024) { fail(Object.assign(new Error('body too large'), { statusCode: 413 })); try { req.destroy(); } catch {} } });
+    req.on('end', () => ok(Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF/, '')));
+    req.on('error', (e) => fail(e));
+    req.on('aborted', () => fail(new Error('request aborted')));
+  });
+}
 const pad2 = (n) => String(n).padStart(2, '0');
 const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
 
@@ -129,10 +140,8 @@ function petPid() { try { return Number(fs.readFileSync(PET_PID, 'utf8').trim())
 function petRunning() {
   const pid = petPid();
   if (!pid) return false;
-  try {
-    const out = execFileSync('tasklist', ['/FI', 'PID eq ' + pid, '/NH'], { windowsHide: true, encoding: 'utf8', timeout: 8000 });
-    return String(out).includes(String(pid));
-  } catch { return false; }
+  // process.kill(pid, 0) 只探测进程是否存在，不再每 300ms 同步 spawn 一个 tasklist 子进程
+  try { process.kill(pid, 0); return true; } catch { return false; }
 }
 async function startPet() {
   if (petRunning()) return { ok: true, running: true, already: true };
@@ -232,7 +241,11 @@ function activeCharId() {
   return ids.includes(a) ? a : (ids.includes('default') ? 'default' : ids[0]);
 }
 let ACTIVE_CHAR = '';
-function charDir(id) { return path.join(CHARS_ROOT, id || ACTIVE_CHAR); }
+function safeCharId(id) {
+  const s = String(id == null ? '' : id);
+  return /^[A-Za-z0-9_-]{1,40}$/.test(s) ? s : '';
+}
+function charDir(id) { return path.join(CHARS_ROOT, safeCharId(id) || ACTIVE_CHAR); }
 function metaPath() { return path.join(charDir(), 'meta.json'); }
 function personaPath() { return path.join(charDir(), 'persona.md'); }
 function avatarPath() { return path.join(charDir(), 'avatar.bin'); }
@@ -626,11 +639,11 @@ function messagesPathFor(id) { return path.join(charDir(id || ACTIVE_CHAR), 'mes
 function addMessageFor(id, role, text, image) {
   if (!id || id === ACTIVE_CHAR) return addMessage(role, text, image);
   const clean = role === 'her' ? herText(text) : String(text);
-  const msg = { id: nextId++, uid: randomUUID(), role, text: String(clean), at: Date.now() };
-  if (image) msg.image = String(image);
   let arr = [];
   try { arr = readJson(messagesPathFor(id), []); } catch {}
   if (!Array.isArray(arr)) arr = [];
+  const msg = { id: arr.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1, uid: randomUUID(), role, text: String(clean), at: Date.now() };
+  if (image) msg.image = String(image);
   arr.push(msg);
   if (arr.length > 800) arr = arr.slice(-600);
   try { writeJson(messagesPathFor(id), arr); } catch {}
@@ -992,7 +1005,7 @@ function recordVmCheckFor(id, r) {
 async function lifeTick(id) {
   const cfg = lifeSimCfg();
   if (cfg.enabled === false && !(arguments[1] && arguments[1].force)) return null;
-  const ctx = lifeSceneFor(id); if (!ctx) return null;
+  let ctx = lifeSceneFor(id); if (!ctx) return null;
   let st = lifeGetState(id); if (!st) return null;
   const now = Date.now();
   if (st.traveling) {
@@ -1467,7 +1480,7 @@ function loadWallet() {
   const usedTokens = Number(raw.usedTokens) || 0;
   let changed = !Number.isFinite(Number(raw.balance));
   const lastIncomeAt = Number(raw.lastIncomeAt) || 0;
-  if (econ.enabled && now - lastIncomeAt >= 86400000) { balance += Number(econ.dailyIncome) || 0; changed = true; }
+  if (econ.enabled && now - lastIncomeAt >= 86400000) { balance += Number(econ.dailyIncome) || 0; changed = true; lastIncomeAt = now; }
   let lastWageAt = Number(raw.lastWageAt) || now;
   try {
     const label = currentActivityLabel(new Date());
@@ -1476,8 +1489,8 @@ function loadWallet() {
       if (hrs >= 0.5) { balance += Math.round(hrs * (Number(econ.wagePerHour) || 0)); changed = true; lastWageAt = now; }
     } else lastWageAt = now;
   } catch {}
-  if (changed) writeWalletRaw({ balance, usedTokens, lastIncomeAt: now, lastWageAt });
-  return { balance, usedTokens, lastIncomeAt: changed ? now : lastIncomeAt, lastWageAt };
+  if (changed) writeWalletRaw({ ...raw, balance, usedTokens, lastIncomeAt, lastWageAt });
+  return { balance, usedTokens, lastIncomeAt, lastWageAt };
 }
 function walletMoney() {
   const econ = loadEconomy(); const w = loadWallet();
@@ -1872,15 +1885,15 @@ async function runBackup() {
   try {
     const { execFile } = await import('node:child_process');
     const outRoot = path.join(ROOT, 'backups');
-    await new Promise((resolve) => {
+    const result = await new Promise((resolve) => {
       execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-PluginDir', pluginRootDir(), '-DataRoot', ROOT, '-OutRoot', outRoot],
-        { timeout: 300000, windowsHide: true }, (e, out) => {
-          const m = String(out || '').match(/backup-\d{8}-\d{6}/);
-          console.log('[companion] backup:', m ? m[0] : (e ? 'failed' : 'done'));
-          resolve();
-        });
+        { timeout: 300000, windowsHide: true }, (e, out) => resolve({ e, out: String(out || '') }));
     });
-    return { ok: true, outRoot };
+    const m = result.out.match(/backup-\d{8}-\d{6}/);
+    const madeDir = m ? fs.existsSync(path.join(outRoot, m[0])) : false;
+    console.log('[companion] backup:', madeDir ? m[0] : (result.e ? 'failed' : 'no output dir'));
+    if (!madeDir) return { ok: false, error: result.e ? String(result.e.message || result.e) : '备份脚本没有产出备份目录（检查 PowerShell 权限/磁盘空间）', outRoot };
+    return { ok: true, outRoot, name: m[0] };
   } catch (e) {
     return { ok: false, error: String(e.message) };
   }
@@ -1981,8 +1994,9 @@ async function kernelCall(p, body) {
 function runPy(script, args, timeoutMs = 180000) {
   return new Promise((resolve) => {
     import('node:child_process').then(({ execFile }) => {
-      execFile(ENV_PY, [path.join(ENV_DIR, script), ...args.map(String)], { timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
-        resolve({ ok: !err, out: String((stdout || '') + (stderr || '')).slice(0, 4000), err: err ? String(err.message).slice(0, 300) : '' });
+      const safeArgs = args.filter((a) => a !== undefined && a !== null).map(String);
+      execFile(ENV_PY, [path.join(ENV_DIR, script), ...safeArgs], { timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+        resolve({ ok: !err, out: String((stdout || '') + (stderr || '')).slice(0, 32000), err: err ? String(err.message).slice(0, 300) : '' });
       });
     }).catch((e) => resolve({ ok: false, out: '', err: String(e.message) }));
   });
@@ -2280,7 +2294,8 @@ function buildUserTurnText(text, image) {
 }
 function imageDataUrl(rel) {
   try {
-    const p = path.join(ROOT, String(rel || '').replace(/^\//, ''));
+    const clean = String(rel || '').replace(/^\//, '');
+    const p = /^images\//i.test(clean) ? path.join(ROOT, 'data', clean) : path.join(ROOT, clean);
     const b = fs.readFileSync(p);
     if (b.length > 8 * 1024 * 1024) return null;
     const mime = b[0] === 0xFF && b[1] === 0xD8 ? 'image/jpeg' : (b[0] === 0x52 ? 'image/webp' : 'image/png');
@@ -2289,7 +2304,7 @@ function imageDataUrl(rel) {
 }
 function buildMessages(userText) {
   const ctx = loadContext();
-  const limit = ctx.historyMode === 'short' ? 8 : 30;
+  const limit = ctx.historyMode === 'off' ? 0 : (ctx.historyMode === 'minimal' ? 4 : ((ctx.historyMode === 'short' || ctx.historyMode === 'compact') ? 8 : 30));
   const recent = messages.filter((m) => m.role === 'user' || m.role === 'her').slice(-limit);
   const conv = recent.map((m) => {
     const role = m.role === 'her' ? 'assistant' : 'user';
@@ -2678,7 +2693,7 @@ async function generateReply(userText) {
     }
     if (!sent) { await streamText('……嗯，我弄完了，你看看？'); addMessage('her', '……嗯，我弄完了，你看看？'); }
     // 后台：摘要 & 记忆抽取
-    maybeSummarize();
+    maybeSummarize().catch(() => {});
     maybeExtractFacts(userText).catch(() => {});
   } catch (e) {
     addMessage('system', '（她这边出了点问题：' + String(e.message || e).slice(0, 200) + '）');
@@ -2758,7 +2773,7 @@ function effectiveMode() {
 
 // ---------- tutorial ----------
 function tutorialText() {
-  for (const p of [path.join(ROOT, 'tutorial.md'), path.join(RUNTIME_DIR, 'tutorial.md')]) { try { return fs.readFileSync(p, 'utf8'); } catch {} }
+  for (const p of [path.join(RUNTIME_DIR, 'tutorial.md'), path.join(ROOT, 'tutorial.md')]) { try { return fs.readFileSync(p, 'utf8'); } catch {} }
   return '# 同伴 · 说明\n\n打开地图页 /map、舞台 /stage、3D 舞台 /model、设置 /settings。';
 }
 
@@ -2770,10 +2785,10 @@ function sendStatic(res, file, types) {
   res.writeHead(200, { 'content-type': mime, 'cache-control': 'no-cache' });
   res.end(fs.readFileSync(file));
 }
-function pageFile(name) { const a = path.join(ROOT, name); if (fs.existsSync(a)) return a; const b = path.join(RUNTIME_DIR, name); return fs.existsSync(b) ? b : null; }
+function pageFile(name) { const b = path.join(RUNTIME_DIR, name); if (fs.existsSync(b)) return b; const a = path.join(ROOT, name); return fs.existsSync(a) ? a : null; }
 function servePage(res, name) { const f = pageFile(name); if (!f) { res.writeHead(404); res.end('missing ' + name); return; } sendStatic(res, f, { '.html': 'text/html; charset=utf-8' }); }
 function json(res, code, obj) {
-  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type', 'cache-control': 'no-store' });
+  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(obj));
 }
 function saveDataUrlImage(dataUrl, prefix, maxBytes = 12 * 1024 * 1024) {
@@ -2806,17 +2821,27 @@ function syncHeaderToken(req) {
 }
 function syncAuthorized(req) { return SYNC.verifyToken(syncHeaderToken(req)); }
 function syncJson(res, status, obj) {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type,x-sync-token' });
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(obj));
+}
+function originAllowed(origin) {
+  if (!origin) return true;
+  try {
+    const h = new URL(origin).hostname.toLowerCase();
+    return h === '127.0.0.1' || h === 'localhost' || h === '::1' || h === '[::1]';
+  } catch { return false; }
 }
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   try {
+    const reqOrigin = String((req.headers && req.headers.origin) || '');
+    if (reqOrigin && !originAllowed(reqOrigin)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('forbidden origin'); return; }
+    if (reqOrigin) { res.setHeader('access-control-allow-origin', reqOrigin); res.setHeader('vary', 'Origin'); }
     if (req.method === 'OPTIONS') {
-      res.setHeader('access-control-allow-origin', '*');
       res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
       res.setHeader('access-control-allow-headers', 'authorization,content-type,x-sync-token');
-      json(res, 204, {});
+      res.writeHead(204, { 'cache-control': 'no-store' });
+      res.end();
       return;
     }
     // POST /api/*：先把 JSON 解析好；坏 JSON 直接 400，不进入业务逻辑
@@ -3003,8 +3028,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/theme.css') {
-      const p1 = path.join(ROOT, 'theme.css');
-      const p2 = path.join(RUNTIME_DIR, 'theme.css');
+      const p1 = path.join(RUNTIME_DIR, 'theme.css');
+      const p2 = path.join(ROOT, 'theme.css');
       const file = fs.existsSync(p1) ? p1 : (fs.existsSync(p2) ? p2 : null);
       if (!file) { res.writeHead(404); res.end('missing theme.css'); return; }
       sendStatic(res, file, { '.css': 'text/css; charset=utf-8' });
@@ -3012,8 +3037,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/wx.js') return sendStatic(res, pageFile('wx.js') || path.join(RUNTIME_DIR, 'wx.js'), { '.js': 'text/javascript; charset=utf-8' });
     if (req.method === 'GET' && url.pathname === '/default-avatar.png') {
-      const p = path.join(RUNTIME_DIR, 'assets', 'xiaojing-avatar.png');
-      if (!fs.existsSync(p)) { res.writeHead(404); res.end('no default avatar'); return; }
+      // 不再把某个具体角色的头像当成"默认头像"：优先用户自定义，其次通用默认图，最后才是旧资源
+      const avCandidates = [path.join(ROOT, 'default-avatar.png'), path.join(RUNTIME_DIR, 'pet', 'default-avatar.png'), path.join(RUNTIME_DIR, 'assets', 'xiaojing-avatar.png')];
+      const p = avCandidates.find((f) => fs.existsSync(f));
+      if (!p) { res.writeHead(404); res.end('no default avatar'); return; }
       const buf = fs.readFileSync(p);
       res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
       res.end(buf);
@@ -3073,7 +3100,7 @@ const server = http.createServer(async (req, res) => {
       if (!file) { res.writeHead(404); res.end('not found'); return; }
       const ext = path.extname(file).toLowerCase();
       const mime = { '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4', '.webm': 'video/webm', '.svg': 'image/svg+xml' }[ext] || 'application/octet-stream';
-      res.writeHead(200, { 'content-type': mime, 'cache-control': 'public, max-age=3600', 'access-control-allow-origin': '*' });
+      res.writeHead(200, { 'content-type': mime, 'cache-control': 'public, max-age=3600' });
       res.end(fs.readFileSync(file)); return;
     }
 
@@ -3241,7 +3268,9 @@ function importMemoryItems(raw) {
         const ids = listCharacters().map((c) => c.id).filter((x) => x !== id);
         if (!ids.length) { json(res, 400, { ok: false, error: '至少要留一个角色' }); return; }
         const wasActive = String(id) === String(ACTIVE_CHAR);
-        fs.rmSync(path.join(CHARS_ROOT, id), { recursive: true, force: true });
+        const targetDir = path.resolve(CHARS_ROOT, id);
+        if (!targetDir.startsWith(path.resolve(CHARS_ROOT) + path.sep)) { json(res, 400, { ok: false, error: '非法的角色 id' }); return; }
+        fs.rmSync(targetDir, { recursive: true, force: true });
         // 只有删掉当前角色时才切换；删别的角色不能把用户正在用的角色切走
         if (wasActive) activateCharacter(ids.includes('default') ? 'default' : ids[0]);
         json(res, 200, { ok: true, characters: listCharacters(), active: ACTIVE_CHAR });
@@ -3352,8 +3381,12 @@ function importMemoryItems(raw) {
     }
     if (req.method === 'GET' && url.pathname.startsWith('/pet-sprite/')) {
       const name = String(url.pathname.split('/').pop() || '').replace(/\.png$/i, '').replace(/[^a-z0-9_-]/gi, '');
-      const p = path.join(RUNTIME_DIR, 'assets', 'pet', (ACTIVE_CHAR || 'default') + '-' + name + '.png');
-      if (!fs.existsSync(p)) { res.writeHead(404); res.end('not found'); return; }
+      // 旧资源只按 xiaojing/xiaoke 命名；其它角色退回 default-<表情>.png，再退回任意角色的同表情图，避免新角色没有桌宠图
+      const petDir = path.join(RUNTIME_DIR, 'assets', 'pet');
+      const candidates = [path.join(petDir, (ACTIVE_CHAR || 'default') + '-' + name + '.png'), path.join(petDir, 'default-' + name + '.png')];
+      let p = candidates.find((f) => fs.existsSync(f));
+      if (!p) { try { const first = fs.readdirSync(petDir).filter((f) => f.endsWith('-' + name + '.png')).sort()[0]; if (first) p = path.join(petDir, first); } catch {} }
+      if (!p) { res.writeHead(404); res.end('not found'); return; }
       res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
       res.end(fs.readFileSync(p));
       return;
@@ -3375,7 +3408,7 @@ function importMemoryItems(raw) {
       if (!file) { res.writeHead(404); res.end('no avatar'); return; }
       const buf = fs.readFileSync(file);
       const mime = buf[0] === 0xFF && buf[1] === 0xD8 ? 'image/jpeg' : (buf[0] === 0x52 && buf[1] === 0x49 ? 'image/webp' : 'image/png');
-      res.writeHead(200, { 'content-type': mime, 'cache-control': 'no-store', 'access-control-allow-origin': '*' });
+      res.writeHead(200, { 'content-type': mime, 'cache-control': 'no-store' });
       res.end(buf);
       return;
     }
@@ -3556,7 +3589,7 @@ function importMemoryItems(raw) {
     if (req.method === 'POST' && url.pathname === '/api/context') {
       const b = (req._json || {});
       const c = { ...loadContext() };
-      if (['full', 'short', 'off'].includes(b.historyMode)) c.historyMode = b.historyMode;
+      if (['full', 'short', 'off', 'compact', 'minimal'].includes(b.historyMode)) c.historyMode = b.historyMode;
       if (Number.isFinite(Number(b.memoryInject))) c.memoryInject = Math.max(2, Math.min(20, Math.round(Number(b.memoryInject))));
       saveContext(c); json(res, 200, { ok: true, context: c }); return;
     }
@@ -3611,22 +3644,7 @@ function importMemoryItems(raw) {
       });
       return;
     }
-    function recordVmCheck(r) {
-      try {
-        const x = r && r.result ? r.result : r;
-        const an = x && x.analysis;
-        if (!an) return;
-        const recent = Array.isArray(an.recent) ? an.recent : [];
-        const lastUser = [...recent].reverse().find((m) => /对方|user|用户/i.test(String((m && m.from) || '')) && String((m && m.text) || '').trim());
-        const txt = lastUser ? String(lastUser.text).trim() : '';
-        if (txt && txt !== String(CONFIG.vmChat?.lastUserText || '')) {
-          addMessageFor(ACTIVE_CHAR, 'user', txt);
-          CONFIG.vmChat = { ...(CONFIG.vmChat || {}), lastUserText: txt }; saveConfig();
-        }
-        const sent = x && x.sent;
-        if (sent && sent.ok && an.reply) addMessageFor(ACTIVE_CHAR, 'her', String(an.reply).trim());
-      } catch {}
-    }
+
     if (req.method === 'GET' && url.pathname === '/api/vm-chat/settings') {
       json(res, 200, { ok: true, settings: { enabled: false, checkMessages: true, autoStart: true, idleShutdown: true, checkIntervalMin: 15, ...(CONFIG.vmChat || {}) } });
       return;
@@ -3676,7 +3694,7 @@ function importMemoryItems(raw) {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/scene/activity') {
-      const r = await sceneActivityFor(url.searchParams.get('character') || ACTIVE_CHAR, url.searchParams.get('placeId') || '', url.searchParams.get('hotspotId') || '');
+      const r = await sceneActivityFor(safeCharId(url.searchParams.get('character')) || ACTIVE_CHAR, url.searchParams.get('placeId') || '', url.searchParams.get('hotspotId') || '');
       json(res, r.ok ? 200 : 404, r);
       return;
     }
@@ -3700,20 +3718,20 @@ function importMemoryItems(raw) {
     }
     if (req.method === 'POST' && url.pathname === '/api/life/act') {
       const b = (req._json || {});
-      const st = lifeAct(b.characterId || ACTIVE_CHAR, b.placeId || '', b.hotspotId || '');
+      const st = lifeAct(safeCharId(b.characterId) || ACTIVE_CHAR, b.placeId || '', b.hotspotId || '');
       json(res, st ? 200 : 404, st ? { ok: true, state: st } : { ok: false, error: '地点或热点不存在' });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/life/position') {
       const b = (req._json || {});
-      const st = lifeSetPosition(b.characterId || ACTIVE_CHAR, b.x, b.y);
+      const st = lifeSetPosition(safeCharId(b.characterId) || ACTIVE_CHAR, b.x, b.y);
       json(res, st ? 200 : 404, st ? { ok: true, state: st } : { ok: false, error: '没有生活状态' });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/life/test-image') {
       const b = (req._json || {});
       try {
-        const cid = String(b.characterId || ACTIVE_CHAR);
+        const cid = safeCharId(b.characterId) || ACTIVE_CHAR;
         const prompt = String(b.imagePrompt || '日常手机美食照片，温馨小镇的一餐，自然光，生活感，无文字无 UI').slice(0, 800);
         const useRef = b.withIdentity === true || /(她|自己|我|人像|自拍|照片里|角色)/.test(prompt);
         const img = await generateImageFile(prompt, { size: '1024x1024', image: useRef ? (avatarDataUrl(cid) || undefined) : undefined });
@@ -3744,8 +3762,8 @@ function importMemoryItems(raw) {
       const b = (req._json || {});
       const mode = String(b.mode || '');
       const sch = travelSchedule(mode);
-      const wait = Number.isFinite(Number(b.waitMinutes)) ? Math.max(0, Number(b.waitMinutes)) : sch.waitMinutes;
-      const delay = Number.isFinite(Number(b.delayMinutes)) ? Math.max(0, Number(b.delayMinutes)) : sch.delayMinutes;
+      const wait = Number.isFinite(Number(b.waitMinutes)) ? Math.min(1440, Math.max(0, Number(b.waitMinutes))) : sch.waitMinutes;
+      const delay = Number.isFinite(Number(b.delayMinutes)) ? Math.min(1440, Math.max(0, Number(b.delayMinutes))) : sch.delayMinutes;
       const loc = moveToMap(String(b.mapId || ''), { mode, manual: true, extraDelayMs: (wait + delay) * 60000 });
       json(res, 200, loc && loc.refused ? { ok: false, refused: true, reason: loc.reason, location: currentPlace() } : { ok: true, location: loc });
       return;
@@ -3759,7 +3777,7 @@ function importMemoryItems(raw) {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/life/state') {
-      const st = lifeGetState(url.searchParams.get('character') || ACTIVE_CHAR);
+      const st = lifeGetState(safeCharId(url.searchParams.get('character')) || ACTIVE_CHAR);
       json(res, st ? 200 : 404, st ? { ok: true, state: st } : { ok: false, error: '角色不在任何地点' });
       return;
     }
@@ -3774,7 +3792,7 @@ function importMemoryItems(raw) {
     }
     if (req.method === 'POST' && url.pathname === '/api/life/tick') {
       try {
-        const st = await lifeTick(url.searchParams.get('character') || ACTIVE_CHAR, { force: true });
+        const st = await lifeTick(safeCharId(url.searchParams.get('character')) || ACTIVE_CHAR, { force: true });
         json(res, 200, { ok: true, state: st });
       } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
       return;
@@ -4001,7 +4019,7 @@ function importMemoryItems(raw) {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/stream') {
-      res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive', 'access-control-allow-origin': '*' });
+      res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive' });
       streamClients.add(res);
       try { res.write('data: ' + JSON.stringify({ type: 'init', active: streamState.active, text: streamState.text }) + '\n\n'); } catch {}
       req.on('close', () => { streamClients.delete(res); });
@@ -4020,7 +4038,7 @@ function importMemoryItems(raw) {
     }
     if (req.method === 'GET' && url.pathname === '/api/stage') { json(res, 200, stagePayload()); return; }
     if (req.method === 'GET' && url.pathname === '/api/stage/stream') {
-      res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive', 'access-control-allow-origin': '*' });
+      res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive' });
       const send = () => { try { res.write('data: ' + JSON.stringify(stagePayload()) + '\n\n'); } catch {} };
       send(); const t = setInterval(send, 1000); req.on('close', () => clearInterval(t));
       return;
@@ -4111,8 +4129,8 @@ function boot() {
       if (h < 4) return;
       const today = todayStr();
       if (CONFIG.backupDate === today) return;
-      CONFIG.backupDate = today; saveConfig();
-      await runBackup();
+      const res = await runBackup();
+      if (res && res.ok) { CONFIG.backupDate = today; saveConfig(); }
     } catch {}
   }, 30 * 60 * 1000).unref?.();
   if (CONFIG.weatherMode === 'real') getRealWeather().catch(() => {});

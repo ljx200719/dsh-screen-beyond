@@ -389,7 +389,7 @@ html[data-theme="lavender"] #bgBtn{border-color:rgba(169,149,228,.5)!important;c
 <div id="toast"></div>
 <script>
 const $ = (s) => document.querySelector(s);
-let lastId = 0, busy = false, outboxImage = '';
+let lastId = 0, busy = false, outboxImage = '', sending = false;
 function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function toast(t){ const el=$('#toast'); el.textContent=t; el.style.opacity=1; setTimeout(()=>el.style.opacity=0,1600); }
 function fmtTime(ts){ const d=new Date(ts||Date.now()); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
@@ -525,23 +525,36 @@ async function poll(){
     (r.messages || []).forEach((m) => { addMsg(m); lastId = Math.max(lastId, Number(m.id)||0); });
     $('#typing').style.display = r.typing ? 'block' : 'none';
     busy = !!r.typing;
-    $('#send').disabled = false;
+    if (!sending) { $('#send').disabled = false; $('#send').textContent = '发送'; }
   } catch (e) {}
 }
 async function send(){
+  if (sending) return;
   const inp = $('#input');
   const text = inp.value.trim();
   if (!text && !outboxImage) return;
+  sending = true;
   const body = { text };
   if (outboxImage) body.images = [outboxImage];
-  inp.value = '';
-  outboxImage = '';
-  const pv = $('#preview'); if (pv) { pv.style.display = 'none'; pv.innerHTML = ''; }
+  const btn = $('#send');
+  if (btn) { btn.disabled = true; btn.textContent = '发送中…'; }
   try {
     const r = await fetch('/api/chat', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(body) });
-    if (!r.ok) toast('发送失败：' + r.status);
-  } catch (e) { toast('发送失败'); }
-  await poll();
+    let d = null;
+    try { d = await r.json(); } catch (e) {}
+    if (!r.ok) { toast((d && d.error) || ('发送失败：' + r.status)); return; }
+    // 服务端确认收到后才清空输入，失败时保留原文供重试
+    inp.value = '';
+    outboxImage = '';
+    inp.style.height = 'auto';
+    const pv = $('#preview'); if (pv) { pv.style.display = 'none'; pv.innerHTML = ''; }
+    await poll();
+  } catch (e) {
+    toast('发送失败：' + ((e && e.message) || '网络错误'));
+  } finally {
+    sending = false;
+    if (btn) { btn.disabled = false; btn.textContent = '发送'; }
+  }
 }
 document.addEventListener('keydown', (e) => {
   if (e.altKey && (e.key === 's' || e.key === 'S')) { e.preventDefault(); window.open('/screen', '_blank'); }
@@ -550,7 +563,8 @@ $('#attach').addEventListener('click', () => $('#file').click());
 $('#file').addEventListener('change', (e) => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
-  if (f.size > 8 * 1024 * 1024) { toast('图片太大（<8MB）'); return; }
+  // 客户端限 6MB：base64 膨胀约 1.33 倍，落在服务端 dataUrl 8MB 上限内
+  if (f.size > 6 * 1024 * 1024) { toast('图片太大（<6MB）'); return; }
   const rd = new FileReader();
   rd.onload = () => {
     outboxImage = String(rd.result);
@@ -592,7 +606,13 @@ function initStream(){
     es.onmessage = (e) => {
       let d;
       try { d = JSON.parse(e.data); } catch { return; }
-      if (d.type === 'start' || d.type === 'init') { if (d.active !== false && (d.type === 'start' || d.text)) { ensureLive(); } }
+      if (d.type === 'start' || d.type === 'init') {
+        clearLive(); // 先清掉上一段中断留下的半截气泡，避免新一段文本累加在旧文本后
+        if (d.active !== false && (d.type === 'start' || d.text)) {
+          ensureLive();
+          if (d.type === 'init' && d.text && liveBubble) liveBubble.textContent = d.text;
+        }
+      }
       if (d.type === 'delta') { ensureLive(); if (liveBubble) { liveBubble.textContent += d.text; const l = $('#list'); l.scrollTop = l.scrollHeight; } }
       if (d.type === 'done') { setTimeout(clearLive, 400); }
     };
@@ -608,8 +628,8 @@ function initStream(){
   loadUiTheme();
   loadChatBg();
   if (!location.search.includes('nostream')) initStream();
-  setInterval(poll, 1200);
-  setInterval(loadHeader, 15000);
+  setInterval(() => { if (!document.hidden) poll(); }, 1200);
+  setInterval(() => { if (!document.hidden) loadHeader(); }, 15000);
   $('#input').focus();
 })();
 </script></body></html>

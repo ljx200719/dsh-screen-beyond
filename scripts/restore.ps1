@@ -1,4 +1,4 @@
-# 从备份恢复（会覆盖当前插件与角色数据）
+﻿# 从备份恢复（会覆盖当前插件与角色数据）
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File scripts\restore.ps1 -BackupDir "备份目录"
 param(
@@ -18,15 +18,28 @@ if (-not $DataRoot) {
 
 Write-Host "=== 1) 停止运行时 ==="
 $conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-foreach ($c in $conns) { Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue }
+foreach ($c in $conns) {
+  $proc = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $c.OwningProcess) -ErrorAction SilentlyContinue
+  if ($proc -and ([string]$proc.CommandLine) -match 'server\.mjs|dsh-screen-beyond') {
+    Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue
+  } else {
+    Write-Host ("警告：端口 {0} 被非本插件进程占用（pid {1} {2}），未结束" -f $Port, $c.OwningProcess, $proc.Name)
+  }
+}
 Start-Sleep -Seconds 2
 
 Write-Host "=== 2) 恢复插件 ==="
+function Merge-Dir([string]$Src, [string]$Dst) {
+  # Copy-Item 直接把目录复制进已存在的同名目录会生成 嵌套目录（lib\lib）；
+  # 这里复制目录内容来合并覆盖。
+  if (-not $Src -or -not (Test-Path $Src)) { return }
+  New-Item -ItemType Directory -Force -Path $Dst | Out-Null
+  Copy-Item -Path (Join-Path $Src '*') -Destination $Dst -Recurse -Force
+}
 $plugin = Join-Path $BackupDir 'plugin'
 if (Test-Path $plugin) {
   foreach ($n in @('lib', 'runtime', 'scripts', 'examples')) {
-    $p = Join-Path $plugin $n
-    if (Test-Path $p) { Copy-Item $p $PluginDir -Recurse -Force }
+    Merge-Dir (Join-Path $plugin $n) (Join-Path $PluginDir $n)
   }
   foreach ($f in @('package.json', 'cordis.patch.yml', 'README.md', 'LICENSE')) {
     $p = Join-Path $plugin $f
@@ -40,12 +53,13 @@ $data = Join-Path $BackupDir 'data'
 if (Test-Path $data) {
   New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
   if (Test-Path (Join-Path $data 'config.json')) { Copy-Item (Join-Path $data 'config.json') $DataRoot -Force }
-  if (Test-Path (Join-Path $data 'sync')) { Copy-Item (Join-Path $data 'sync') (Join-Path $DataRoot 'sync') -Recurse -Force }
+  if (Test-Path (Join-Path $data 'sync')) { Merge-Dir (Join-Path $data 'sync') (Join-Path $DataRoot 'sync') }
   if (Test-Path (Join-Path $data 'characters')) {
     New-Item -ItemType Directory -Force -Path (Join-Path $DataRoot 'data') | Out-Null
-    Copy-Item (Join-Path $data 'characters') (Join-Path $DataRoot 'data') -Recurse -Force
+    Merge-Dir (Join-Path $data 'characters') (Join-Path $DataRoot 'data\characters')
   }
-  if (Test-Path (Join-Path $data 'models')) { Copy-Item (Join-Path $data 'models') $DataRoot -Recurse -Force }
+  if (Test-Path (Join-Path $data 'images')) { Merge-Dir (Join-Path $data 'images') (Join-Path $DataRoot 'data\images') }
+  if (Test-Path (Join-Path $data 'models')) { Merge-Dir (Join-Path $data 'models') (Join-Path $DataRoot 'models') }
   if (Test-Path (Join-Path $data 'messages.json.legacy')) { Copy-Item (Join-Path $data 'messages.json.legacy') (Join-Path $DataRoot 'data\messages.json') -Force }
   Write-Host "data restored"
 }
