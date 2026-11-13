@@ -17,27 +17,28 @@
 
 | 项目 | 状态 |
 |---|---|
-| 源码版本 | **0.7.18** |
+| 源码版本 | **0.7.19** |
 | Git main | `6d0c2d0` |
-| Git tag | `v0.7.18` |
-| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.18` |
-| npm latest | **0.7.18**（提交后需等 npm 审核可见） |
+| Git tag | `v0.7.19` |
+| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.19` |
+| npm latest | **0.7.19**（提交后需等 npm 审核可见） |
 | npm 0.7.13 | 已上线 |
 | npm 0.7.14 | 已上线但有金额显示 bug（勿用，等 0.7.16） |
 | npm 0.7.15 | 审核中 |
 | npm 0.7.16 | 已发布但有 forbidden site 回归（勿用） |
-| npm 0.7.17 | 已发布但含 CSP 白屏问题（勿用，等 0.7.18） |
+| npm 0.7.17 | 已发布但含 CSP 白屏问题（勿用） |
+| npm 0.7.18 | 已发布但桌宠属性悬停修复不完整（勿用，等 0.7.19） |
 | 发布产物 | `F:\屏幕彼端\发布产物\` |
 | 最新备份 | 见 `D:\dsh-companion\backups\` 最新 `backup-*.zip` |
 | 当前运行服务 | `http://127.0.0.1:8900` |
 
-> 2026-11-13：第二轮全量修复随 **0.7.18** 提交（npm 审核中 / GitHub Release 已建），摘要见 §8.6，完整清单见 `docs/FIXES-2026-11-13.md`。
+> 2026-11-13：第二轮全量修复随 **0.7.19** 提交（npm 审核中 / GitHub Release 已建），摘要见 §8.6，完整清单见 `docs/FIXES-2026-11-13.md`。
 
 ### 产物
 
-- `dsh-screen-beyond-0.7.18.tgz`
-- `dsh-screen-beyond-0.7.18.zip`
-- `RELEASE-0.7.18.md`
+- `dsh-screen-beyond-0.7.19.tgz`
+- `dsh-screen-beyond-0.7.19.zip`
+- `RELEASE-0.7.19.md`
 - 源码目录已初始化 git，工作区干净
 
 ### 发布注意
@@ -554,6 +555,11 @@ ID：
 - **配置拆分**：`config.json`（约 5KB）+ `data/world.json`（约 81KB），原子写 + 内容去抖，启动自动迁移旧单文件；备份脚本包含 world.json。
 - **低余额提醒**：`CONFIG.balanceAlert`（默认阈值 5 元、冷却 360 分钟），后台 10 分钟检查，低于阈值她主动发消息；设置页经济卡片可改阈值/冷却并有测试按钮。
 - **交接文件**：`屏幕彼端-交接报告-2026-11-13.docx`、源码包、npm 包、数据备份（均在 `F:\屏幕彼端\发布产物\`）。
+### 8.11 2026-11-13 0.7.19 桌宠属性面板修复
+
+- **问题**：0.7.18 里给透明窗口内容加了 alpha=1 背景并绑定 MouseEnter/Leave，但 WPF `AllowsTransparency` 的命中测试在部分环境仍不可靠，悬停大概率收不到事件 → 属性面板不显示（用户反馈"依然没有"）。
+- **修复**：属性面板改为**默认常显**（名字/地点/活动/精力/余额），悬停只做高亮（opacity 1 ↔ 0.86）；再加 `GetCursorPos + GetWindowRect` 每 120ms 光标轮询兜底，不依赖 WPF 鼠标事件。
+- **验证**：pet.log 记录 `hover True/False` 与面板状态（Visible/Opacity/5 个胶囊/left=12 top=80）；截图确认桌宠左侧常显「小鲸 / 🛒 超市 / 玩游戏 / 精力不足 / 余额 ¥6.56 · 今日 ¥…」。
 ## 9. 接下来计划
 
 ### P0：虚拟机聊天闭环

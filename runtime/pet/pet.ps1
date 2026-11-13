@@ -94,7 +94,7 @@ function Fade-AttrPanel([bool]$show) {
   try {
     if ($show) { $script:attrPanel.Visibility = 'Visible'; $script:attrPanel.Opacity = 1 }
     $a = New-Object System.Windows.Media.Animation.DoubleAnimation
-    $a.To = if ($show) { 1 } else { 0 }
+    $a.To = if ($show) { 1 } else { 0.86 }
     $a.Duration = [TimeSpan]::FromMilliseconds(140)
     if (-not $script:attrPanel.RenderTransform) { $script:attrPanel.RenderTransform = New-Object System.Windows.Media.TranslateTransform }
     $t = $script:attrPanel.RenderTransform
@@ -103,11 +103,54 @@ function Fade-AttrPanel([bool]$show) {
       $slide.From = -6; $slide.To = 0; $slide.Duration = [TimeSpan]::FromMilliseconds(150)
       $t.BeginAnimation([System.Windows.Media.TranslateTransform]::XProperty, $slide)
     }
-    $a.Add_Completed({ if (-not $script:attrPanel -or $script:attrPanel.Opacity -le 0.02) { $script:attrPanel.Visibility = 'Collapsed' } })
+    $a.Add_Completed({ if (-not $script:attrPanel -or $script:attrPanel.Opacity -le 0.02) { $script:attrPanel.Visibility = 'Visible' } })
     $script:attrPanel.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $a)
   } catch {}
 }
-function Update-PetLayout() {
+# 光标轮询：透明窗口在部分环境下收不到 MouseEnter（WPF 命中测试/分层窗口限制）。
+# 用 GetCursorPos + GetWindowRect 每 120ms 判断鼠标是否在桌宠窗口内，直接控制属性面板显示。
+Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+Add-Type @"
+using System;using System.Runtime.InteropServices;
+public class PetCursorProbe {
+  [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+}
+"@ -ErrorAction SilentlyContinue
+$script:hoverState = $false
+function Start-HoverProbe() {
+  try {
+    if ($script:hoverTimer) { return }
+    $script:hoverTick = 0
+    $script:hoverTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:hoverTimer.Interval = [TimeSpan]::FromMilliseconds(120)
+    $script:hoverTimer.Add_Tick({
+      try {
+        $script:hoverTick = [int]$script:hoverTick + 1
+        $win = $script:win
+        if (-not $win) { if ($script:hoverTick -le 2) { try { Log 'hover: win null' } catch {} }; return }
+        $helper = New-Object System.Windows.Interop.WindowInteropHelper($win)
+        $h = $helper.Handle
+        if (-not $h) { if ($script:hoverTick -le 2) { try { Log 'hover: handle 0' } catch {} }; return }
+        $pt = New-Object PetCursorProbe+POINT
+        if (-not [PetCursorProbe]::GetCursorPos([ref]$pt)) { return }
+        $rc = New-Object PetCursorProbe+RECT
+        if (-not [PetCursorProbe]::GetWindowRect($h, [ref]$rc)) { return }
+        if ($script:hoverTick -le 3) { try { Log ('hover tick=' + $script:hoverTick + ' h=' + $h + ' rect=' + $rc.Left + ',' + $rc.Top + ',' + $rc.Right + ',' + $rc.Bottom + ' pt=' + $pt.X + ',' + $pt.Y) } catch {} }
+        $inside = ($pt.X -ge $rc.Left -and $pt.X -le $rc.Right -and $pt.Y -ge $rc.Top -and $pt.Y -le $rc.Bottom)
+        if ($inside -ne $script:hoverState) {
+          $script:hoverState = $inside
+          try { Log ('hover ' + $inside) } catch {}
+          Fade-AttrPanel $inside
+        }
+      } catch { try { Log ('hover err ' + $_.Exception.Message) } catch {} }
+    })
+    $script:hoverTimer.Start()
+    try { Log 'hover probe started' } catch {}
+  } catch { try { Log ('hover probe start err ' + $_.Exception.Message) } catch {} }
+}function Update-PetLayout() {
   if (-not $script:img -or -not $script:btnPanel -or -not $script:tokenPill) { return }
   try {
     $imgW = [double]$script:img.Width
@@ -674,7 +717,7 @@ $statusBorder.Visibility = 'Collapsed'
 
 $script:attrPanel = New-Object System.Windows.Controls.StackPanel
 $script:attrPanel.Width = 116
-$script:attrPanel.Visibility = 'Collapsed'
+$script:attrPanel.Visibility = 'Visible'
 $outer.Children.Add($script:attrPanel) | Out-Null
 [System.Windows.Controls.Canvas]::SetLeft($script:attrPanel, 8)
 [System.Windows.Controls.Canvas]::SetTop($script:attrPanel, 92)
@@ -870,6 +913,7 @@ $win.Add_Loaded({
   try { Clamp-Window } catch {}
   $script:uiAnimTimer.Start()
   $script:charWatchTimer.Start()
+  Start-HoverProbe
   Refresh-Status
   $script:mainTimer.Start()
   $script:clampTimer = New-Object System.Windows.Threading.DispatcherTimer
@@ -877,7 +921,7 @@ $win.Add_Loaded({
   $script:clampTimer.Add_Tick({ $script:clampTimer.Stop(); Clamp-Window })
   $script:clampTimer.Start()
 })
-$win.Add_Closed({ try { $script:mainTimer.Stop() } catch {}; try { $script:chatTimer.Stop() } catch {}; try { $script:uiAnimTimer.Stop() } catch {}; try { $script:charWatchTimer.Stop() } catch {} })
+$win.Add_Closed({ try { $script:mainTimer.Stop() } catch {}; try { $script:chatTimer.Stop() } catch {}; try { $script:uiAnimTimer.Stop() } catch {}; try { $script:charWatchTimer.Stop() } catch {}; try { if ($script:hoverTimer) { $script:hoverTimer.Stop() } } catch {} })
 
 Log 'pet starting'
 $win.ShowDialog() | Out-Null
