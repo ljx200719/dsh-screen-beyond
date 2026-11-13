@@ -157,17 +157,18 @@ function Start-HoverProbe() {
     $imgW = [double]$script:img.Width
     $size = [double]$script:img.Height
     if ($imgW -le 1) { return }
-    $imgLeft = 140
-    $imgTop = 12
-    $attrTop = 80
-    $btnTop = 64
+    # 合理布局：形象居中偏下，属性面板贴左，按钮贴右并与形象顶部齐平，状态气泡在顶部居中
+    $imgLeft = [math]::Max(128, [math]::Round((480 - $imgW) / 2))
+    $imgTop = 92
+    $attrTop = 96
+    $btnTop = 96
     $tokenTop = $imgTop + $size + 10
     # 固定窗口尺寸，缩放时只移动 UI，避免窗口 resize 造成的延迟
     [System.Windows.Controls.Canvas]::SetLeft($script:img, $imgLeft)
     [System.Windows.Controls.Canvas]::SetTop($script:img, $imgTop)
-    [System.Windows.Controls.Canvas]::SetLeft($script:attrPanel, 12)
+    [System.Windows.Controls.Canvas]::SetLeft($script:attrPanel, 6)
     [System.Windows.Controls.Canvas]::SetTop($script:attrPanel, $attrTop)
-    [System.Windows.Controls.Canvas]::SetLeft($script:btnPanel, $imgLeft + $imgW + 16)
+    [System.Windows.Controls.Canvas]::SetLeft($script:btnPanel, [math]::Min(480 - 58, $imgLeft + $imgW + 12))
     [System.Windows.Controls.Canvas]::SetTop($script:btnPanel, $btnTop)
     [System.Windows.Controls.Canvas]::SetLeft($script:tokenPill, [math]::Round($imgLeft + ($imgW - 190) / 2))
     [System.Windows.Controls.Canvas]::SetTop($script:tokenPill, $tokenTop)
@@ -716,8 +717,8 @@ $script:statusText.Text = '正在连接她…'
 $statusBorder.Child = $script:statusText
 $outer.Children.Add($statusBorder) | Out-Null
 $statusBorder.Width = 170
-[System.Windows.Controls.Canvas]::SetLeft($statusBorder, 8)
-[System.Windows.Controls.Canvas]::SetTop($statusBorder, 10)
+[System.Windows.Controls.Canvas]::SetLeft($statusBorder, 155)
+[System.Windows.Controls.Canvas]::SetTop($statusBorder, 6)
 [System.Windows.Controls.Panel]::SetZIndex($statusBorder, 20)
 $statusBorder.Visibility = 'Collapsed'
 
@@ -729,8 +730,8 @@ $script:attrPanel.Width = 116
 $script:attrUserHidden = $false
 $script:attrPanel.Visibility = 'Visible'
 $outer.Children.Add($script:attrPanel) | Out-Null
-[System.Windows.Controls.Canvas]::SetLeft($script:attrPanel, 8)
-[System.Windows.Controls.Canvas]::SetTop($script:attrPanel, 92)
+[System.Windows.Controls.Canvas]::SetLeft($script:attrPanel, 6)
+[System.Windows.Controls.Canvas]::SetTop($script:attrPanel, 96)
 [System.Windows.Controls.Panel]::SetZIndex($script:attrPanel, 20)
 
 function New-AttrBox([string]$text, [string]$accent) {
@@ -790,8 +791,8 @@ foreach ($b in @($script:pet.buttons)) { $btnPanel.Children.Add((Build-Button $b
 # 右侧第 4 个按钮：显示/隐藏属性面板
 try { $btnPanel.Children.Add((Build-Button ([pscustomobject]@{ id = 'attr'; label = '属性'; title = '显示/隐藏属性'; action = 'attr'; icon = '' }))) | Out-Null } catch {}
 $outer.Children.Add($btnPanel) | Out-Null
-[System.Windows.Controls.Canvas]::SetLeft($btnPanel, 350)
-[System.Windows.Controls.Canvas]::SetTop($btnPanel, 64)
+[System.Windows.Controls.Canvas]::SetLeft($btnPanel, 356)
+[System.Windows.Controls.Canvas]::SetTop($btnPanel, 96)
 [System.Windows.Controls.Panel]::SetZIndex($btnPanel, 10)
 
 # 位置
