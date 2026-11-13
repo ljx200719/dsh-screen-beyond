@@ -538,6 +538,13 @@ ID：
 - **小修**：设置页图片配置保存不再整页重绘（不冲掉未保存模型参数）；桌宠换形象改静默重启（去掉双重确认）；地图删除无入口死函数。
 - **页面渲染检查**：headless Edge 截图 map/model/stage/screen/settings 均有内容（settings 已含备份区）；chat 页在 headless 下截图超时，但真实 Edge iframe 嵌入测试已确认聊天 UI 正常。
 - 已知未做：eslint 依赖未安装；恢复未实测；VM 聊天发送/图片需登录 QQ 后真机验证；`config.json` 仍单文件；npm 未发布（等用户指示）。
+### 8.9 2026-11-13 配置拆分 / 桌宠素材 / 低余额提醒
+
+- **config.json 拆分 + 原子写**：设置写 `config.json`（约 5KB），世界状态（worlds/maps/map/activeMapId/location）写 `data/world.json`；两者都用 `tmp+rename` 原子落盘并做内容变更去抖。旧单文件在启动时自动迁移（迁移前已备份 `config.pre-split-*.json`）。实测迁移后地图 2 张、位置 canteen 正常，config.json 86KB → 5KB。
+- **桌宠素材目录化**：`runtime/assets/pet/<角色>/<idle|look|pat|rub>.png` + `default/` 兜底；服务端按 新目录 → default → 旧命名 的顺序解析，老安装不受影响。实测 `/pet-sprite/idle.png` 返回新目录素材。
+- **桌宠金额不再直接显示**：隐藏金额胶囊（tokenPill），把真实余额 / 今日消耗 / 今日 token / 零花放进「状态」文字的悬浮提示里。
+- **低余额主动提醒**：新增 `CONFIG.balanceAlert`（enabled / thresholdRmb 默认 5 / cooldownMin 默认 360 / lastAt）。后台每 10 分钟检查一次真实余额，低于阈值时她主动发一条提醒消息（有冷却防刷屏，force 可绕过）；设置页「经济」卡片新增开关、阈值、冷却输入与「保存」「发一条测试」按钮。实测阈值临时设为 100 时提醒消息成功写入聊天（role=her），随后恢复阈值 5。
+- **备份脚本**增加 `data/world.json`。
 ## 9. 接下来计划
 
 ### P0：虚拟机聊天闭环

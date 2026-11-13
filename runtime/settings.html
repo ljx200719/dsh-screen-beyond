@@ -661,6 +661,9 @@ function renderLife(){
   + '<div class="row"><label>Token 预算</label><input type="number" id="ecoTokenBudget" style="width:120px"><span class="small">tokens</span></div>'
   + '<div class="row"><label>1 元 = </label><input type="number" id="ecoPerYuan" style="width:90px"><span class="small">tokens</span></div>'
   + '<div class="row"><label>当前</label><span class="small" id="ecoWallet">读取中…</span><button class="btn ghost" onclick="saveEconomyUi(this)">保存经济</button></div>'
+  + '<div class="row" style="border-top:1px solid rgba(255,255,255,.08);padding-top:8px;margin-top:4px"><label>低余额提醒</label><input type="checkbox" id="balAlertEnabled" style="width:auto"><span class="small">余额低于阈值时，她主动发消息提醒你充值</span></div>'
+  + '<div class="row"><label>低余额阈值</label><input type="number" id="balAlertRmb" min="0" step="0.5" style="width:90px"><span class="small">元</span><button class="btn primary sm" onclick="saveBalanceAlertUi(this)">保存</button><button class="btn ghost sm" onclick="testBalanceAlert(this)">发一条测试</button></div>'
+  + '<div class="row"><label>提醒冷却</label><input type="number" id="balAlertCooldown" min="1" style="width:90px"><span class="small">分钟（避免刷屏）</span></div>'
   + '<div class="hint">交通/吃饭/娱乐都花她的钱；她可以用 spend_money 工具自己买电影票、游戏等，钱不够会被拒绝</div></div>'
   + '<div class="card"><h2>天气表现 <span class="tag">可上传图片/GIF/视频</span></h2><div id="weatherFxList"><div class="small">读取中…</div></div>'
   + '<div class="hint">不传就用内置 canvas 粒子；上传后该天气在地图/舞台/3D 上换成你的素材</div></div>'
@@ -681,6 +684,11 @@ async function loadEconomyUi(){
     setV('ecoTokenBudget', e.tokenBudget); setV('ecoPerYuan', e.tokensPerYuan);
     const en = document.getElementById('ecoEnabled'); if (en) en.checked = e.enabled !== false;
     const mt = document.getElementById('ecoMoneyType'); if (mt) mt.value = e.moneyType === 'token' ? 'token' : 'virtual';
+    try {
+      const ba = (await api('/api/balance-alert')).alert || {};
+      const be = document.getElementById('balAlertEnabled'); if (be) be.checked = ba.enabled !== false;
+      setV('balAlertRmb', ba.thresholdRmb); setV('balAlertCooldown', ba.cooldownMin);
+    } catch (e) {}
     const wt = document.getElementById('ecoWallet');
     const rb = r.realBalance || {};
     if (wt) wt.textContent = w.tokenMode
@@ -712,6 +720,25 @@ async function saveEconomyUi(btn){
     const r = await saveJson('/api/economy', body);
     if (r && r.ok) { markSaved(); toast('经济设置已保存'); loadEconomyUi(); }
   } catch (e) {} finally { done(); }
+}
+async function saveBalanceAlertUi(btn){
+  const rmb = numOr('balAlertRmb', 5), cd = numOr('balAlertCooldown', 360);
+  if (!Number.isFinite(rmb) || rmb < 0) { toast('阈值需为不小于 0 的数字'); return; }
+  if (!Number.isFinite(cd) || cd < 1) { toast('冷却需为不小于 1 的分钟数'); return; }
+  const done = busyBtn(btn); if (!done) return;
+  try {
+    const body = { enabled: document.getElementById('balAlertEnabled').checked, thresholdRmb: rmb, cooldownMin: cd };
+    const r = await saveJson('/api/balance-alert', body);
+    if (r && r.ok) { markSaved(); toast('低余额提醒已保存'); loadEconomyUi(); }
+  } catch (e) {} finally { done(); }
+}
+async function testBalanceAlert(btn){
+  const done = busyBtn(btn); if (!done) return;
+  try {
+    const r = await (await fetch('/api/balance-alert/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json();
+    if (r && r.ok) toast('已发测试提醒：' + (r.text || '').slice(0, 40) + '…');
+    else toast('发送失败：' + ((r && r.error) || '未知错误'));
+  } catch (e) { toast('发送失败：' + e.message); } finally { done(); }
 }
 const WX_ROWS = [
   ['sunny', '☀️ 晴天'], ['cloudy', '☁️ 多云'], ['rain', '🌧️ 下雨'], ['snow', '❄️ 下雪'],

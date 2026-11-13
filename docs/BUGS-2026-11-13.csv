@@ -67,3 +67,7 @@ OPEN-015,未修复,低,—,同步,无手机/电脑离线合并,同步协议只�
 "BUG-051","已修复","中","未发布","安全","API 无 token、密钥明文","仅 Origin 防护","可选 DSH_COMPANION_API_TOKEN（header/cookie/端口文件）、可选 DPAPI 加密（DPAPI1）","冒烟 22/22（401/200/cookie/DPAPI1）"
 "BUG-052","已修复","低","未发布","设置页","图片配置保存整页重绘会重置未保存的模型参数；换形象双重确认","saveImageCfg 调 renderModel；petRestart 自带确认","改局部更新；换形象静默重启","代码复核"
 "BUG-053","已修复","低","未发布","工程","无冒烟测试/无 lint 配置","-","scripts/smoke-test.mjs（22 项）+ eslint.config.mjs + lint/smoke 脚本","实跑 22/22"
+"BUG-054","已修复","中","未发布","配置","config.json 单文件 86KB，全量写风险高","设置与世界状态混在一起、非原子写","拆 config.json + data/world.json，tmp+rename 原子写+去抖，启动自动迁移","迁移后 config 5KB/world 81KB，地图/位置正常"
+"BUG-055","已修复","低","未发布","桌宠","pet 素材按角色名硬编码","资源只认 xiaojing-/xiaoke-","改为 assets/pet/<角色>/<表情>.png + default 兜底，旧命名兼容","/pet-sprite/idle.png 200 新素材"
+"BUG-056","已修复","新功能","未发布","桌宠","金额直接显示","-","隐藏金额胶囊，移入状态 tooltip","代码复核 + 桌宠重启"
+"BUG-057","已修复","新功能","未发布","提醒","低余额无提醒","-","balanceAlert 配置 + 10 分钟检查 + 冷却 + 设置页开关/阈值/测试按钮","实测提醒消息写入 role=her，恢复阈值"

@@ -95,8 +95,34 @@ const pad2 = (n) => String(n).padStart(2, '0');
 const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
 
 // ---------- config ----------
-let CONFIG = readJson(path.join(ROOT, 'config.json'), {});
-function saveConfig() { writeJson(path.join(ROOT, 'config.json'), CONFIG); }
+// 配置拆分：设置类和世界状态分开存，避免一个 90KB 的单文件在全量写时一坏全坏
+const CONFIG_PATH = path.join(ROOT, 'config.json');
+const WORLD_PATH = path.join(ROOT, 'data', 'world.json');
+const WORLD_KEYS = ['worlds', 'maps', 'map', 'activeMapId', 'location'];
+let CONFIG = (() => {
+  const settings = readJson(CONFIG_PATH, {}) || {};
+  const world = readJson(WORLD_PATH, {}) || {};
+  return { ...settings, ...world };
+})();
+let cfgJsonCache = '', worldJsonCache = '';
+function writeJsonAtomic(file, data) {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 1), 'utf8');
+    fs.renameSync(tmp, file);
+  } catch (e) { try { console.error('[companion] 写配置失败', file, e && e.message); } catch {} }
+}
+function saveConfig() {
+  try {
+    const world = {}; for (const k of WORLD_KEYS) if (CONFIG[k] !== undefined) world[k] = CONFIG[k];
+    const settings = {}; for (const k of Object.keys(CONFIG)) if (!WORLD_KEYS.includes(k)) settings[k] = CONFIG[k];
+    const sj = JSON.stringify(settings);
+    if (sj !== cfgJsonCache) { writeJsonAtomic(CONFIG_PATH, JSON.parse(sj)); cfgJsonCache = sj; }
+    const wj = JSON.stringify(world);
+    if (wj !== worldJsonCache) { writeJsonAtomic(WORLD_PATH, JSON.parse(wj)); worldJsonCache = wj; }
+  } catch (e) { try { console.error('[companion] saveConfig 失败', e && e.message); } catch {} }
+}
 
 const LIFE_DEFAULT = {
   enabled: true, heartbeatMin: 45, proactive: 3, proactiveEnabled: false, proactiveMinMin: 30, proactiveMaxMin: 90, quietStart: 2, quietEnd: 7, diaryHour: 22, diaryAuto: true, smartLife: false,
@@ -264,6 +290,13 @@ function ensureDirs(id) {
 }
 function listCharacters() {
   fs.mkdirSync(CHARS_ROOT, { recursive: true });
+  try {
+    const legacy = readJson(CONFIG_PATH, null);
+    if (legacy && WORLD_KEYS.some((k) => legacy[k] !== undefined)) {
+      console.error('[companion] 迁移 config.json：世界状态拆到 data/world.json');
+      saveConfig();
+    }
+  } catch {}
   const ids = fs.readdirSync(CHARS_ROOT).filter((n) => fs.statSync(path.join(CHARS_ROOT, n)).isDirectory());
   return ids.map((id) => { const m = readJson(path.join(CHARS_ROOT, id, 'meta.json'), {}); const av = fs.existsSync(path.join(CHARS_ROOT, id, 'avatar.bin')); return { id, name: m.name || '未命名', avatar: av ? '/avatar.png?c=' + id : '/default-avatar.png' }; });
 }
@@ -1497,6 +1530,15 @@ const ECONOMY_DEFAULT = {
   transportBase: { walk: 0, bike: 0, bus: 2, metro: 2, car: 10, coach: 15, rail: 30, plane: 80 },
   transportPerKm: { walk: 0, bike: 0, bus: 0.6, metro: 0.6, car: 1.2, coach: 0.8, rail: 0.5, plane: 0.6 },
 };
+const BALANCE_ALERT_DEFAULT = { enabled: true, thresholdRmb: 5, cooldownMin: 360, lastAt: 0 };
+function loadBalanceAlert() { return { ...BALANCE_ALERT_DEFAULT, ...(CONFIG.balanceAlert || {}) }; }
+function saveBalanceAlert(patch) {
+  const next = { ...loadBalanceAlert(), ...(patch || {}) };
+  next.enabled = next.enabled !== false;
+  next.thresholdRmb = Math.max(0, Number(next.thresholdRmb) || 0);
+  next.cooldownMin = Math.max(1, Math.min(10080, Number(next.cooldownMin) || 360));
+  CONFIG.balanceAlert = next; saveConfig(); return next;
+}
 function loadEconomy() {
   const e = CONFIG.economy || {};
   const moneyType = e.moneyType === 'token' || e.tokenMode === true ? 'token' : 'virtual';
@@ -1641,6 +1683,25 @@ async function refreshRealBalance() {
     REAL_BALANCE = { ok: false, at: now, error: String(e.message || e).slice(0, 160), currency: 'CNY', total: null, granted: null, toppedUp: null, available: null };
   }
   return REAL_BALANCE;
+}
+// 低余额主动提醒：余额低于阈值时让她主动发一条消息（有冷却，force 可绕过）
+async function maybeLowBalanceAlert(force = false) {
+  const a = loadBalanceAlert();
+  if (!a.enabled && !force) return { ok: false, error: '未开启低余额提醒' };
+  try {
+    if (!REAL_BALANCE || !REAL_BALANCE.ok || !(Number(REAL_BALANCE.at) > Date.now() - 60 * 60 * 1000)) await refreshRealBalance();
+  } catch {}
+  const total = Number(REAL_BALANCE && REAL_BALANCE.total);
+  if (!REAL_BALANCE || !REAL_BALANCE.ok || !Number.isFinite(total)) return { ok: false, error: '余额读取失败' };
+  const threshold = Math.max(0, Number(a.thresholdRmb) || 0);
+  const cooled = Date.now() - Number(a.lastAt || 0) < Math.max(1, Number(a.cooldownMin) || 360) * 60000;
+  if (!force && (total >= threshold || cooled)) return { ok: false, error: total >= threshold ? '余额高于阈值' : '冷却中', total, threshold };
+  const text = '（探头）你 DeepSeek 余额只剩 ¥' + total.toFixed(2) + ' 了…已经低于 ¥' + threshold.toFixed(2) + ' 了，记得充一点呀，不然我这边就要断粮啦。';
+  CONFIG.balanceAlert = { ...a, lastAt: Date.now() }; saveConfig();
+  try { addMessage('her', text); } catch {}
+  try { broadcast({ type: 'message' }); } catch {}
+  try { SYNC.record('balance.low', 'balance', ACTIVE_CHAR, { total, threshold }); } catch {}
+  return { ok: true, total, threshold, text };
 }
 function tokenStats() {
   const m = walletMoney();
@@ -3032,6 +3093,20 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/stage') return servePage(res, 'stage.html');
     if (req.method === 'GET' && url.pathname === '/model') return servePage(res, 'model.html');
     if (req.method === 'GET' && url.pathname === '/settings') return servePage(res, 'settings.html');
+    if (req.method === 'GET' && url.pathname === '/api/balance-alert') {
+      json(res, 200, { ok: true, alert: loadBalanceAlert(), balance: REAL_BALANCE });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/balance-alert') {
+      const b = (req._json || {});
+      const alert = saveBalanceAlert(b);
+      json(res, 200, { ok: true, alert });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/balance-alert/test') {
+      try { const r = await maybeLowBalanceAlert(true); json(res, 200, r); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/api/backup/list') {
       try {
         const dir = path.join(ROOT, 'backups');
@@ -3601,7 +3676,14 @@ function importMemoryItems(raw) {
       const name = String(url.pathname.split('/').pop() || '').replace(/\.png$/i, '').replace(/[^a-z0-9_-]/gi, '');
       // 旧资源只按 xiaojing/xiaoke 命名；其它角色退回 default-<表情>.png，再退回任意角色的同表情图，避免新角色没有桌宠图
       const petDir = path.join(RUNTIME_DIR, 'assets', 'pet');
-      const candidates = [path.join(petDir, (ACTIVE_CHAR || 'default') + '-' + name + '.png'), path.join(petDir, 'default-' + name + '.png')];
+      const charId = String(ACTIVE_CHAR || 'default').replace(/[^a-z0-9_-]/gi, '') || 'default';
+      // 新结构：assets/pet/<角色>/<表情>.png，default/ 兜底；旧结构（<角色>-<表情>.png）继续兼容
+      const candidates = [
+        path.join(petDir, charId, name + '.png'),
+        path.join(petDir, 'default', name + '.png'),
+        path.join(petDir, charId + '-' + name + '.png'),
+        path.join(petDir, 'default-' + name + '.png'),
+      ];
       let p = candidates.find((f) => fs.existsSync(f));
       if (!p) { try { const first = fs.readdirSync(petDir).filter((f) => f.endsWith('-' + name + '.png')).sort()[0]; if (first) p = path.join(petDir, first); } catch {} }
       if (!p) { res.writeHead(404); res.end('not found'); return; }
@@ -4236,7 +4318,7 @@ function importMemoryItems(raw) {
     if (req.method === 'GET' && url.pathname === '/api/economy') {
       if (!REAL_BALANCE.at || Date.now() - REAL_BALANCE.at > 60000) { refreshRealBalance().catch(() => {}); }
       const econ = loadEconomy(); const w = walletMoney(); const t = tokenStats();
-      json(res, 200, { ok: true, economy: econ, realBalance: REAL_BALANCE, wallet: { balance: w.wallet.balance, spendable: w.spendable, tokenMode: w.tokenMode, remainingTokens: w.remainingTokens, usedTokens: t.usedTokens, dailyUsed: t.dailyUsed, tokenBudget: t.tokenBudget, moneyType: w.moneyType } });
+      json(res, 200, { ok: true, economy: econ, realBalance: REAL_BALANCE, balanceAlert: loadBalanceAlert(), wallet: { balance: w.wallet.balance, spendable: w.spendable, tokenMode: w.tokenMode, remainingTokens: w.remainingTokens, usedTokens: t.usedTokens, dailyUsed: t.dailyUsed, tokenBudget: t.tokenBudget, moneyType: w.moneyType } });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/economy') {
@@ -4335,6 +4417,13 @@ function tryListen(port, attempt = 0) {
 function boot() {
   // 迁移：老版本 data/messages.json
   fs.mkdirSync(CHARS_ROOT, { recursive: true });
+  try {
+    const legacy = readJson(CONFIG_PATH, null);
+    if (legacy && WORLD_KEYS.some((k) => legacy[k] !== undefined)) {
+      console.error('[companion] 迁移 config.json：世界状态拆到 data/world.json');
+      saveConfig();
+    }
+  } catch {}
   if (!fs.readdirSync(CHARS_ROOT).filter((n) => fs.statSync(path.join(CHARS_ROOT, n)).isDirectory()).length) {
     const id = 'default';
     ensureDirs(id);
@@ -4348,6 +4437,8 @@ function boot() {
   loadMessages();
   refreshRealBalance().catch(() => {});
   setInterval(() => refreshRealBalance().catch(() => {}), 5 * 60 * 1000).unref?.();
+  setInterval(() => { maybeLowBalanceAlert().catch(() => {}); }, 10 * 60 * 1000).unref?.();
+  setTimeout(() => { maybeLowBalanceAlert().catch(() => {}); }, 20000);
   // 后台心跳
   setInterval(() => {
     try {

@@ -49,6 +49,7 @@ $script:petCacheCleaned = $false
 $script:avatarDownloadedUrl = ''
 $script:statusText = $null
 $script:tokenText = $null
+$script:tokenPill = $null
 $script:img = $null
 $script:win = $null
 $script:chatPanel = $null
@@ -406,14 +407,16 @@ function Refresh-Status() {
   if ($st.tokens) {
     $t = $st.tokens
     $bal = $t.deepseekBalance
+    # 余额/今日消耗不直接显示：隐藏金额胶囊，放进「状态」的悬浮提示里
+    try { if ($script:tokenPill) { $script:tokenPill.Visibility = 'Collapsed' } } catch {}
     if ($bal -and $bal.ok) {
       $cur = if ([string]$bal.currency -eq 'CNY') { '¥' } else { [string]$bal.currency }
       $todayRmb = if ($null -ne $bal.todayRmb) { [double]$bal.todayRmb } else { 0 }
-      $script:tokenText.Text = '真实余额 ' + $cur + [string]$bal.total + ' · 今日约 ¥' + ('{0:0.00}' -f $todayRmb)
-      $script:tokenText.ToolTip = ('DeepSeek 真实余额：{0}{1}{2}今日消耗（按余额差估算，含同一 Key 的其它程序）：{0}{3:0.00}{4}本插件今日 token：{5:N0}{6}她自己的零花钱：{7} 元（虚拟）' -f $cur, [string]$bal.total, [Environment]::NewLine, $todayRmb, [Environment]::NewLine, [double]$t.dailyUsed, [Environment]::NewLine, [string]$t.spendable)
+      if ($script:statusText) {
+        $script:statusText.ToolTip = ('真实余额：{0}{1}{2}今日消耗（估算，含同一 Key 的其它程序）：{0}{3:0.00}{4}今日 token：{5:N0}{6}她的零花：{7} 元（虚拟）' -f $cur, [string]$bal.total, [Environment]::NewLine, $todayRmb, [Environment]::NewLine, [double]$t.dailyUsed, [Environment]::NewLine, [string]$t.spendable)
+      }
     } else {
-      $script:tokenText.Text = '余额读取失败 · 今日 ' + (Fmt-Tok $t.dailyUsed) + ' token'
-      $script:tokenText.ToolTip = '暂时读不到 DeepSeek 真实余额；不会用虚拟货币代替'
+      if ($script:statusText) { $script:statusText.ToolTip = '暂时读不到 DeepSeek 真实余额（不会用虚拟货币代替）' }
     }
   }
   $loc = ''; if ($st.place) { $loc = [string]$st.place.icon + ' ' + [string]$st.place.name }
@@ -709,6 +712,7 @@ $tokenPill.BorderBrush = Brush '#E7D8C6'
 $tokenPill.BorderThickness = [System.Windows.Thickness]::new(1)
 $tokenPill.Padding = [System.Windows.Thickness]::new(9, 4, 9, 4)
 $tokenPill.Child = $script:tokenText
+$script:tokenPill = $tokenPill
 $tokenPill.HorizontalAlignment = 'Center'
 $script:tokenPill = $tokenPill
 $outer.Children.Add($tokenPill) | Out-Null
