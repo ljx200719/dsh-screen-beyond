@@ -2917,7 +2917,6 @@ const server = http.createServer(async (req, res) => {
     if (reqOrigin && !originAllowed(reqOrigin)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('forbidden origin'); return; }
     if (reqOrigin) { res.setHeader('access-control-allow-origin', reqOrigin); res.setHeader('vary', 'Origin'); }
     res.setHeader('x-content-type-options', 'nosniff');
-    res.setHeader('content-security-policy', "frame-ancestors 'self' http://127.0.0.1:* http://localhost:*");
     if (req.method === 'OPTIONS') {
       res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
       res.setHeader('access-control-allow-headers', 'authorization,content-type,x-sync-token');
