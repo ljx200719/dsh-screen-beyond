@@ -391,6 +391,12 @@ html[data-theme="lavender"] #bgBtn{border-color:rgba(169,149,228,.5)!important;c
 const $ = (s) => document.querySelector(s);
 let lastId = 0, busy = false, outboxImage = '', sending = false;
 function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+// 头像只允许服务端头像地址（/avatar.png?t=...、/default-avatar.png），其余一律走首字兜底，避免 url() 注入
+function safeAvatarUrl(u){
+  const s = String(u || '');
+  if (!/^\/(avatar\.png|default-avatar\.png)(\?[A-Za-z0-9_=.\-&%]*)?$/.test(s)) return '';
+  return encodeURI(s);
+}
 function toast(t){ const el=$('#toast'); el.textContent=t; el.style.opacity=1; setTimeout(()=>el.style.opacity=0,1600); }
 function fmtTime(ts){ const d=new Date(ts||Date.now()); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 function nearBottom(){ const l=$('#list'); return l.scrollHeight - l.scrollTop - l.clientHeight < 160; }
@@ -407,6 +413,15 @@ function addMsg(m){
     const who = m.role === 'user' ? '你' : '她';
     const imgHtml = m.image ? '<div style="margin-top:6px"><img src="'+esc(m.image)+'" alt="" style="max-width:260px;max-height:260px;border-radius:8px;display:block"></div>' : '';
     wrap.innerHTML = '<div><div class="who">'+esc(who)+' · '+fmtTime(m.at)+'</div><div class="bubble">'+esc(m.text)+imgHtml+'</div></div>';
+    if (m.image) {
+      const im = wrap.querySelector('.bubble img');
+      if (im) im.addEventListener('error', () => {
+        const ph = document.createElement('div');
+        ph.textContent = '图片加载失败';
+        ph.style.cssText = 'margin-top:6px;font-size:12px;color:#8b9aad;padding:6px 2px';
+        im.replaceWith(ph);
+      });
+    }
     l.appendChild(wrap);
   }
   if (nearBottom()) l.scrollTop = l.scrollHeight;
@@ -416,8 +431,8 @@ async function loadHeader(){
     const st = await (await fetch('/api/status')).json();
     if (st.character) {
       $('#name').textContent = st.character.name || '她';
-      const av = st.character.avatar;
-      if (av) { $('#ava').style.backgroundImage = 'url(' + av + ')'; $('#ava').textContent = ''; }
+      const av = safeAvatarUrl(st.character.avatar);
+      if (av) { $('#ava').style.backgroundImage = 'url("' + av + '")'; $('#ava').textContent = ''; }
       else { $('#ava').style.backgroundImage = ''; $('#ava').textContent = (st.character.name || '她').slice(0,1); }
     }
     if (st.place) $('#place').textContent = ' · ' + st.place.icon + ' ' + st.place.name;
@@ -436,8 +451,8 @@ async function loadHeader(){
       $('#moneyChip').textContent = '💰 零花 ' + (w.spendable ?? w.balance ?? '…') + ' 元';
       if (tc) {
         tc.style.display = '';
-        tc.textContent = '🪙 用户余额 ' + (rb.ok ? '¥' + Number(rb.total).toFixed(2) : '读取失败');
-        tc.title = rb.ok ? ('用户 DeepSeek 真实余额：¥' + Number(rb.total).toFixed(2) + (rb.todayRmb !== undefined ? '\n今日消耗：¥' + Number(rb.todayRmb).toFixed(2) : '')) : '读取不到用户余额';
+        tc.textContent = '🪙 真实余额 ' + (rb.ok ? '¥' + Number(rb.total).toFixed(2) : '读取失败');
+        tc.title = rb.ok ? ('DeepSeek 真实余额：¥' + Number(rb.total).toFixed(2) + (rb.todayRmb !== undefined ? '\n今日消耗（按余额差估算，含同一 Key 的其它程序）：¥' + Number(rb.todayRmb).toFixed(2) : '') + '\n说明：💰 零花是她自己的虚拟零花钱，和真实余额不是同一笔钱') : '读取不到用户余额';
       }
     } else {
       $('#moneyChip').textContent = '💰 ' + (w.spendable ?? w.balance ?? '…') + ' 元';
@@ -480,7 +495,18 @@ function toggleBgPanel(){
 }
 async function chooseChatBg(id){
   applyChatBg(id);
-  try { await fetch('/api/chat-bg', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})}); } catch(e) {}
+  try {
+    const r = await fetch('/api/chat-bg', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
+    if (!r.ok) {
+      let d = null;
+      try { d = await r.json(); } catch (e) {}
+      toast((d && d.error) || '背景保存失败');
+      await loadChatBg(); // 回滚为服务端当前值
+    }
+  } catch(e) {
+    toast('背景保存失败：' + ((e && e.message) || '网络错误'));
+    await loadChatBg();
+  }
   toggleBgPanel();
 }
 function fileToDataUrl(file){
@@ -516,7 +542,7 @@ async function loadUiTheme(){
   try {
     const r = await (await fetch('/api/ui-theme', {cache:'no-store'})).json();
     document.documentElement.dataset.theme = r.current || 'warm';
-  } catch(e) {}
+  } catch(e) { toast('配色读取失败，已用默认配色'); }
 }
 
 async function poll(){
@@ -537,7 +563,9 @@ async function send(){
   const body = { text };
   if (outboxImage) body.images = [outboxImage];
   const btn = $('#send');
+  const att = $('#attach');
   if (btn) { btn.disabled = true; btn.textContent = '发送中…'; }
+  if (att) att.disabled = true;
   try {
     const r = await fetch('/api/chat', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(body) });
     let d = null;
@@ -554,12 +582,13 @@ async function send(){
   } finally {
     sending = false;
     if (btn) { btn.disabled = false; btn.textContent = '发送'; }
+    if (att) att.disabled = false;
   }
 }
 document.addEventListener('keydown', (e) => {
   if (e.altKey && (e.key === 's' || e.key === 'S')) { e.preventDefault(); window.open('/screen', '_blank'); }
 });
-$('#attach').addEventListener('click', () => $('#file').click());
+$('#attach').addEventListener('click', () => { if (sending) return; $('#file').click(); });
 $('#file').addEventListener('change', (e) => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;

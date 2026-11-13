@@ -267,8 +267,33 @@ const $ = (s) => document.querySelector(s);
 let PERSONA = null, LIFE = null, MEM = null, CHARS = null;
 let currentTab = 'role';
 // 配置是否已成功从后端读取；读取失败时禁止把页面默认值保存回去
-let DATA_LOADED = { env: false, model: false, economy: false };
+let DATA_LOADED = { env: false, model: false, economy: false, life: false, map: false, persona: false, memory: false, pet: false, image: false };
 let APP_VERSION = '';
+// 未保存修改标记：输入/增删/拖拽置 true，整页保存成功置 false
+let _dirty = false;
+let _suppressGo = false;
+function markDirty(){ _dirty = true; }
+function markSaved(){ _dirty = false; }
+// 保存按钮防重入：返回恢复函数；按钮正忙时返回 null（调用方直接 return）
+function busyBtn(btn, busyText){
+  if (!btn) return function(){};
+  if (btn._busy) return null;
+  btn._busy = true;
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = busyText || '保存中…';
+  return function(){ btn._busy = false; btn.disabled = false; btn.textContent = old; };
+}
+// 数字输入：空串按默认值处理（不按 0），无法解析返回 NaN
+function numOr(id, dflt){
+  const el = document.getElementById(id);
+  if (!el) return dflt;
+  const raw = String(el.value == null ? '' : el.value).trim();
+  if (raw === '') return dflt;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : NaN;
+}
+function inRange(n, lo, hi){ return typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi; }
 const TABS = {
   role: { title: '角色', sub: '人设卡决定她是谁、怎么说话' },
   life: { title: '生活', sub: '她的作息、什么时候做什么、空闲时干什么' },
@@ -306,10 +331,14 @@ async function saveJson(path, obj){
 }
 function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-async function loadPersona(){ PERSONA = await api('/api/persona'); renderNavAva(); }
+async function loadPersona(){
+  try { PERSONA = await api('/api/persona'); DATA_LOADED.persona = true; renderNavAva(); }
+  catch (e) { DATA_LOADED.persona = false; throw e; }
+}
 async function setSelfStart(v){
+  if (v === 'allow' && !(await uiConfirm('允许她自己启动屏幕/手机？开机会占用 2~6GB 内存。', '允许她自己开机'))) return;
   try { await api('/api/env', { method: 'POST', body: JSON.stringify({ selfStart: v }) }); toast(v === 'allow' ? '已允许她自己开机' : '已限制她自己开机'); }
-  catch (e) { toast('保存失败'); }
+  catch (e) { toast('保存失败：' + ((e && e.message) || '')); }
   renderEnv();
 }
 async function envStartAll(){
@@ -352,17 +381,21 @@ async function petRefresh(){
   if (!box) return;
   try {
     const r = await api('/api/pet');
+    DATA_LOADED.pet = true;
     const p = r.pet || {};
     box.innerHTML = '状态：' + (r.running ? '🟢 运行中' : '⚪ 未开启') + ' · 形象：' + esc(p.image || 'avatar') + ' · 大小 ' + esc(p.size || 180) + 'px';
-  } catch (e) { box.textContent = '读取失败：' + e.message; }
+  } catch (e) { DATA_LOADED.pet = false; box.textContent = '读取失败：' + e.message; }
 }
 async function petToggle(on){
-  try { await saveJson('/api/pet', { enabled: on }); toast(on ? '桌宠已开启' : '桌宠已关闭'); petRefresh(); } catch (e) { toast('操作失败'); }
+  if (!DATA_LOADED.pet) { toast('桌宠配置读取失败，先刷新再保存'); return; }
+  try { await saveJson('/api/pet', { enabled: on }); toast(on ? '桌宠已开启' : '桌宠已关闭'); petRefresh(); } catch (e) {}
 }
 async function petRestart(){
-  try { await api('/api/pet/stop', { method: 'POST' }); await api('/api/pet/start', { method: 'POST' }); toast('桌宠已重启'); petRefresh(); } catch (e) { toast('重启失败'); }
+  if (!(await uiConfirm('重启桌宠进程？', '重启桌宠'))) return;
+  try { await api('/api/pet/stop', { method: 'POST' }); await api('/api/pet/start', { method: 'POST' }); toast('桌宠已重启'); petRefresh(); } catch (e) { toast('重启失败：' + ((e && e.message) || '')); }
 }
 async function petUploadImage(){
+  if (!DATA_LOADED.pet) { toast('桌宠配置读取失败，先刷新再保存'); return; }
   const el = document.getElementById('petImg');
   const f = el && el.files && el.files[0];
   if (!f) { toast('先选一张图片'); return; }
@@ -370,22 +403,26 @@ async function petUploadImage(){
   rd.onload = async () => {
     try {
       const r = await saveJson('/api/pet/image', { dataUrl: rd.result });
-      toast(r.ok ? '形象已更新' : '上传失败');
-      if (r.ok) await petRestart();
+      if (r && r.ok) { toast('形象已更新'); await petRestart(); }
       petRefresh();
-    } catch (e) { toast('上传失败'); }
+    } catch (e) {}
   };
   rd.readAsDataURL(f);
 }
-async function saveApiKey(){
+async function saveApiKey(btn){
   const el = document.getElementById('apiKeyInput');
   const key = (el && el.value || '').trim();
   if (!key) { toast('先填 API Key'); return; }
+  const done = busyBtn(btn);
+  if (!done) return;
   try {
     await saveJson('/api/model/key', { key });
     if (el) el.value = '';
+    // 只更新「已配置」那一行，避免整页重绘丢掉同页未保存的模型参数
+    const hint = document.getElementById('apiKeyHint');
+    if (hint) hint.textContent = '当前：已配置 · 纯聊天独立运行需要；DSH 环境下会自动读取 DSH 的 Key，通常不用填。';
     toast('API Key 已保存');
-  } catch (e) { toast('保存失败'); }
+  } catch (e) {} finally { done(); }
 }
 async function setNoParens(on){
   try { await saveJson('/api/chat-style', { noParens: !!on }); toast(on ? '已开启无括号模式' : '已关闭无括号模式'); } catch (e) { toast('保存失败'); }
@@ -409,7 +446,10 @@ async function delChar(id){
   else toast(r.error || '删除失败');
 }
 async function loadChars(){ try { CHARS = await api('/api/characters'); } catch(e){ CHARS = null; } }
-async function loadLife(){ LIFE = (await api('/api/life')).life || {}; }
+async function loadLife(){
+  try { LIFE = (await api('/api/life')).life || {}; DATA_LOADED.life = true; }
+  catch (e) { DATA_LOADED.life = false; throw e; }
+}
 async function loadMem(){ MEM = await api('/api/memory'); }
 function renderNavAva(){
   if(!PERSONA) return;
@@ -426,7 +466,7 @@ function renderRole(){
   const p = PERSONA, m = p.meta;
   const traits = m.traits || {};
   const traitNames = Object.keys(traits);
-  $('#topAction').innerHTML = '<button class="btn" onclick="importRole()">导入角色卡</button> <button class="btn" onclick="exportRole()">导出</button> <button class="btn primary" onclick="savePersona()">保存</button>';
+  $('#topAction').innerHTML = '<button class="btn" onclick="importRole()">导入角色卡</button> <button class="btn" onclick="exportRole()">导出</button> <button class="btn primary" onclick="savePersona(this)">保存</button>';
   const chars = (CHARS && CHARS.characters) || [{ id: 'default', name: m.name, avatar: m.avatar }];
   const activeId = (CHARS && CHARS.active) || 'default';
   const charChips = chars.map(c => '<button class="btn ' + (c.id === activeId ? 'primary' : 'ghost') + '" style="display:flex;align-items:center;gap:8px" onclick="switchChar(\'' + c.id + '\')">'
@@ -495,21 +535,29 @@ function collectPersona(){
     body: $('#pBody').value,
   };
 }
-async function savePersona(){
-  const p = collectPersona();
-  const r = await saveJson('/api/persona', p);
-  if(r.ok){ PERSONA = { meta: r.meta, body: r.body }; renderNavAva(); toast('已保存'); }
+async function savePersona(btn){
+  if (!DATA_LOADED.persona) { toast('角色卡读取失败，先刷新再保存'); return; }
+  const done = busyBtn(btn);
+  if (!done) return;
+  try {
+    const p = collectPersona();
+    const r = await saveJson('/api/persona', p);
+    if(r.ok){ PERSONA = { meta: r.meta, body: r.body }; renderNavAva(); markSaved(); toast('已保存'); }
+  } catch (e) {} finally { done(); }
 }
 function addExample(){
   const v = $('#newExample').value.trim(); if(!v) return;
   if(!PERSONA.meta.examples) PERSONA.meta.examples=[];
-  PERSONA.meta.examples.push(v); renderRole(); toast('已添加，记得保存');
+  PERSONA.meta.examples.push(v); markDirty(); renderRole(); toast('已添加，记得保存');
 }
-function delExample(i){ PERSONA.meta.examples.splice(i,1); renderRole(); }
+async function delExample(i){
+  if (!(await uiConfirm('删除这条说话示例？', '删除示例'))) return;
+  PERSONA.meta.examples.splice(i,1); markDirty(); renderRole();
+}
 function addTrait(){
   const v = $('#newTrait').value.trim(); if(!v) return;
   PERSONA.meta.traits = PERSONA.meta.traits || {};
-  PERSONA.meta.traits[v] = 5; renderRole(); toast('已添加，记得保存');
+  PERSONA.meta.traits[v] = 5; markDirty(); renderRole(); toast('已添加，记得保存');
 }
 async function preview(){
   const text = $('#previewIn').value.trim() || '在吗';
@@ -524,7 +572,10 @@ async function uploadAvatar(input){
   reader.onload = async () => { await saveJson('/api/avatar', { dataUrl: reader.result }); await loadPersona(); renderRole(); toast('头像已更新'); };
   reader.readAsDataURL(f);
 }
-async function clearAvatar(){ await saveJson('/api/avatar', { dataUrl: '' }); await loadPersona(); renderRole(); }
+async function clearAvatar(){
+  if (!(await uiConfirm('清除当前头像，改用默认头像？', '清除头像'))) return;
+  try { await saveJson('/api/avatar', { dataUrl: '' }); await loadPersona(); renderRole(); toast('已恢复默认头像'); } catch (e) {}
+}
 function exportRole(){
   const blob = new Blob([JSON.stringify(collectPersona(), null, 2)], {type:'application/json'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (PERSONA.meta.name||'persona') + '-角色卡.json'; a.click();
@@ -554,7 +605,7 @@ function renderLife(){
   const L = LIFE || {};
   const schedules = L.schedules || [];
   const activities = L.activities || [];
-  $('#topAction').innerHTML = '<button class="btn primary" onclick="saveLife()">保存</button>';
+  $('#topAction').innerHTML = '<button class="btn primary" onclick="saveLife(this)">保存</button>';
   $('#body').innerHTML = '<div class="wrap"><div class="col">'
   + '<div class="card"><h2>作息 <span class="tag">每天固定的时间点/时段，可增删</span></h2><div id="scheduleList">'
   + schedules.map((s,i)=>scheduleRow(s,i)).join('')
@@ -603,7 +654,7 @@ function renderLife(){
   + '</select></div>'
   + '<div class="row"><label>Token 预算</label><input type="number" id="ecoTokenBudget" style="width:120px"><span class="small">tokens</span></div>'
   + '<div class="row"><label>1 元 = </label><input type="number" id="ecoPerYuan" style="width:90px"><span class="small">tokens</span></div>'
-  + '<div class="row"><label>当前</label><span class="small" id="ecoWallet">读取中…</span><button class="btn ghost" onclick="saveEconomyUi()">保存经济</button></div>'
+  + '<div class="row"><label>当前</label><span class="small" id="ecoWallet">读取中…</span><button class="btn ghost" onclick="saveEconomyUi(this)">保存经济</button></div>'
   + '<div class="hint">交通/吃饭/娱乐都花她的钱；她可以用 spend_money 工具自己买电影票、游戏等，钱不够会被拒绝</div></div>'
   + '<div class="card"><h2>天气表现 <span class="tag">可上传图片/GIF/视频</span></h2><div id="weatherFxList"><div class="small">读取中…</div></div>'
   + '<div class="hint">不传就用内置 canvas 粒子；上传后该天气在地图/舞台/3D 上换成你的素材</div></div>'
@@ -631,23 +682,30 @@ async function loadEconomyUi(){
       : '虚拟余额 ' + (w.spendable !== undefined ? w.spendable : '-') + ' 元 · Token 已用 ' + Number(w.usedTokens || 0).toLocaleString();
   } catch (err) { DATA_LOADED.economy = false; }
 }
-async function saveEconomyUi(){
+async function saveEconomyUi(btn){
   if (!DATA_LOADED.economy) { toast('经济配置读取失败，先刷新再保存'); return; }
-  const body = {
-    enabled: document.getElementById('ecoEnabled').checked,
-    initialBalance: Number(document.getElementById('ecoInitial').value),
-    dailyIncome: Number(document.getElementById('ecoDaily').value),
-    wagePerHour: Number(document.getElementById('ecoWage').value),
-    mealCost: Number(document.getElementById('ecoMeal').value),
-    entertainmentCost: Number(document.getElementById('ecoEnt').value),
-    moneyType: document.getElementById('ecoMoneyType').value,
-    tokenBudget: Number(document.getElementById('ecoTokenBudget').value),
-    tokensPerYuan: Number(document.getElementById('ecoPerYuan').value),
-  };
+  const initial = numOr('ecoInitial', 200), daily = numOr('ecoDaily', 20), wage = numOr('ecoWage', 15);
+  const meal = numOr('ecoMeal', 12), ent = numOr('ecoEnt', 30), budget = numOr('ecoTokenBudget', 2000000), perYuan = numOr('ecoPerYuan', 1000);
+  for (const [v, label] of [[initial, '初始余额'], [daily, '每日零花钱'], [wage, '时薪'], [meal, '吃饭开销'], [ent, '娱乐开销'], [budget, 'Token 预算'], [perYuan, '1 元 token 数']]) {
+    if (!Number.isFinite(v) || v < 0) { toast(label + '需为不小于 0 的数字'); return; }
+  }
+  const done = busyBtn(btn);
+  if (!done) return;
   try {
+    const body = {
+      enabled: document.getElementById('ecoEnabled').checked,
+      initialBalance: initial,
+      dailyIncome: daily,
+      wagePerHour: wage,
+      mealCost: meal,
+      entertainmentCost: ent,
+      moneyType: document.getElementById('ecoMoneyType').value,
+      tokenBudget: budget,
+      tokensPerYuan: perYuan,
+    };
     const r = await saveJson('/api/economy', body);
-    if (r && r.ok) { toast('经济设置已保存'); loadEconomyUi(); }
-  } catch (e) {}
+    if (r && r.ok) { markSaved(); toast('经济设置已保存'); loadEconomyUi(); }
+  } catch (e) {} finally { done(); }
 }
 const WX_ROWS = [
   ['sunny', '☀️ 晴天'], ['cloudy', '☁️ 多云'], ['rain', '🌧️ 下雨'], ['snow', '❄️ 下雪'],
@@ -709,23 +767,29 @@ function addSchedule(){
   if(!time || !label){ toast('时间、内容都要填'); return; }
   LIFE.schedules = LIFE.schedules || [];
   LIFE.schedules.push({ time, label, days: '每天' });
-  renderLife();
+  markDirty(); renderLife();
 }
-function delSchedule(i){ LIFE.schedules.splice(i,1); renderLife(); }
+async function delSchedule(i){
+  if (!(await uiConfirm('删除这条作息？', '删除作息'))) return;
+  LIFE.schedules.splice(i,1); markDirty(); renderLife();
+}
 async function editSchedule(i){
   const s = LIFE.schedules[i];
   const time = await uiPrompt('时间（如 07:20 或 21:00-22:00）', s.time, '编辑作息'); if(time===null) return;
   const label = await uiPrompt('做什么', s.label, '编辑作息'); if(label===null) return;
   const days = await uiPrompt('频率（每天/工作日/周末）', s.days||'每天', '编辑作息') || '每天';
-  LIFE.schedules[i] = { time, label, days }; renderLife();
+  LIFE.schedules[i] = { time, label, days }; markDirty(); renderLife();
 }
 function addActivity(){
   const name = $('#aName').value.trim(); if(!name){ toast('填活动名'); return; }
   LIFE.activities = LIFE.activities || [];
   LIFE.activities.push({ name, window: '', weight: 20, minMin: 5, maxMin: 20 });
-  renderLife();
+  markDirty(); renderLife();
 }
-function delActivity(i){ LIFE.activities.splice(i,1); renderLife(); }
+async function delActivity(i){
+  if (!(await uiConfirm('删除这个活动？', '删除活动'))) return;
+  LIFE.activities.splice(i,1); markDirty(); renderLife();
+}
 async function editActivity(i){
   const a = LIFE.activities[i];
   const name = await uiPrompt('活动名', a.name, '编辑活动'); if(name===null) return;
@@ -734,28 +798,41 @@ async function editActivity(i){
   const maxMin = await uiPrompt('最长几分钟', String(a.maxMin||20), '编辑活动'); if(maxMin===null) return;
   const win = await uiPrompt('限定时间段（留空=空闲随时），如 22:00-01:30', a.window||'', '编辑活动');
   LIFE.activities[i] = { name, window: (win||'').trim(), weight: Number(weight)||10, minMin: Number(minMin)||5, maxMin: Number(maxMin)||20 };
-  renderLife();
+  markDirty(); renderLife();
 }
 async function toggleActivityWindow(i){
   const a = LIFE.activities[i];
   const win = await uiPrompt('限定时间段（留空=空闲随时），如 22:00-01:30', a.window||'', '活动时段');
   if(win===null) return;
-  a.window = win.trim(); renderLife();
+  a.window = win.trim(); markDirty(); renderLife();
 }
-async function saveLife(){
-  LIFE.heartbeatMin = Number($('#hbMin').value)||45;
-  LIFE.proactive = Number($('#proactive').value)||0;
-  LIFE.enabled = $('#lifeEnabled').checked;
-  LIFE.smartLife = $('#smartLife').checked;
-  LIFE.quietStart = Number($('#qStart').value)||2;
-  LIFE.quietEnd = Number($('#qEnd').value)||7;
-  LIFE.diaryHour = Number($('#diaryHour').value)||22;
-  LIFE.diaryAuto = $('#diaryAuto').checked;
-  LIFE.proactiveEnabled = $('#proEnabled') ? $('#proEnabled').checked : false;
-  LIFE.proactiveMinMin = Number(($('#proMin')||{}).value)||30;
-  LIFE.proactiveMaxMin = Number(($('#proMax')||{}).value)||90;
-  const r = await saveJson('/api/life', LIFE);
-  if(r.ok){ LIFE = r.life; toast('已保存'); }
+async function saveLife(btn){
+  if (!DATA_LOADED.life || !LIFE) { toast('生活配置读取失败，先刷新再保存'); return; }
+  // 空串按默认值处理，非法值直接拦下（不提交 0）
+  const hb = numOr('hbMin', 45), pMin = numOr('proMin', 30), pMax = numOr('proMax', 90);
+  const qS = numOr('qStart', 2), qE = numOr('qEnd', 7), dHour = numOr('diaryHour', 22);
+  if (!inRange(hb, 5, 180)) { toast('空闲心跳需在 5–180 分钟之间'); return; }
+  if (!inRange(pMin, 5, 1440) || !inRange(pMax, 5, 1440)) { toast('主动消息间隔需在 5–1440 分钟之间'); return; }
+  if (pMin > pMax) { toast('主动消息：最小间隔不能大于最大间隔'); return; }
+  if (!inRange(qS, 0, 23) || !inRange(qE, 0, 23)) { toast('安静时段需在 0–23 时之间'); return; }
+  if (!inRange(dHour, 0, 23)) { toast('写日记时间需在 0–23 时之间'); return; }
+  const done = busyBtn(btn);
+  if (!done) return;
+  try {
+    LIFE.heartbeatMin = hb;
+    LIFE.proactive = Number($('#proactive').value)||0;
+    LIFE.enabled = $('#lifeEnabled').checked;
+    LIFE.smartLife = $('#smartLife').checked;
+    LIFE.quietStart = qS;
+    LIFE.quietEnd = qE;
+    LIFE.diaryHour = dHour;
+    LIFE.diaryAuto = $('#diaryAuto').checked;
+    LIFE.proactiveEnabled = $('#proEnabled') ? $('#proEnabled').checked : false;
+    LIFE.proactiveMinMin = pMin;
+    LIFE.proactiveMaxMin = pMax;
+    const r = await saveJson('/api/life', LIFE);
+    if(r.ok){ LIFE = r.life; markSaved(); toast('已保存'); }
+  } catch (e) {} finally { done(); }
 }
 async function loadLifeNow(){
   try {
@@ -776,10 +853,12 @@ let MAPDATA = null;
 let MAPPLACES = [];
 let MAPSCHEDULES = [];
 async function renderMap(){
-  $('#topAction').innerHTML = '<button class="btn primary" onclick="saveMap()">保存地图</button>';
+  $('#topAction').innerHTML = '<button class="btn primary" onclick="saveMap(this)">保存地图</button>';
+  DATA_LOADED.map = false;
   let data;
   try { data = await api('/api/map'); } catch(e) { $('#body').innerHTML = '<div class="small">地图加载失败：'+esc(e.message)+'</div>'; return; }
   MAPDATA = data.map; MAPPLACES = data.map.places.map(p => ({...p})); MAPSCHEDULES = data.schedules || [];
+  DATA_LOADED.map = true;
   window._mapCurrent = data.current;
   $('#body').innerHTML = '<div class="wrap"><div class="col">'
     + '<div class="card"><h2>小鱼镇 · 地图 <span class="tag">拖动图钉调整位置；点「保存地图」生效</span></h2>'
@@ -838,7 +917,7 @@ function renderPins(){
         p.x = x; p.y = y;
         el.style.left = (x*100)+'%'; el.style.top = (y*100)+'%';
       };
-      const up = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); };
+      const up = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); markDirty(); };
       document.addEventListener('pointermove', move);
       document.addEventListener('pointerup', up);
     });
@@ -869,24 +948,35 @@ function addPlace(){
   if (!name) return;
   MAPPLACES.push({ id: 'p-' + Date.now().toString(36), name, icon: '📍', x: 0.5, y: 0.5, desc: '' });
   if (inp) inp.value = '';
-  renderPlaceList(); renderSchedList(); renderPins();
+  markDirty(); renderPlaceList(); renderSchedList(); renderPins();
 }
 function delPlace(i){
   MAPPLACES.splice(i, 1);
-  renderPlaceList(); renderSchedList(); renderPins();
+  markDirty(); renderPlaceList(); renderSchedList(); renderPins();
 }
-async function saveMap(){
-  const r = await saveJson('/api/map', { name: MAPDATA.name, places: MAPPLACES, schedules: MAPSCHEDULES.map((s, i) => ({ index: s.index !== undefined ? s.index : i, place: s.place })) });
-  if (r.ok) { toast('地图已保存'); window._mapCurrent = r.current; renderMap(); }
+async function saveMap(btn){
+  if (!DATA_LOADED.map || !MAPDATA) { toast('地图读取失败，先刷新再保存'); return; }
+  const done = busyBtn(btn);
+  if (!done) return;
+  try {
+    const r = await saveJson('/api/map', { name: MAPDATA.name, places: MAPPLACES, schedules: MAPSCHEDULES.map((s, i) => ({ index: s.index !== undefined ? s.index : i, place: s.place })) });
+    if (r.ok) { markSaved(); toast('地图已保存'); window._mapCurrent = r.current; renderMap(); }
+  } catch (e) {} finally { done(); }
 }
 async function renderMemory(){
-  MEM = await api('/api/memory');
+  DATA_LOADED.memory = false;
+  try { MEM = await api('/api/memory'); DATA_LOADED.memory = true; }
+  catch (e) {
+    $('#topAction').innerHTML = '';
+    $('#body').innerHTML = '<div class="small">记忆读取失败：' + esc(e.message) + '</div>';
+    return;
+  }
   const st = MEM.stats || {};
   const facts = MEM.facts || [];
   const core = facts.filter(f=>f.pinned||(f.strength||0)>=0.85);
   const normal = facts.filter(f=>!core.includes(f));
   const params = MEM.params || {};
-  $('#topAction').innerHTML = '<button class="btn" onclick="renderMemory(true)">刷新</button> <button class="btn ghost" onclick="document.getElementById(\'memImportFile\').click()">导入记忆</button> <button class="btn primary" onclick="saveMemParams()">保存参数</button><input type="file" id="memImportFile" accept=".txt,.md,.json,.jsonl" style="display:none" onchange="importMemoryFile(this)">';
+  $('#topAction').innerHTML = '<button class="btn" onclick="renderMemory(true)">刷新</button> <button class="btn ghost" onclick="document.getElementById(\'memImportFile\').click()">导入记忆</button> <button class="btn primary" onclick="saveMemParams(this)">保存参数</button><input type="file" id="memImportFile" accept=".txt,.md,.json,.jsonl" style="display:none" onchange="importMemoryFile(this)">';
   $('#body').innerHTML = '<div class="wrap"><div class="col">'
   + '<div class="stat">'
   + '<div class="s"><div class="n">'+(st.live??0)+'</div><div class="l">活着的记忆</div></div>'
@@ -932,16 +1022,26 @@ function factRow(f){
 }
 async function pinFact(id){ await saveJson('/api/memory/pin', {id}); renderMemory(true); }
 async function delFact(id){ if(!(await uiConfirm('确定删掉这条记忆？'))) return; await saveJson('/api/memory/delete', {id}); renderMemory(true); }
-async function saveMemParams(){
-  const params = { halfLifeDays: Number($('#mHalf').value), forgetThreshold: Number($('#mThr').value), reinforceBoost: Number($('#mBoost').value), maxInjected: Number($('#mMax').value) };
-  const r = await saveJson('/api/memory/params', params);
-  if(r.ok){ toast('参数已保存'); }
+async function saveMemParams(btn){
+  if (!DATA_LOADED.memory) { toast('记忆配置读取失败，先刷新再保存'); return; }
+  const half = numOr('mHalf', 5), thr = numOr('mThr', 0.12), boost = numOr('mBoost', 0.22), max = numOr('mMax', 8);
+  if (!inRange(half, 1, 365)) { toast('半衰期需在 1–365 天之间'); return; }
+  if (!inRange(thr, 0.01, 0.99)) { toast('遗忘阈值需在 0.01–0.99 之间'); return; }
+  if (!inRange(boost, 0, 1)) { toast('提到强化需在 0–1 之间'); return; }
+  if (!inRange(max, 1, 50)) { toast('每轮注入需在 1–50 条之间'); return; }
+  const done = busyBtn(btn);
+  if (!done) return;
+  try {
+    const r = await saveJson('/api/memory/params', { halfLifeDays: half, forgetThreshold: thr, reinforceBoost: boost, maxInjected: max });
+    if(r && r.ok){ markSaved(); toast('参数已保存'); }
+  } catch (e) {} finally { done(); }
 }
 
 async function importMemoryFile(input){
   const f = input.files && input.files[0];
   if (!f) return;
   if (f.size > 2 * 1024 * 1024) { toast('文件太大，建议小于 2MB'); input.value = ''; return; }
+  if (!(await uiConfirm('导入记忆文件？会拆句、去重并合并到现有记忆：' + f.name, '导入记忆'))) { input.value = ''; return; }
   try {
     const text = await f.text();
     const r = await saveJson('/api/memory/import', { text, importance: 0.5 });
@@ -958,9 +1058,11 @@ async function importMemoryFile(input){
 }
 
 async function loadDiary(){
-  const r = await api('/api/diary');
-  const dates = r.dates || [];
-  $('#diaryBox').innerHTML = dates.length ? '共 '+dates.length+' 篇，最近：'+dates[0] : '还没有日记';
+  try {
+    const r = await api('/api/diary');
+    const dates = r.dates || [];
+    $('#diaryBox').innerHTML = dates.length ? '共 '+dates.length+' 篇，最近：'+dates[0] : '还没有日记';
+  } catch (e) { const box = $('#diaryBox'); if (box) box.textContent = '日记读取失败'; }
 }
 async function showDiaryList(){
   try {
@@ -992,7 +1094,7 @@ async function manageArchived(){
 
 // ================= 环境/模型/数据 =================
 async function renderEnv(renderOnly){
-  $('#topAction').innerHTML = '<button class="btn primary" onclick="saveEnv()">保存</button>';
+  $('#topAction').innerHTML = '<button class="btn primary" onclick="saveEnv(this)">保存</button>';
   const inChat = ((window._mode||{}).effective === 'chat');
   let env = window._env || { pc: 'gui', space: 'gui', phone: 'gui', confirmDanger: true };
   let res = window._res || { space: false, phone: false, mem: [] };
@@ -1062,7 +1164,14 @@ async function renderEnv(renderOnly){
     + '</div></div>';
 }
 // 只更新本地状态并重绘选中态；renderOnly=true 不会重新 GET 覆盖掉刚点的选择
-function setPerm(k, v){ window._env[k] = v; renderEnv(true); }
+async function setPerm(k, v){
+  if (v === 'off' || v === 'code') {
+    const target = ({ pc: '用户的电脑', space: '她的屏幕', phone: '她的手机' })[k] || k;
+    const desc = v === 'off' ? '关闭（她就不能再看/用这个环境）' : '代码控制（危险：可直接执行命令、读写文件）';
+    if (!(await uiConfirm('把「' + target + '」设为' + desc + '？保存后生效。', '修改权限'))) return;
+  }
+  window._env[k] = v; markDirty(); renderEnv(true);
+}
 async function toggleWatchScreen(){
   const next = !(window._watch && window._watch.enabled);
   try {
@@ -1071,18 +1180,23 @@ async function toggleWatchScreen(){
     else toast('保存失败');
   } catch(e){ toast('保存失败'); }
 }
-async function saveEnv(){
+async function saveEnv(btn){
   if (!DATA_LOADED.env) { toast('配置读取失败，先刷新再保存'); return; }
-  const env = {
-    pc: window._env.pc, space: window._env.space, phone: window._env.phone,
-    confirmDanger: document.getElementById('confirmDanger').checked,
-  };
-  const r = await saveJson('/api/env', env);
-  if(r.ok){ toast('权限已保存'); renderEnv(); }
+  const done = busyBtn(btn);
+  if (!done) return;
+  try {
+    const env = {
+      pc: window._env.pc, space: window._env.space, phone: window._env.phone,
+      confirmDanger: document.getElementById('confirmDanger').checked,
+    };
+    const r = await saveJson('/api/env', env);
+    if(r.ok){ markSaved(); toast('权限已保存'); renderEnv(); }
+  } catch (e) {} finally { done(); }
 }
 async function renderModel(){
-  $('#topAction').innerHTML = '<button class="btn primary" onclick="saveModel()">保存</button>';
+  $('#topAction').innerHTML = '<button class="btn primary" onclick="saveModel(this)">保存</button>';
   DATA_LOADED.model = false;
+  DATA_LOADED.image = false;
   let m = { name: 'deepseek-flash', reasoningEffort: 'low', temperature: 0.9, maxTokens: 900 };
   let usage = null;
   try { const r = await api('/api/model'); m = r.model || m; usage = r.usage; DATA_LOADED.model = true; } catch(e){}
@@ -1099,7 +1213,7 @@ async function renderModel(){
   window._ctx = CTX;
   window._model = m;
   let IMG = { provider: 'seedream', baseURL: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-seedream-5-0-pro-260628', size: '1024x1024', apiKeySet: false };
-  try { IMG = (await api('/api/image/config')).config || IMG; } catch(e){}
+  try { IMG = (await api('/api/image/config')).config || IMG; DATA_LOADED.image = true; } catch(e){}
   window._img = IMG;
   const levels = [
     { v: 'low', t: '低', d: '日常聊天够用，最省 token（推荐）' },
@@ -1122,14 +1236,14 @@ async function renderModel(){
     + '<div class="row"><label>工具循环上限</label><input type="number" id="mSteps" min="4" max="60" value="'+(m.maxSteps||20)+'" style="width:90px"><span class="small">步（她一次最多能连续调几次工具）</span></div>'
     + '</div>'
     + '<div class="card"><h2>DeepSeek API Key <span class="tag">独立运行 / 没装 DSH 时填这里</span></h2>'
-    + '<div class="row"><label>API Key</label><input type="password" id="apiKeyInput" placeholder="sk-...（只保存在本机数据目录）" style="flex:1"><button class="btn sm primary" onclick="saveApiKey()">保存</button></div>'
-    + '<div class="hint">当前：'+(SETUP && SETUP.apiKeyOk ? '已配置' : '未配置')+' · 纯聊天独立运行需要；DSH 环境下会自动读取 DSH 的 Key，通常不用填。</div></div>'
+    + '<div class="row"><label>API Key</label><input type="password" id="apiKeyInput" placeholder="sk-...（只保存在本机数据目录）" style="flex:1"><button class="btn sm primary" onclick="saveApiKey(this)">保存</button></div>'
+    + '<div class="hint" id="apiKeyHint">当前：'+(SETUP && SETUP.apiKeyOk ? '已配置' : '未配置')+' · 纯聊天独立运行需要；DSH 环境下会自动读取 DSH 的 Key，通常不用填。</div></div>'
     + '<div class="card"><h2>🖼️ 图片反馈 <span class="tag">她会在聊天里发图</span></h2>'
-    + '<div class="row"><label>服务</label><select id="imgProvider" style="flex:1"><option value="seedream"'+(IMG.provider==='seedream'?' selected':'')+'>火山 Seedream</option><option value="openai-compat"'+(IMG.provider==='openai-compat'?' selected':'')+'>OpenAI 兼容</option><option value="http"'+(IMG.provider==='http'?' selected':'')+'>自定义 HTTP</option></select></div>'
+    + '<div class="row"><label>服务</label><select id="imgProvider" style="flex:1" onchange="onImgProviderChange(this)"><option value="seedream"'+(IMG.provider==='seedream'?' selected':'')+'>火山 Seedream</option><option value="openai-compat"'+(IMG.provider==='openai-compat'?' selected':'')+'>OpenAI 兼容</option><option value="http"'+(IMG.provider==='http'?' selected':'')+'>自定义 HTTP</option></select></div>'
     + '<div class="row"><label>Base URL</label><input type="text" id="imgBase" value="'+esc(IMG.baseURL||'')+'" style="flex:1"></div>'
     + '<div class="row"><label>模型</label><input type="text" id="imgModel" value="'+esc(IMG.model||'')+'" style="flex:1"></div>'
-    + '<div class="row"><label>尺寸</label><input type="text" id="imgSize" value="'+esc(IMG.size||'1024x1024')+'" style="width:140px"><span class="small">如 1024x1024</span></div>'
-    + '<div class="row"><label>API Key</label><input type="password" id="imgKey" placeholder="填入后保存；已配置可留空" style="flex:1"><button class="btn sm primary" onclick="saveImageCfg()">保存</button></div>'
+    + '<div class="row"><label>尺寸</label><input type="text" id="imgSize" value="'+esc(IMG.size||'1024x1024')+'" style="width:140px"><span class="small">宽x高，如 1024x1024</span></div>'
+    + '<div class="row"><label>API Key</label><input type="password" id="imgKey" placeholder="填入后保存；已配置可留空" style="flex:1"><button class="btn sm primary" onclick="saveImageCfg(this)">保存</button></div>'
     + '<div class="row"><label>生图开关</label><span class="small" style="flex:1">关闭时完全不会调用生图 API，不花钱</span><button class="btn '+(IMG.enabled?'primary':'ghost')+'" onclick="setImageEnabled()">'+(IMG.enabled?'已开启':'已关闭')+'</button></div>'
     + '<div class="hint">当前：'+(IMG.apiKeySet?'已配置':'未配置')+' · 开启后她可以用 send_image 发图；自定义 HTTP 需返回 data[0].b64_json 或 data[0].url。</div></div>'
     + '<div class="card"><h2>模型兼容性</h2><div class="small">只验证过 DeepSeek 模型（默认 deepseek-flash）。换其它 OpenAI 兼容模型时，工具循环、reasoning_content 回传可能不兼容，这部分不做适配。</div></div>'
@@ -1178,7 +1292,7 @@ async function setSaving(key){
   renderModel();
 }
 async function setImageEnabled(){
-  if (!DATA_LOADED.model) { toast('配置读取失败，先刷新再保存'); return; }
+  if (!DATA_LOADED.image) { toast('图片配置读取失败，先刷新再保存'); return; }
   const cur = (window._img && window._img.enabled) || false;
   try {
     const r = await saveJson('/api/image/config', { enabled: !cur });
@@ -1186,30 +1300,44 @@ async function setImageEnabled(){
   } catch (e) {}
 }
 
-async function saveImageCfg(){
-  if (!DATA_LOADED.model) { toast('配置读取失败，先刷新再保存'); return; }
-  const body = { provider: document.getElementById('imgProvider').value, baseURL: document.getElementById('imgBase').value, model: document.getElementById('imgModel').value, size: document.getElementById('imgSize').value };
+// 切换生图服务时提醒需要重新填 Key（旧 Key 可能对新服务无效）
+function onImgProviderChange(sel){
+  const old = (window._img && window._img.provider) || '';
+  if (sel && sel.value !== old) toast('切换服务后需要重新填 Key，再点「保存」');
+  markDirty();
+}
+async function saveImageCfg(btn){
+  if (!DATA_LOADED.image) { toast('图片配置读取失败，先刷新再保存'); return; }
+  let size = (document.getElementById('imgSize').value || '').trim();
+  if (!size) size = '1024x1024';
+  if (!/^\d{2,5}x\d{2,5}$/.test(size)) { toast('尺寸格式应为 宽x高，如 1024x1024'); return; }
+  const body = { provider: document.getElementById('imgProvider').value, baseURL: document.getElementById('imgBase').value, model: document.getElementById('imgModel').value, size };
   const key = document.getElementById('imgKey').value.trim();
   if (key) body.apiKey = key;
+  const done = busyBtn(btn);
+  if (!done) return;
   try {
     const r = await saveJson('/api/image/config', body);
     if (r && r.ok) { toast('图片反馈已保存'); renderModel(); }
-  } catch (e) {}
+  } catch (e) {} finally { done(); }
 }
 
-async function saveModel(){
+async function saveModel(btn){
   if (!DATA_LOADED.model) { toast('配置读取失败，先刷新再保存'); return; }
-  const body = {
-    name: document.getElementById('mName').value,
-    reasoningEffort: window._model.reasoningEffort,
-    temperature: Number(document.getElementById('mTemp').value),
-    maxTokens: Number(document.getElementById('mMaxTok').value),
-    maxSteps: Number(document.getElementById('mSteps').value),
-  };
+  const name = (document.getElementById('mName').value || '').trim();
+  const temp = numOr('mTemp', (window._model && window._model.temperature) || 0.9);
+  const maxTok = numOr('mMaxTok', (window._model && window._model.maxTokens) || 900);
+  const steps = numOr('mSteps', (window._model && window._model.maxSteps) || 20);
+  if (!name) { toast('模型名不能为空'); return; }
+  if (!inRange(temp, 0, 1.5)) { toast('温度需在 0–1.5 之间'); return; }
+  if (!inRange(maxTok, 200, 8000)) { toast('单轮输出上限需在 200–8000 tokens 之间'); return; }
+  if (!inRange(steps, 4, 60)) { toast('工具循环上限需在 4–60 步之间'); return; }
+  const done = busyBtn(btn);
+  if (!done) return;
   try {
-    const r = await saveJson('/api/model', body);
-    if(r.ok){ toast('模型设置已保存'); renderModel(); }
-  } catch (e) {}
+    const r = await saveJson('/api/model', { name, reasoningEffort: window._model.reasoningEffort, temperature: temp, maxTokens: maxTok, maxSteps: steps });
+    if(r.ok){ markSaved(); toast('模型设置已保存'); renderModel(); }
+  } catch (e) {} finally { done(); }
 }
 async function renderTutorial(){
   $('#topAction').innerHTML = '<button class="btn" onclick="location.hash=\'env\'">回到环境</button>';
@@ -1263,9 +1391,13 @@ async function renderTutorial(){
     if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
   }));
 }
-async function doBackup(){
+async function doBackup(btn){
+  if (!(await uiConfirm('现在备份数据目录？会写到数据目录下的 backups。', '立即备份'))) return;
+  const done = busyBtn(btn, '备份中…');
+  if (!done) return;
   try { const r = await api('/api/backup', { method: 'POST' }); toast(r.message || '正在备份'); }
-  catch(e){ toast('备份失败'); }
+  catch(e){ toast('备份失败：' + ((e && e.message) || '')); }
+  finally { done(); }
 }
 async function renderData(){
   $('#topAction').innerHTML = '';
@@ -1279,7 +1411,7 @@ async function renderData(){
   + '<div class="row"><label>记忆/日记/聊天</label><input type="text" value="'+esc(dp('data'))+'" disabled></div>'
   + '</div>'
   + '<div class="card"><h2>备份</h2><div class="small">导出把数据目录打包成 zip；导入覆盖恢复。系统每天凌晨 4 点后会自动备份一次。<br>备份/恢复也可以双击插件 scripts 目录里的 <b>backup.cmd</b> / <b>restore.cmd</b>，已使用 ExecutionPolicy Bypass，不需要你改系统执行策略。</div>'
-  + '<div class="row"><button class="btn primary" onclick="doBackup()">立即备份</button><span class="hint" style="flex:1;margin-left:8px">备份到数据目录下的 backups</span></div><button class="btn ghost" style="margin-top:8px" onclick="doBackup()">备份到数据目录</button></div>'
+  + '<div class="row"><button class="btn primary" onclick="doBackup(this)">立即备份</button><span class="hint" style="flex:1;margin-left:8px">备份到数据目录下的 backups</span></div><button class="btn ghost" style="margin-top:8px" onclick="doBackup(this)">备份到数据目录</button></div>'
   + '</div><div class="col side2"><div class="card"><h2>版本</h2><div class="small"><span class="verText">' + esc(APP_VERSION ? 'v' + APP_VERSION : 'v0.7.13') + '</span> · 本地运行时</div></div></div></div>';
 }
 
@@ -1322,6 +1454,14 @@ async function loadVersion(){
 // ================= router =================
 async function go(tab){
   if (!TABS[tab]) tab = Object.keys(TABS)[0]; // 非法 hash（手改 URL/旧书签）回落到第一个 tab，避免读 undefined.title 崩掉
+  if (tab !== currentTab && _dirty) {
+    if (!(await uiConfirm('有未保存的修改，确定离开吗？', '未保存的修改'))) {
+      _suppressGo = true;
+      location.hash = currentTab;
+      return;
+    }
+    _dirty = false;
+  }
   currentTab = tab;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on', a.dataset.tab===tab));
   $('#tabTitle').textContent = TABS[tab].title;
@@ -1367,7 +1507,20 @@ async function setMode(m){
   if(r.ok){ window._mode = { override: r.override, detected: r.detected, effective: r.effective }; toast(m==='auto'?'已设为自动检测':(m==='chat'?'已强制纯聊天':'已强制完整版')); go(currentTab); }
 }
 document.querySelectorAll('.nav a').forEach(a=>a.onclick = () => { location.hash = a.dataset.tab; });
-window.addEventListener('hashchange', () => go((location.hash||'#role').slice(1)));
+window.addEventListener('hashchange', () => {
+  if (_suppressGo) { _suppressGo = false; return; }
+  go((location.hash||'#role').slice(1));
+});
+// 脏检查：输入/勾选/下拉/地图拖拽/增删都算未保存；只用于「添加」按钮的临时输入框不单独标记
+function onDirtyInput(e){
+  const t = e.target;
+  if (!t || !t.closest || !t.closest('#body')) return;
+  if (t.type === 'file' || t.id === 'tutSearch' || t.id === 'previewIn' || t.id === 'newExample' || t.id === 'newTrait' || t.id === 'sTime' || t.id === 'sLabel' || t.id === 'aName' || t.id === 'newPlaceName') return;
+  markDirty();
+}
+document.addEventListener('input', onDirtyInput, true);
+document.addEventListener('change', onDirtyInput, true);
+window.addEventListener('beforeunload', (e) => { if (_dirty) { e.preventDefault(); e.returnValue = ''; } });
 loadUiTheme();
 go((location.hash||'#role').slice(1)).then(() => loadVersion());
 </script></body></html>

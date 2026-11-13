@@ -17,24 +17,25 @@
 
 | 项目 | 状态 |
 |---|---|
-| 源码版本 | **0.7.15** |
+| 源码版本 | **0.7.16** |
 | Git main | `de31dd8` |
-| Git tag | `v0.7.15` |
-| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.15` |
-| npm latest | **0.7.15**（提交后需等 npm 审核可见） |
+| Git tag | `v0.7.16` |
+| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.16` |
+| npm latest | **0.7.16**（提交后需等 npm 审核可见） |
 | npm 0.7.13 | 已上线 |
-| npm 0.7.14 | 审核中（含金额显示 bug，勿用；已被 0.7.15 取代） |
+| npm 0.7.14 | 已上线但有金额显示 bug（勿用，等 0.7.16） |
+| npm 0.7.15 | 审核中 |
 | 发布产物 | `F:\屏幕彼端\发布产物\` |
 | 最新备份 | 见 `D:\dsh-companion\backups\` 最新 `backup-*.zip` |
 | 当前运行服务 | `http://127.0.0.1:8900` |
 
-> 2026-11-13：审查修复已随 **0.7.15** 发布（npm 审核中 / GitHub Release 已建），摘要见 §8.4，完整清单见 `docs/FIXES-2026-11-13.md`。
+> 2026-11-13：第二轮全量修复随 **0.7.16** 提交（npm 审核中 / GitHub Release 已建），摘要见 §8.6，完整清单见 `docs/FIXES-2026-11-13.md`。
 
 ### 产物
 
-- `dsh-screen-beyond-0.7.15.tgz`
-- `dsh-screen-beyond-0.7.15.zip`
-- `RELEASE-0.7.15.md`
+- `dsh-screen-beyond-0.7.16.tgz`
+- `dsh-screen-beyond-0.7.16.zip`
+- `RELEASE-0.7.16.md`
 - 源码目录已初始化 git，工作区干净
 
 ### 发布注意
@@ -45,6 +46,7 @@
 - Git 凭据由 Windows Git Credential Manager 管理，不要写明文密码或 token。
 - `0.7.14` 为 2026-11-13 审查修复版：安全（Origin 校验/路径穿越）、稳定性（运行时版本校验/生活模拟/桌宠）、前端与备份恢复修复，详见 `docs/FIXES-2026-11-13.md`。
 - `0.7.15` 修复 `0.7.14` 的每日收入 `const` 赋值崩溃（经济/桌宠金额异常），并让插件在版本不一致时能自愈重启旧运行时。
+- `0.7.16` 第二轮全量修复：账目（全局 token 账本/集中记账/换 Key 重置）、安全（Host/Sec-Fetch-Site/CSP、按键白名单）、稳定（回合取消/看门狗/上下文预算/异常兜底/sync 轮转）、设置-地图-舞台-看屏幕体验、VM 聊天功能补齐；详见 §8.6。
 - **npm 新版本需要平台审核**：`publish` 返回成功不代表立即可见，`npm view` 暂看不到 latest 属正常，不要重复重发同一版本（等审核或发新版本号）。
 
 ---
@@ -505,7 +507,20 @@ ID：
 ### 8.5 仍未处理
 
 设置页脏检查重构、map 道路草稿/编辑器坐标基准/未保存覆盖、model WebGL 兜底与相机自适应、VM 聊天图片发送、`confirmDanger` 白名单化、API 一次性 token、`image-api-key.txt` 明文迁 DPAPI、`events.jsonl` 轮转；`runtime/assets/pet/xiaojing|xiaoke-*` 旧资源仍按角色名命名（代码已能回退）。
-## 9. 接下来计划
+### 8.6 2026-11-13 第二轮全量修复（0.7.16）
+
+> 完整清单与验证证据见 `docs/FIXES-2026-11-13.md` 第十节。
+
+| 分类 | 修复内容 |
+|---|---|
+| 账目 | token 用量改为全局账本 `data/token-usage.json`（切角色一致）；所有模型调用集中记账（此前生活/日记/记忆/VM 视觉不记）；换 API Key 重置"今日消耗"基准；金额文案区分真实余额/今日约/虚拟零花 |
+| 安全 | Host 头与 DNS rebinding、`Sec-Fetch-Site: cross-site` 拒绝、CSP `frame-ancestors`；`space` 按键白名单（服务端+脚本层 shlex）；危险命令黑名单扩充；`avatar.png?c=` 白名单 |
+| 稳定 | `/api/chat` 回合总超时（5min）+ `/api/chat/cancel` + typing 看门狗；说话中禁止切角色（409）；上下文图片最多 4 张/24MB；进程级异常兜底；`sync/events.jsonl` 8MB 轮转；economy/vm-chat-status/stage-stream 缓存 |
+| 体验 | 设置页脏检查/危险确认/读失败禁存/数字校验/按钮防重入；地图保存 roads/脏标记/场景节流/隐藏暂停/坐标 3:2；舞台 WebGL 兜底/包围盒/双指缩放；看屏幕手机页签真图、启动轮询 90s、pc 截图内核缺失时兜底；桌宠高 DPI 不回屏外 |
+| VM 聊天 | 联系人白名单、未读扫描、图片发送（SFTP+剪贴板）、应用健康守护、发送后校验、登录提示、SSH 密码 `DSH_COMPANION_SSH_PASS` 可配 |
+| 工程 | `package.json` engines/`npm run check`；ROADMAP 过时说明；数据根旧覆盖源归档 |
+
+**仍未处理（已知限制）**：`api-key.txt`/`image-api-key.txt` 仍是明文（未接 DPAPI）；`config.json` 仍单文件全量写；备份/恢复仍无 UI 入口；`runtime/assets/pet/xiaojing|xiaoke-*` 资源仍按角色名命名（代码已可回退）；端口文件仍是全局单例；VM 聊天发送/图片链路需登录 QQ 后才能真机验证；无 ESLint/自动化测试/CI。## 9. 接下来计划
 
 ### P0：虚拟机聊天闭环
 

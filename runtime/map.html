@@ -127,7 +127,7 @@ input, textarea, select { border-radius: 9px; }
 .worldModal .box .person .pAva{width:24px;height:24px;border-radius:50%;background:#16202b center/cover;display:inline-flex;align-items:center;justify-content:center;font-size:11px;border:1px solid #33465a}
 .worldModal .box .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px}
 #sceneOverlay{position:fixed;inset:0;z-index:50;background:rgba(3,7,12,.86);display:flex;align-items:center;justify-content:center;padding:18px}
-#sceneOverlay .sceneBox{position:relative;width:min(980px,95vw);height:min(700px,88vh);border:1px solid #3a4b5f;border-radius:18px;overflow:hidden;background:#0b1219 center/cover;box-shadow:0 24px 80px rgba(0,0,0,.65)}
+#sceneOverlay .sceneBox{position:relative;width:min(980px,95vw,132vh);aspect-ratio:3/2;height:auto;border:1px solid #3a4b5f;border-radius:18px;overflow:hidden;background:#0b1219 center/cover;box-shadow:0 24px 80px rgba(0,0,0,.65)}
 #sceneOverlay .sceneTop{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;gap:8px;padding:10px 14px;background:linear-gradient(180deg,rgba(5,9,14,.86),rgba(5,9,14,0));z-index:20}
 #sceneOverlay .sceneTop h3{font-size:15px;margin:0;flex:1;color:#e8eef6;text-shadow:0 2px 8px #000}
 #sceneOverlay .sceneWalkLayer{position:absolute;inset:0;z-index:6;pointer-events:none;display:none}
@@ -345,8 +345,8 @@ window.addEventListener('load', () => {
       <div class="small" style="margin-top:5px">同地图的角色会出现在地图上；点她可切换过去。</div>
     </div>
     <div class="card"><h2>地图设置</h2>
-      <div class="row"><label>地图全宽</label><input type="text" id="widthMeters" placeholder="例如 2000" style="width:90px"><span class="small">米</span></div>
-      <div class="row"><label>交通方式</label><select id="transport"><option value="auto">自动</option><option value="walk">🚶 步行</option><option value="bike">🚲 骑车</option><option value="bus">🚌 公交</option><option value="car">🚗 自驾</option><option value="metro">🚇 地铁</option></select></div>
+      <div class="row"><label>地图全宽</label><input type="text" id="widthMeters" placeholder="例如 2000" style="width:90px" oninput="touchMap()"><span class="small">米</span></div>
+      <div class="row"><label>交通方式</label><select id="transport" onchange="touchMap()"><option value="auto">自动</option><option value="walk">🚶 步行</option><option value="bike">🚲 骑车</option><option value="bus">🚌 公交</option><option value="car">🚗 自驾</option><option value="metro">🚇 地铁</option></select></div>
       <div class="row"><label>天气来源</label><select id="weatherMode" onchange="saveWeatherMode()"><option value="manual">手动选择</option><option value="real">真实天气（按设备定位）</option></select></div>
       <div class="row"><label>场景 AI</label><label class="small" style="display:flex;align-items:center;gap:6px;flex:1"><input type="checkbox" id="sceneAI" onchange="saveSceneAISetting()"> 角色活动用 AI 文案</label></div>
       <div class="row"><label>主动发图</label><input type="range" id="scenePhotoChance" min="0" max="100" step="5" value="25" oninput="document.getElementById('scenePhotoChanceVal').textContent=this.value+'%'" onchange="saveScenePhotoChance()" style="flex:1"><span class="small" id="scenePhotoChanceVal" style="width:40px;text-align:right">25%</span></div>
@@ -418,7 +418,7 @@ window.addEventListener('load', () => {
 <script src="/wx.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
-let DATA = null, PLACES = [], SCHEDULES = [], CURRENT = null, TRANSPORTS = {}, TIMER = null, PALETTE_TARGET = null, CAPS = {}, WEATHERS = {}, ENERGY = 80, ROUTINE = null, RPLACES = [], VISITS = {}, ROADS = [], EDITING_ROADS = false, ROAD_CUR = [], WXFX = {}, WORLD_CHARS = [], LAST_WORLD_LOAD = 0; let CHAR_SPREAD = true;
+let DATA = null, PLACES = [], SCHEDULES = [], CURRENT = null, TRANSPORTS = {}, TIMER = null, PALETTE_TARGET = null, CAPS = {}, WEATHERS = {}, ENERGY = 80, ROUTINE = null, RPLACES = [], VISITS = {}, ROADS = [], EDITING_ROADS = false, ROAD_CUR = [], WXFX = {}, WORLD_CHARS = [], LAST_WORLD_LOAD = 0, MAP_DIRTY = false, ROAD_SAVED_SIG = ''; let CHAR_SPREAD = true;
 window.DSH_SCENE_3D = {
   renderer: null,
   register(fn) { this.renderer = typeof fn === 'function' ? fn : null; },
@@ -432,6 +432,15 @@ function esc(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&
 function toast(t){ const el=$('#toast'); el.textContent=t; el.style.opacity=1; setTimeout(()=>el.style.opacity=0,1600); }
 async function api(path, opts){ const r = await fetch(path, opts); if(!r.ok) throw new Error('HTTP '+r.status); return await r.json(); }
 async function saveJson(path, obj){ return await api(path, {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(obj)}); }
+// ── 未保存修改（脏标记）辅助 ─────────────────────────────
+function touchMap(){ MAP_DIRTY = true; }
+// 道路数据签名：判断草稿/改动是否与上次保存一致
+function roadSig(){ return JSON.stringify(ROADS.map(l => l.map(pt => [Number(pt.x.toFixed(4)), Number(pt.y.toFixed(4))]))); }
+// 有未保存的地图修改时确认；true=继续（会丢弃改动），false=取消
+async function confirmDiscardMapChanges(){
+  if (!MAP_DIRTY) return true;
+  return await uiConfirm('有未保存的地图修改，继续会丢失，确定吗？');
+}
 function fmtDist(m){ return m >= 1000 ? (m/1000).toFixed(2).replace(/0$/,'') + ' km' : Math.round(m)+' m'; }
 function fmtEta(sec){ if (sec < 60) return '不到 1 分钟'; if (sec < 3600) return Math.ceil(sec/60) + ' 分钟'; return Math.floor(sec/3600) + ' 小时 ' + Math.ceil((sec%3600)/60) + ' 分'; }
 function guessIcon(name){
@@ -495,7 +504,8 @@ function placeEl(p, index){
     const up = () => {
       document.removeEventListener('pointermove', move);
       document.removeEventListener('pointerup', up);
-      if (!moved) { try { showPlaceCard(p); } catch (e) {} }
+      if (moved) touchMap();
+      else { try { showPlaceCard(p); } catch (e) {} }
     };
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', up);
@@ -666,6 +676,7 @@ function stopServerSceneSync(){ if (SERVER_SCENE_SYNC) { clearInterval(SERVER_SC
 function startServerSceneSync(d, p){
   stopServerSceneSync();
   const refresh = async () => {
+    if (document.hidden) return; // 页面不可见时不轮询
     if (!document.querySelector('#sceneOverlay')) { stopServerSceneSync(); return; }
     try {
       const r = await api('/api/life/states');
@@ -804,13 +815,27 @@ function openScene(p){
     x: Math.max(0, Math.min(1, (parseFloat(el.style.left) || 50) / 100)),
     y: Math.max(0, Math.min(1, (parseFloat(el.style.top) || 72) / 100)),
   })).filter((x) => x.id);
-  const persistScene = async () => {
+  let lastScenePersistAt = 0;
+  let scenePersistTimer = 0;
+  const persistSceneNow = async () => {
     // 注意：saveMap() 成功后 loadMapData() 会重建 PLACES，闭包里的 p 会变成旧对象。
     // 所以每次保存前按 id 找「当前」地点，把最新 scene 快照写过去，否则第二次之后编辑会丢。
     const cur = PLACES.find((x) => String(x.id) === String(p.id));
     if (!cur || !cur.scene) return;
     cur.scene = { ...(p.scene || cur.scene), characters: collectCharacters(), hotspots: spots };
+    lastScenePersistAt = Date.now();
     try { await saveMap(); } catch (e) {}
+  };
+  // 节流：场景内自动行为/拖动每秒都可能触发保存，8 秒内最多写一次；关闭面板时会立即补存
+  const persistScene = async () => {
+    if (scenePersistTimer) return; // 已排队，到点会合并最新状态
+    const wait = 8000 - (Date.now() - lastScenePersistAt);
+    if (wait <= 0) { await persistSceneNow(); return; }
+    scenePersistTimer = setTimeout(async () => {
+      scenePersistTimer = 0;
+      if (!document.querySelector('#sceneOverlay')) return; // 面板已关，closeScene 会立即保存
+      await persistSceneNow();
+    }, wait);
   };
   const setPersonPos = (el, x, y) => {
     if (!el) return;
@@ -874,7 +899,13 @@ function openScene(p){
       if (changed) persistScene();
     }, 1000);
   };
-  const closeScene = () => { stopBehavior(); stopServerSceneSync(); persistScene(); d.remove(); };
+  const closeScene = () => {
+    stopBehavior(); stopServerSceneSync();
+    // 关闭前立即落盘，不受 8 秒节流影响
+    if (scenePersistTimer) { clearTimeout(scenePersistTimer); scenePersistTimer = 0; }
+    persistSceneNow();
+    d.remove();
+  };
   saveJson('/api/scene/focus', { placeId: p.id }).catch(() => {});
   d.addEventListener('click', (e) => { if (e.target === d) closeScene(); });
   d.querySelector('[data-close]').onclick = closeScene;
@@ -1143,6 +1174,7 @@ function renderWorldChars(){
 }
 let worldLoading = false;
 async function loadWorldChars(){
+  if (document.hidden) return; // 后台标签页不轮询，切回来由 ticker 再触发
   if (worldLoading) return; // 防重入：ticker 150ms 一次，请求没回来之前不再发
   worldLoading = true;
   try {
@@ -1213,10 +1245,10 @@ function renderScale(){
 function renderPlaceList(){
   document.getElementById('placeList').innerHTML = PLACES.map((p, i) => '<div class="fact">'
     + '<div class="row" style="margin:0"><button class="btn" style="width:40px;font-size:16px" onclick="pickIcon(event,'+i+')">'+esc(p.icon)+'</button>'
-    + '<input type="text" value="'+esc(p.name)+'" oninput="PLACES['+i+'].name=this.value">'
+    + '<input type="text" value="'+esc(p.name)+'" oninput="PLACES['+i+'].name=this.value;touchMap()">'
     + '<button class="btn danger" onclick="delPlace('+i+')">✕</button></div>'
-    + '<div class="row"><label>描述</label><input type="text" value="'+esc(p.desc||'')+'" placeholder="这里是什么地方" oninput="PLACES['+i+'].desc=this.value"></div>'
-    + '<div class="row"><label>她的感受</label><input type="text" value="'+esc(p.feel||'')+'" placeholder="她来这里会有什么感觉" oninput="PLACES['+i+'].feel=this.value"></div>'
+    + '<div class="row"><label>描述</label><input type="text" value="'+esc(p.desc||'')+'" placeholder="这里是什么地方" oninput="PLACES['+i+'].desc=this.value;touchMap()"></div>'
+    + '<div class="row"><label>她的感受</label><input type="text" value="'+esc(p.feel||'')+'" placeholder="她来这里会有什么感觉" oninput="PLACES['+i+'].feel=this.value;touchMap()"></div>'
     + '<div class="row" style="justify-content:flex-end">'
     + '<button class="btn" onclick="document.getElementById(\'placeImgFile-'+i+'\').click()">换图标图</button>'
     + '<input type="file" id="placeImgFile-'+i+'" accept="image/*" style="display:none" onchange="uploadPlaceImage('+i+', this)">'
@@ -1269,6 +1301,7 @@ function setWeight(i, pid, val){
   const b = ROUTINE.bands[i];
   const v = Math.max(0, Math.min(100, Number(val) || 0));
   if (v > 0) b.weights[pid] = v; else delete b.weights[pid];
+  touchMap();
 }
 function addRoutineBand(){
   ROUTINE.bands.push({ start: 0, end: 24, allowed: true, weights: {} });
@@ -1285,7 +1318,7 @@ function renderSchedList(){
   const host = document.getElementById('schedList');
   if (!SCHEDULES.length) { host.innerHTML = '<div class="small">还没有作息，去设置→生活加几条</div>'; return; }
   host.innerHTML = SCHEDULES.map((s, i) => '<div class="row"><span class="small" style="flex:1">'+esc(s.time)+' '+esc(s.label)+'</span>'
-    + '<select style="width:120px" onchange="SCHEDULES['+i+'].place=this.value">'
+    + '<select style="width:120px" onchange="SCHEDULES['+i+'].place=this.value;touchMap()">'
     + PLACES.map(p => '<option value="'+esc(p.id)+'"'+(s.place===p.id?' selected':'')+'>'+esc(p.icon+' '+p.name)+'</option>').join('') + '</select></div>').join('');
 }
 function renderCurrent(cur){
@@ -1331,6 +1364,7 @@ function startTicker(){
   // 防止上一次整页刷新还没结束、下一个 150ms tick 又触发一轮 loadMapData
   let reloading = false;
   TIMER = setInterval(async () => {
+    if (document.hidden) return; // 后台标签页暂停 ticker
     if (!CURRENT) return;
     if (CURRENT.traveling || CURRENT.intercity) {
       renderMe();
@@ -1384,9 +1418,17 @@ async function loadMapData(){
     const le = document.getElementById('lifeEnabled'); if (le) le.checked = s.enabled !== false;
     set('lifeGap', s.minEventGapMin ?? 90); set('lifeDaily', s.maxDaily ?? 8);
     set('lifeQuietStart', s.quietStart ?? 23); set('lifeQuietEnd', s.quietEnd ?? 8);
-    const st = await api('/api/life/state'); if (st && st.state) {
+    try {
+      const st = await api('/api/life/state');
       const line = document.getElementById('lifeStateLine');
-      if (line) line.textContent = st.state.placeName + ' · ' + st.state.behaviorLabel;
+      if (line) {
+        if (st && st.state) line.textContent = (st.state.placeName || '某个地方') + ' · ' + (st.state.behaviorLabel || '待着');
+        else line.textContent = '当前不在任何地点';
+      }
+    } catch (e) {
+      // /api/life/state 在角色不在任何地点时返回 404，这里给空态，不要一直停在「…」
+      const line = document.getElementById('lifeStateLine');
+      if (line) line.textContent = '当前不在任何地点';
     }
   } catch (e) {}
   try {
@@ -1418,6 +1460,8 @@ async function loadMapData(){
   if (document.getElementById('vehBikeUrl')) document.getElementById('vehBikeUrl').value = (mv.bicycle && mv.bicycle.url) || '';
   document.getElementById('mapName').textContent = DATA.map.name;
   ROADS = (DATA.map.roads || []).map(l => l.map(pt => ({ x: Number(pt[0]), y: Number(pt[1]) })));
+  ROAD_SAVED_SIG = roadSig();
+  MAP_DIRTY = false; // 数据已按服务端重建，脏标记复位
   renderRoads();
   renderCurrent(DATA.location);
   loadMoneyLine();
@@ -1455,7 +1499,7 @@ function pickIcon(ev, i){
   pal.style.top = (r.bottom + 6) + 'px';
 }
 function setIcon(e){
-  if (PALETTE_TARGET != null) { PLACES[PALETTE_TARGET].icon = e; renderPlaceList(); renderPins(); }
+  if (PALETTE_TARGET != null) { PLACES[PALETTE_TARGET].icon = e; touchMap(); renderPlaceList(); renderPins(); }
   document.getElementById('iconPalette').style.display = 'none';
 }
 document.addEventListener('click', (e) => { if (!e.target.closest('#iconPalette')) document.getElementById('iconPalette').style.display='none'; });
@@ -1466,6 +1510,7 @@ document.getElementById('mapWrap').addEventListener('click', (e) => {
   const x = Math.max(0, Math.min(1, (e.clientX - box.left) / box.width));
   const y = Math.max(0, Math.min(1, (e.clientY - box.top) / box.height));
   ROAD_CUR.push({ x, y });
+  touchMap();
   renderRoads();
 });
 async function saveMap(){
@@ -1474,16 +1519,20 @@ async function saveMap(){
     widthMeters: Number(document.getElementById('widthMeters').value) || 2000,
     transport: document.getElementById('transport').value || 'auto',
     schedules: SCHEDULES.map((s,i)=>({ index: s.index !== undefined ? s.index : i, place: s.place })),
+    // 道路草稿/已画道路一起保存，避免用户点「保存地图」后道路丢失
+    roads: ROADS.map(l => l.map(pt => [Number(pt.x.toFixed(4)), Number(pt.y.toFixed(4))])),
   });
-  if (r.ok) { toast('已保存'); await loadMapData(); }
+  if (r && r.ok) { MAP_DIRTY = false; ROAD_CUR = []; toast('已保存'); await loadMapData(); }
+  else toast((r && r.error) || '保存失败');
 }
 function addPlace(){
   const inp = document.getElementById('newPlaceName');
   const name = (inp.value || '').trim(); if (!name) return;
   PLACES.push({ id: 'p-'+Date.now().toString(36), name, icon: guessIcon(name), x: 0.25 + Math.random()*0.5, y: 0.2 + Math.random()*0.6, desc: '', feel: '' });
+  touchMap();
   inp.value = ''; renderPlaceList(); renderSchedList(); renderPins();
 }
-function delPlace(i){ PLACES.splice(i,1); renderPlaceList(); renderSchedList(); renderPins(); }
+function delPlace(i){ PLACES.splice(i,1); touchMap(); renderPlaceList(); renderSchedList(); renderPins(); }
 function renderCaps(){
   const el = document.getElementById('capsLine');
   if (!el) return;
@@ -1552,6 +1601,8 @@ function editPlaceScene(i){
   d.querySelector('#scAdd').onclick = () => { collect(); spots.push({ label: '', x: 0.5, y: 0.5, action: '' }); renderSpots(); };
   fileEl.onchange = () => {
     const f = fileEl.files && fileEl.files[0]; if (!f) return;
+    // 服务端 /api/scene/image 按 dataURL ≤12MB 限制，故原始文件限 8MB
+    if (f.size > 8 * 1024 * 1024) { statusEl.textContent = '图片太大：文件需 ≤8MB'; fileEl.value = ''; return; }
     statusEl.textContent = '上传中…';
     const reader = new FileReader();
     reader.onload = async () => {
@@ -1587,6 +1638,8 @@ function editPlaceScene(i){
 }
 async function goHere(i){
   const p = PLACES[i];
+  if (!p) return;
+  if (!await confirmDiscardMapChanges()) return;
   const modeSel = document.getElementById('transport').value || 'auto';
   const body = { mapId: DATA.map.id, placeId: p.id, mode: modeSel === 'auto' ? undefined : modeSel };
   let r = await saveJson('/api/location', body);
@@ -1652,7 +1705,9 @@ async function loadWeatherData(){
 async function uploadMapImage(input){
   const f = input.files && input.files[0];
   if (!f) return;
-  if (f.size > 12 * 1024 * 1024) { toast('图片太大（<12MB）'); return; }
+  if (!await confirmDiscardMapChanges()) { input.value = ''; return; }
+  // 服务端 /api/map/image 按 dataURL ≤12MB 限制，base64 膨胀约 1/3，故原始文件限 8MB
+  if (f.size > 8 * 1024 * 1024) { toast('图片太大：文件需 ≤8MB（上传后按 base64 计入 12MB 限额）'); input.value = ''; return; }
   const reader = new FileReader();
   reader.onload = async () => {
     try {
@@ -1664,6 +1719,7 @@ async function uploadMapImage(input){
   reader.readAsDataURL(f);
 }
 async function clearMapImage(){
+  if (!await confirmDiscardMapChanges()) return;
   try {
     const r = await saveJson('/api/map/image', { mapId: DATA.map.id, dataUrl: '' });
     if (r && r.ok) { toast('底图已清除'); await loadMapData(); }
@@ -1718,14 +1774,18 @@ function toggleRoadEditor(){
   if (bar) bar.style.display = EDITING_ROADS ? 'flex' : 'none';
   if (EDITING_ROADS && !ROAD_CUR.length) ROAD_CUR = [];
   renderRoads();
-  toast(EDITING_ROADS ? '画道路模式：点地图加点，点「保存道路」生效' : '已退出画道路');
+  if (!EDITING_ROADS) {
+    // 退出时检查草稿/未保存改动，提示用户保存（「保存道路」或「保存地图」都会落盘）
+    if (ROAD_CUR.length || roadSig() !== ROAD_SAVED_SIG) toast('已退出画道路：草稿未保存，点「保存道路」或「保存地图」才会生效');
+    else toast('已退出画道路');
+  } else toast('画道路模式：点地图加点，点「保存道路」生效');
 }
 function roadNew(){
   if (ROAD_CUR.length >= 2) ROADS.push(ROAD_CUR);
-  ROAD_CUR = []; renderRoads();
+  ROAD_CUR = []; touchMap(); renderRoads();
 }
-function roadUndo(){ ROAD_CUR.pop(); renderRoads(); }
-function roadClear(){ ROADS = []; ROAD_CUR = []; renderRoads(); toast('已清空道路（记得保存）'); }
+function roadUndo(){ ROAD_CUR.pop(); touchMap(); renderRoads(); }
+function roadClear(){ ROADS = []; ROAD_CUR = []; touchMap(); renderRoads(); toast('已清空道路（记得保存）'); }
 async function roadSave(){
   if (ROAD_CUR.length >= 2) { ROADS.push(ROAD_CUR); ROAD_CUR = []; }
   const roads = ROADS.map(l => l.map(pt => [Number(pt.x.toFixed(4)), Number(pt.y.toFixed(4))]));
@@ -1736,7 +1796,9 @@ async function roadSave(){
 async function uploadPlaceImage(i, input){
   const f = input.files && input.files[0];
   if (!f) return;
-  if (f.size > 6 * 1024 * 1024) { toast('图片太大（<6MB）'); return; }
+  if (!await confirmDiscardMapChanges()) { input.value = ''; return; }
+  // 服务端 /api/place/image 按 dataURL ≤6MB 限制，故原始图标文件限 4MB
+  if (f.size > 4 * 1024 * 1024) { toast('图标图片太大：文件需 ≤4MB（上传后按 base64 计入 6MB 限额）'); input.value = ''; return; }
   const reader = new FileReader();
   reader.onload = async () => {
     try {
@@ -1748,6 +1810,7 @@ async function uploadPlaceImage(i, input){
   reader.readAsDataURL(f);
 }
 async function clearPlaceImage(i){
+  if (!await confirmDiscardMapChanges()) return;
   try {
     const r = await saveJson('/api/place/image', { mapId: DATA.map.id, placeId: PLACES[i].id, dataUrl: '' });
     if (r && r.ok) { toast('已恢复 emoji 图标'); await loadMapData(); }
@@ -1755,6 +1818,7 @@ async function clearPlaceImage(i){
   } catch (e) { toast('恢复图标失败：' + e.message); }
 }
 async function useBuiltinScene(){
+  if (!await confirmDiscardMapChanges()) return;
   const r = await saveJson('/api/map', {
     mapId: DATA.map.id,
     displayMode: '3d',
@@ -1767,10 +1831,13 @@ async function useBuiltinScene(){
 async function saveDisplayMode(){
   const mode = document.getElementById('displayMode').value;
   if (mode === '3d' && !(DATA.map && DATA.map.has3d)) { toast('这张地图没有 3D 资源，先在下方应用地图模型或使用内置 3D 场景'); return; }
+  if (!await confirmDiscardMapChanges()) { const dm = document.getElementById('displayMode'); if (dm) dm.value = DATA.map.displayMode || '2d'; return; }
   const r = await saveJson('/api/map', { mapId: DATA.map.id, displayMode: mode });
-  if (r.ok) { toast(mode === '3d' ? '已切到 3D 视图（打开 /model 查看）' : '已切到 2D 平面视图'); await loadMapData(); }
+  if (r && r.ok) { toast(mode === '3d' ? '已切到 3D 视图（打开 /model 查看）' : '已切到 2D 平面视图'); await loadMapData(); }
+  else toast((r && r.error) || '切换视图失败');
 }
 async function saveMapImageUrl(){
+  if (!await confirmDiscardMapChanges()) return;
   const url = document.getElementById('mapImgUrl').value.trim();
   try {
     const r = await saveJson('/api/map', { mapId: DATA.map.id, image: url ? { url } : null });
@@ -1780,6 +1847,7 @@ async function saveMapImageUrl(){
 }
 function openModelPreview(){ if (!(DATA.map && DATA.map.has3d)) { toast('这张地图没有 3D 资源'); return; } window.open('/model','_blank'); }
 async function saveVehicleModels(){
+  if (!await confirmDiscardMapChanges()) return;
   const car = (document.getElementById('vehCarUrl') || {}).value || '';
   const bike = (document.getElementById('vehBikeUrl') || {}).value || '';
   const vehicles = {};
@@ -1791,6 +1859,7 @@ async function saveVehicleModels(){
   else toast(r.error || '保存失败');
 }
 async function saveMapModel(){
+  if (!await confirmDiscardMapChanges()) return;
   const dm = document.getElementById('displayMode') ? document.getElementById('displayMode').value : (DATA.map.displayMode || '2d');
   const hint = document.getElementById('modelHint');
   if (hint) hint.textContent = dm === '3d' ? '已应用：这些参数只影响 3D 舞台（/model）' : '注意：当前是 2D 视图，模型参数只在切到 3D 视图后才看得出效果';
@@ -1844,18 +1913,24 @@ async function saveSceneAISetting(){
   try { await saveJson('/api/scene/settings', { ai: !!(cb && cb.checked) }); toast(cb && cb.checked ? '场景活动 AI 已开启' : '场景活动 AI 已关闭，使用本地文案'); } catch (e) { toast('设置失败'); }
 }
 async function saveWeatherMode(){
+  if (!await confirmDiscardMapChanges()) { await loadWeatherData(); return; }
   const mode = document.getElementById('weatherMode').value;
-  await saveJson('/api/weather', { mode });
-  await loadWeatherData(); await loadMapData(); toast(mode === 'real' ? '已切换真实天气' : '已切换手动天气');
+  try {
+    await saveJson('/api/weather', { mode });
+    await loadWeatherData(); await loadMapData(); toast(mode === 'real' ? '已切换真实天气' : '已切换手动天气');
+  } catch (e) { toast('切换天气失败：' + e.message); }
 }
 async function relocateWeather(){
   await saveJson('/api/weather', { mode: 'real', refresh: true });
   await loadWeatherData(); toast('已重新定位并刷新天气');
 }
 async function saveWeather(){
+  if (!await confirmDiscardMapChanges()) { await loadWeatherData(); return; }
   const w = document.getElementById('weather').value;
-  await saveJson('/api/weather', { mode: 'manual', manual: w });
-  await loadWeatherData(); await loadMapData(); toast('天气已切换');
+  try {
+    await saveJson('/api/weather', { mode: 'manual', manual: w });
+    await loadWeatherData(); await loadMapData(); toast('天气已切换');
+  } catch (e) { toast('切换天气失败：' + e.message); }
 }
 async function toggleFreeWalk(){
   const val = document.getElementById('freeWalk').checked;
@@ -1864,6 +1939,10 @@ async function toggleFreeWalk(){
 }
 async function switchMap(id){
   if (!DATA || id === DATA.activeMapId) return;
+  if (!await confirmDiscardMapChanges()) {
+    const ms = document.getElementById('mapSel'); if (ms) ms.value = DATA.activeMapId;
+    return;
+  }
   const mode = document.getElementById('longMode').value || 'auto';
   const target = DATA.maps.find(m => m.id === id);
   if (!await uiConfirm('让她坐长途去「' + (target ? target.name : id) + '」？')) { await loadMapData(); return; }
@@ -1907,6 +1986,7 @@ document.addEventListener('keydown', (e) => {
 });
 async function renameMap(){
   if (!DATA) return;
+  if (!await confirmDiscardMapChanges()) return;
   const name = await askMapName('这张地图叫什么？', DATA.map.name, '当前地图：' + DATA.map.name);
   if (!name) return;
   const r = await saveJson('/api/map', { mapId: DATA.map.id, name });
@@ -1914,6 +1994,7 @@ async function renameMap(){
   await loadMapData();
 }
 async function newMap(){
+  if (!await confirmDiscardMapChanges()) return;
   const name = await askMapName('新地图叫什么？', '新小镇', '会创建一张只含 2D 底图和地点标的新地图');
   if (!name) return;
   const r = await saveJson('/api/map/create', { name });
@@ -1928,6 +2009,7 @@ async function newMap(){
 }
 async function delMap(){
   if (DATA.maps.length <= 1) { toast('至少保留一张地图'); return; }
+  if (!await confirmDiscardMapChanges()) return;
   if (!await uiConfirm('确定删除「' + DATA.map.name + '」这张地图？')) return;
   await saveJson('/api/map/delete', { id: DATA.map.id });
   await loadMapData();
@@ -1954,6 +2036,7 @@ setInterval(applyTimeOfDay, 60000);
 // 换角色后地图页自动刷新，避免还停在上一个角色的地图/位置
 let __companionCharId = '';
 async function __checkCompanionChar(){
+  if (document.hidden) return; // 后台标签页不轮询
   try {
     const st = await (await fetch('/api/status', {cache:'no-store'})).json();
     const id = st && st.character && st.character.id;

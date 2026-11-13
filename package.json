@@ -1,6 +1,6 @@
 {
   "name": "dsh-screen-beyond",
-  "version": "0.7.15",
+  "version": "0.7.16",
   "type": "module",
   "description": "住在屏幕彼端的ta：人设卡、记忆与日记、生活作息、地图/2D/3D 舞台、聊天界面，以及她自己的虚拟屏幕和安卓手机。",
   "main": "./lib/index.js",
@@ -22,8 +22,12 @@
     "start-pure-chat.sh",
     "docs"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "start": "node runtime/server.mjs"
+    "start": "node runtime/server.mjs",
+    "check": "node --check runtime/server.mjs && node --check runtime/vm-chat.mjs && node --check runtime/sync.mjs && node --check runtime/memory.mjs && node --check runtime/data-store.mjs && node --check lib/index.js && node --check lib/client.js"
   },
   "dsh": {
     "bundle": {

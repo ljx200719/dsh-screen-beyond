@@ -127,6 +127,7 @@ function Update-PetLayout() {
     [System.Windows.Controls.Canvas]::SetLeft($script:tokenPill, [math]::Round($imgLeft + ($imgW - 190) / 2))
     [System.Windows.Controls.Canvas]::SetTop($script:tokenPill, $tokenTop)
     $script:animBase = @{ img = $imgTop; btn = $btnTop; token = $tokenTop; attr = $attrTop }
+    try { Clamp-Window } catch {}
   } catch {}
 }
 
@@ -349,8 +350,9 @@ function Send-Chat() {
 function Clamp-Window() {
   try {
     $wa = [System.Windows.SystemParameters]::WorkArea
-    $w = [math]::Max(160, $script:win.ActualWidth)
-    $h = [math]::Max(120, $script:win.ActualHeight)
+    # 用显式宽高而不是 ActualWidth：窗口内容尚未完成布局时 ActualWidth 会是 0/偏小，导致高缩放下夹不住、跑到屏幕外
+    $w = [math]::Max(160, $(if ($script:win.Width -gt 0) { $script:win.Width } else { $script:win.ActualWidth }))
+    $h = [math]::Max(120, $(if ($script:win.Height -gt 0) { $script:win.Height } else { $script:win.ActualHeight }))
     if ($script:win.Left -lt $wa.Left + 8) { $script:win.Left = $wa.Left + 8 }
     if ($script:win.Top -lt $wa.Top + 8) { $script:win.Top = $wa.Top + 8 }
     if ($script:win.Left + $w -gt $wa.Right - 8) { $script:win.Left = $wa.Right - $w - 8 }
@@ -407,10 +409,10 @@ function Refresh-Status() {
     if ($bal -and $bal.ok) {
       $cur = if ([string]$bal.currency -eq 'CNY') { '¥' } else { [string]$bal.currency }
       $todayRmb = if ($null -ne $bal.todayRmb) { [double]$bal.todayRmb } else { 0 }
-      $script:tokenText.Text = '余额 ' + $cur + [string]$bal.total + ' · 今日 ¥' + ('{0:0.00}' -f $todayRmb)
-      $script:tokenText.ToolTip = ('DeepSeek 真实余额：{0}{1}{2}今日消耗：{0}{3:0.00}{4}今日 token：{5:N0}' -f $cur, [string]$bal.total, [Environment]::NewLine, $todayRmb, [Environment]::NewLine, [double]$t.dailyUsed)
+      $script:tokenText.Text = '真实余额 ' + $cur + [string]$bal.total + ' · 今日约 ¥' + ('{0:0.00}' -f $todayRmb)
+      $script:tokenText.ToolTip = ('DeepSeek 真实余额：{0}{1}{2}今日消耗（按余额差估算，含同一 Key 的其它程序）：{0}{3:0.00}{4}本插件今日 token：{5:N0}{6}她自己的零花钱：{7} 元（虚拟）' -f $cur, [string]$bal.total, [Environment]::NewLine, $todayRmb, [Environment]::NewLine, [double]$t.dailyUsed, [Environment]::NewLine, [string]$t.spendable)
     } else {
-      $script:tokenText.Text = '余额读取失败 · 今日 ' + (Fmt-Tok $t.dailyUsed)
+      $script:tokenText.Text = '余额读取失败 · 今日 ' + (Fmt-Tok $t.dailyUsed) + ' token'
       $script:tokenText.ToolTip = '暂时读不到 DeepSeek 真实余额；不会用虚拟货币代替'
     }
   }
@@ -810,7 +812,7 @@ $script:reactionUntil = [DateTime]::MinValue
 $script:animPhase = 0.0
 $script:animBase = @{ img = 12.0; btn = 108.0; token = 320.0; attr = 92.0 }
 $script:uiAnimTimer = New-Object System.Windows.Threading.DispatcherTimer
-$script:uiAnimTimer.Interval = [TimeSpan]::FromMilliseconds(33)
+$script:uiAnimTimer.Interval = [TimeSpan]::FromMilliseconds(45)
 $script:uiAnimTimer.Add_Tick({
   try {
     $script:animPhase += 0.11
@@ -848,6 +850,7 @@ $script:charWatchTimer.Add_Tick({
 })
 $win.Add_Loaded({
   Update-Image
+  try { Clamp-Window } catch {}
   $script:uiAnimTimer.Start()
   $script:charWatchTimer.Start()
   Refresh-Status

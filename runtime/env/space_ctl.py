@@ -8,14 +8,40 @@ Usage:
   python space_ctl.py drag  <x1> <y1> <x2> <y2>
   python space_ctl.py type  <text>
   python space_ctl.py key   <xdotool-key-combo>
+  python space_ctl.py send-image <host_file>   (SFTP 上传 + xclip 写剪贴板 + ctrl+v)
   python space_ctl.py run   <shell command>
   python space_ctl.py res
+
+SSH 密码读取顺序（与 agent_ssh.py / phone_ctl.py / space_ensure.py 一致）：
+  1) 环境变量 DSH_COMPANION_SSH_PASS
+  2) 本文件同目录的 .ssh-password（一行纯文本）
+  3) 旧默认值 DshSpace2026（兼容历史 VM）
 """
+import os
+import shlex
 import sys, base64
+import time
 import io
 import paramiko
 
-HOST, PORT, USER, PASS = "127.0.0.1", 2222, "dsh", "DshSpace2026"
+
+def _read_ssh_pass():
+    env = os.environ.get("DSH_COMPANION_SSH_PASS")
+    if env:
+        return env
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, ".ssh-password"), "r", encoding="utf-8") as f:
+            value = f.read().strip()
+        if value:
+            return value
+    except Exception:
+        pass
+    return "DshSpace2026"
+
+
+HOST, PORT, USER = "127.0.0.1", 2222, "dsh"
+PASS = _read_ssh_pass()
 ENV = "export DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority; "
 
 
@@ -50,10 +76,13 @@ def main():
         if a.startswith("--win="):
             win = a[6:]
             args.remove(a)
+    # send-image 的本地文件检查放在连 SSH 之前：文件缺失时立即失败，不必等连接
+    if mode == "send-image" and (not args or not os.path.isfile(args[0])):
+        print("send-image 需要存在的主机图片文件: %s" % (args[0] if args else "(未提供)"))
+        sys.exit(2)
     c = connect()
     try:
         if win:
-            import shlex
             ENV2 = ENV + "wid=$(xdotool search --name -- " + shlex.quote(win) + " 2>/dev/null | tail -1); [ -n \"$wid\" ] && { xdotool windowactivate --sync $wid 2>/dev/null || xdotool windowfocus $wid 2>/dev/null; sleep 0.25; }; "
         else:
             ENV2 = ENV
@@ -65,6 +94,35 @@ def main():
             sftp = c.open_sftp()
             sftp.get(remote, local)
             print("shot ->", local)
+        elif mode == "send-image":
+            # 把宿主机图片放进 VM 剪贴板，再给当前最前窗口按 Ctrl+V（用于聊天软件发图）
+            if not args:
+                print("send-image 需要 <host_file>")
+                sys.exit(2)
+            local = args[0]
+            if not os.path.isfile(local):
+                print("图片不存在: %s" % local)
+                sys.exit(2)
+            ext = (os.path.splitext(local)[1] or ".png").lower()
+            remote = "/tmp/_ai_img_%d%s" % (int(time.time() * 1000), ext)
+            sftp = c.open_sftp()
+            try:
+                sftp.put(local, remote)
+            finally:
+                sftp.close()
+            probe_rc, _probe_out = run(c, ENV2 + "command -v xclip >/dev/null 2>&1")
+            if probe_rc != 0:
+                print("VM 里没有 xclip，无法粘贴图片（需要 apt install xclip）")
+                sys.exit(3)
+            # Chromium 系客户端（QQ 等）通常按 image/png 取剪贴板；xclip 只声明类型，
+            # 客户端解码靠内容嗅探，因此 jpg 也按 image/png 放进去更兼容。
+            rc, out = run(c, ENV2 + "xclip -selection clipboard -t image/png -i %s && xdotool key --clearmodifiers ctrl+v" % shlex.quote(remote))
+            out = out.strip()
+            if out:
+                print(out[-300:])
+            print("send-image", os.path.basename(local), "->", remote, "rc=", rc)
+            if rc != 0:
+                sys.exit(4)
         elif mode == "click":
             x, y = int(args[0]), int(args[1])
             button = args[2] if len(args) > 2 else "1"
@@ -143,7 +201,9 @@ fi
             print("type rc=", rc)
         elif mode == "key":
             combo = args[0] if args else "Return"
-            rc, out = run(c, ENV2 + "xdotool key --clearmodifiers %s" % combo)
+            if not combo:
+                combo = "Return"
+            rc, out = run(c, ENV2 + "xdotool key --clearmodifiers %s" % shlex.quote(combo))
             print("key", combo, "rc=", rc)
         elif mode == "run":
             cmd = " ".join(args)

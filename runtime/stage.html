@@ -16,7 +16,7 @@ header .spacer{flex:1}
 .pin{position:absolute;transform:translate(-50%,-100%);text-align:center;filter:drop-shadow(0 4px 8px rgba(38,32,24,.28));z-index:6}
 .pin .icon{font-size:20px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,252,247,.94);border:1px solid rgba(125,108,86,.35);box-shadow:0 3px 10px rgba(40,35,25,.18)}
 .pin .label{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.02em;background:rgba(255,252,247,.96);border:1px solid #DCCDBB;border-radius:999px;padding:2px 8px;margin-top:2px;white-space:nowrap;color:#46586A;box-shadow:0 2px 8px rgba(40,35,25,.16)}
-#me{position:absolute;z-index:5;transform:translate(-50%,-100%);display:none;text-align:center;filter:drop-shadow(0 4px 8px rgba(0,0,0,.6))}
+#me{position:absolute;z-index:5;transform:translate(-50%,-100%);display:none;text-align:center;filter:drop-shadow(0 4px 8px rgba(0,0,0,.6));transition:left .9s linear, top .9s linear}
 #me .ava{width:44px;height:44px;border-radius:50%;border:2px solid #8fc1ff;background:#16202b center/cover;display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto}
 #me .tag{font-size:11px;background:#16304f;border:1px solid #2f6bd8;color:#cfe0f7;border-radius:8px;padding:0 6px;margin-top:2px;white-space:nowrap}
 #status{position:absolute;left:14px;bottom:14px;background:rgba(8,13,20,.8);border:1px solid #2a3745;border-radius:8px;padding:6px 10px;font-size:11px;color:#9fb3c8}
@@ -89,15 +89,28 @@ function themeSvg(theme){
     + '<path d="M500 320 C 505 400, 470 520, 505 640" fill="none" stroke="#2a3a44" stroke-width="34" stroke-linecap="round"/>';
   return base + extra + road + '</svg>';
 }
+let mapAspect = 1000 / 640; // 无底图时用主题 SVG viewBox 比例；有底图时加载后按 naturalWidth/Height 更新
 function fitMapView(){
   const st = document.getElementById('stage'), v = document.getElementById('mapView');
   if (!st || !v) return;
-  const sw = st.clientWidth, sh = st.clientHeight, ar = 1.5;
+  const ar = mapAspect > 0 ? mapAspect : 1000 / 640;
+  const sw = st.clientWidth, sh = st.clientHeight;
   let w = sw, h = w / ar;
   if (h > sh) { h = sh; w = h * ar; }
   v.style.width = w + 'px'; v.style.height = h + 'px';
   v.style.left = ((sw - w) / 2) + 'px'; v.style.top = ((sh - h) / 2) + 'px';
 }
+// 有官方底图时按图片真实宽高比适配地图框（避免拉伸变形）
+(function initMapAspect(){
+  const bgImg = document.getElementById('bgImg');
+  if (!bgImg) return;
+  const applyAspect = () => {
+    const nw = bgImg.naturalWidth, nh = bgImg.naturalHeight;
+    if (nw > 0 && nh > 0) { mapAspect = nw / nh; fitMapView(); }
+  };
+  if (bgImg.complete) applyAspect();
+  bgImg.addEventListener('load', applyAspect);
+})();
 // 地点标只在数据变化时重建，避免每秒重建 DOM/重载图片
 let pinsSig = '';
 function renderPins(map) {
@@ -221,7 +234,7 @@ function render(payload){
   const mapImg = map.image && map.image.url ? map.image.url : '';
   if (bgLayer && bgImg) {
     if (mapImg) { bgLayer.style.display = 'block'; bgImg.src = mapImg; }
-    else { bgLayer.style.display = 'none'; bgImg.src = ''; }
+    else { bgLayer.style.display = 'none'; bgImg.src = ''; mapAspect = 1000 / 640; }
   }
   renderPins(map);
   // 主题 SVG：有官方底图时只隐藏不删除；无底图时保证它存在（主题变了才重建）
@@ -254,9 +267,20 @@ function render(payload){
 }
 var __stageRaf = 0;
 window.addEventListener('resize', () => { if (__stageRaf) return; __stageRaf = requestAnimationFrame(() => { __stageRaf = 0; fitMapView(); }); });
+let pollBusy = false;
 async function poll(){
-  try { const r = await fetch('/api/stage'); render(await r.json()); }
-  catch(e) { $('#status').textContent = '连接断开：' + e.message; }
+  if (pollBusy) return;          // 上一轮未完成，跳过本轮，避免请求堆积/数据乱序
+  pollBusy = true;
+  try {
+    const r = await fetch('/api/stage');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    render(await r.json());
+  } catch(e) {
+    const st = document.getElementById('status');
+    if (st) st.textContent = '连接断开：' + (e && e.message ? e.message : e);
+  } finally {
+    pollBusy = false;
+  }
 }
 poll(); setInterval(poll, 1000);
 </script></body></html>

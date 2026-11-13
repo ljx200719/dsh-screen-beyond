@@ -1,9 +1,30 @@
-"""确保 DSH-Space 的 VNC 链路可用：x11vnc + websockify（在 VM 内跑）。"""
+"""确保 DSH-Space 的 VNC 链路可用：x11vnc + websockify（在 VM 内跑）。
+
+SSH 密码读取顺序：DSH_COMPANION_SSH_PASS > 同目录 .ssh-password > 旧默认值。
+"""
 import json
+import os
 import subprocess
 import sys
 
-HOST, PORT, USER, PASS = "127.0.0.1", 2222, "dsh", "DshSpace2026"
+
+def _read_ssh_pass():
+    env = os.environ.get("DSH_COMPANION_SSH_PASS")
+    if env:
+        return env
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, ".ssh-password"), "r", encoding="utf-8") as f:
+            value = f.read().strip()
+        if value:
+            return value
+    except Exception:
+        pass
+    return "DshSpace2026"
+
+
+HOST, PORT, USER = "127.0.0.1", 2222, "dsh"
+PASS = _read_ssh_pass()
 
 
 def result(**kw):

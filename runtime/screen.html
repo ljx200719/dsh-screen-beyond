@@ -50,7 +50,7 @@ input, textarea, select { border-radius: 9px; }
 <div id="hint">她的屏幕可以直接在上面点鼠标、敲键盘（noVNC 交互）· 快捷键 Alt+S 从聊天页打开这里</div>
 <script>
 const $ = (s) => document.querySelector(s);
-let timer = null, mode = 'space', spaceTimer = null;
+let timer = null, mode = 'space', spaceTimer = null, ensureTimer = null;
 let noVncUrl = 'http://127.0.0.1:6081/vnc.html';
 // noVNC 地址优先用后端下发，取不到再退回本机默认端口
 function vncSrc(bust){
@@ -86,6 +86,7 @@ async function checkSpace(){
       const f = document.getElementById('spaceFrame');
       if (f && r.http) f.src = vncSrc(false);
     }
+    if (ensureTimer) return; // 启动轮询期间由 ensureSpace 负责状态文案
     if (r.http) { dot.style.background = '#22c55e'; txt.textContent = '已连接'; }
     else if (!r.vm) { dot.style.background = '#ef4444'; txt.innerHTML = '她的屏幕没开 <button onclick="ensureSpace()" style="margin-left:6px;background:#2563eb;color:#fff;border:0;border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer">启动</button>'; }
     else { dot.style.background = '#f59e0b'; txt.innerHTML = '连接掉了 <button onclick="ensureSpace()" style="margin-left:6px;background:#2563eb;color:#fff;border:0;border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer">修复屏幕</button>'; }
@@ -93,18 +94,107 @@ async function checkSpace(){
 }
 async function ensureSpace(){
   const txt = document.getElementById('spaceText');
-  if (txt) txt.textContent = '正在修复…';
+  if (txt) txt.textContent = '启动中…';
   try {
     await fetch('/api/screen/space/ensure', { method: 'POST', headers: {'content-type':'application/json'}, body: '{}' });
   } catch (e) {}
   const f = document.getElementById('spaceFrame');
   if (f) f.src = vncSrc(true);
-  setTimeout(checkSpace, 1500);
+  if (ensureTimer) { clearInterval(ensureTimer); ensureTimer = null; }
+  const t0 = Date.now();
+  const tick = async () => {
+    let http = false, vm = false;
+    try { const r = await (await fetch('/api/screen/space/status')).json(); http = !!r.http; vm = !!r.vm; } catch (e) {}
+    const el = document.getElementById('spaceText');
+    if (http) {
+      if (ensureTimer) { clearInterval(ensureTimer); ensureTimer = null; }
+      if (el) el.textContent = '已连接';
+      const dot = document.getElementById('spaceDot');
+      if (dot) dot.style.background = '#22c55e';
+      const fr = document.getElementById('spaceFrame');
+      if (fr) fr.src = vncSrc(true);
+      return;
+    }
+    if (Date.now() - t0 > 90000) {
+      if (ensureTimer) { clearInterval(ensureTimer); ensureTimer = null; }
+      if (el) el.innerHTML = '启动超时 <button onclick="ensureSpace()" style="margin-left:6px;background:#2563eb;color:#fff;border:0;border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer">重试</button>';
+      return;
+    }
+    const sec = Math.round((Date.now() - t0) / 1000);
+    if (el) el.textContent = '启动中… ' + sec + 's' + (vm ? '（虚拟机已启动，等待桌面）' : '');
+  };
+  ensureTimer = setInterval(tick, 2000);
+  tick();
+  refreshPowerButtons();
 }
-function clearView(){ const v=$('#view'); [...v.children].forEach(c=>{ if(c.id!=='msg') c.remove(); }); if(timer){clearInterval(timer);timer=null;} if(spaceTimer){clearInterval(spaceTimer);spaceTimer=null;} }
+function clearView(){
+  const v=$('#view');
+  const snapEl=document.getElementById('snap');
+  if(snapEl && snapEl.dataset && snapEl.dataset.objUrl){ try{ URL.revokeObjectURL(snapEl.dataset.objUrl); }catch(e){} }
+  [...v.children].forEach(c=>{ if(c.id!=='msg') c.remove(); });
+  if(timer){clearInterval(timer);timer=null;}
+  if(spaceTimer){clearInterval(spaceTimer);spaceTimer=null;}
+  if(ensureTimer){clearInterval(ensureTimer);ensureTimer=null;}
+}
 function setOn(id){ for(const k of ['bSpace','bPc','bPhone']) $('#'+k).classList.toggle('on', k===id); }
-function msg(text){ const m=$('#msg'); m.style.display='flex'; m.textContent=text; }
+function msg(text){ const m=$('#msg'); m.style.display='flex'; m.style.zIndex='5'; m.textContent=text; }
 function hideMsg(){ $('#msg').style.display='none'; }
+let phoneShotBusy = false;
+function showPhone(){
+  const wrap = document.createElement('div');
+  wrap.id = 'phoneWrap';
+  wrap.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:18px;text-align:center';
+  const note = document.createElement('div');
+  note.style.cssText = 'color:#8ea4c4;font-size:12px;line-height:1.7;max-width:520px';
+  note.textContent = '她的手机是 Waydroid，运行在她的屏幕里（GNOME 桌面上的窗口）；下面是手机截图，约 3 秒刷新。';
+  const img = document.createElement('img');
+  img.id = 'snap';
+  img.alt = '她的手机';
+  img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;border-radius:10px;background:#060b14';
+  wrap.appendChild(note); wrap.appendChild(img);
+  $('#view').appendChild(wrap);
+  hideMsg();
+  $('#hint').textContent = '这是她手机（Waydroid）的截图，只读；要操作手机请打开「她自己的屏幕」。';
+  loadPhoneShot();
+  timer = setInterval(loadPhoneShot, 3000);
+}
+async function loadPhoneShot(){
+  const img = document.getElementById('snap');
+  if (!img || phoneShotBusy) return;
+  phoneShotBusy = true;
+  try {
+    const r = await fetch('/api/screen/phone?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) {
+      const txt = (await r.text().catch(() => '')).trim();
+      throw new Error(txt || ('手机截图失败（HTTP ' + r.status + '）'));
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const old = img.dataset.objUrl || '';
+    img.src = url;
+    img.dataset.objUrl = url;
+    if (old) URL.revokeObjectURL(old);
+    hideMsg();
+  } catch (e) {
+    msg((e && e.message) ? e.message : '手机不可用');
+    showPhoneErrButton();
+  } finally {
+    phoneShotBusy = false;
+  }
+}
+function showPhoneErrButton(){
+  const m = $('#msg');
+  if (!m || document.getElementById('phoneOpenBtn')) return;
+  m.style.flexDirection = 'column';
+  m.style.gap = '12px';
+  const b = document.createElement('button');
+  b.id = 'phoneOpenBtn';
+  b.className = 'btn on';
+  b.textContent = '打开她的屏幕';
+  b.style.cssText = 'background:linear-gradient(135deg,#4f8dff,#7b6bff);border:0;border-radius:10px;padding:8px 16px;color:#fff;cursor:pointer';
+  b.onclick = () => show('space');
+  m.appendChild(b);
+}
 function show(which){
   mode = which; clearView();
   setOn(which==='space'?'bSpace':which==='pc'?'bPc':'bPhone');
@@ -127,33 +217,29 @@ function show(which){
     return;
   }
   hideMsg();
+  if (which === 'phone') { showPhone(); return; }
   const img = document.createElement('img');
   img.id = 'snap';
-  if (which === 'pc') { img.src = '/api/screen/pc?t=' + Date.now(); img.alt = '你的电脑屏幕'; $('#hint').textContent = '这是你的电脑屏幕（只读截图，自动刷新）；要操作请让她用 pc 工具。'; }
-  else {
-    const box = document.createElement('div');
-    box.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;text-align:center;padding:24px;color:#bcd2ee';
-    box.innerHTML = '<div style="font-size:34px">📱</div><div>她的手机是 Waydroid，运行在她的屏幕里（GNOME 桌面上的窗口）。</div><div style="color:#8ea4c4;font-size:12px">点左边「她自己的屏幕」就能看到她手机，还能直接点。</div>';
-    const b = document.createElement('button');
-    b.className = 'btn on';
-    b.textContent = '打开她的屏幕';
-    b.onclick = () => show('space');
-    b.style.cssText = 'background:linear-gradient(135deg,#4f8dff,#7b6bff);border:0;border-radius:10px;padding:8px 16px;color:#fff;cursor:pointer';
-    box.appendChild(b);
-    $('#view').appendChild(box);
-    hideMsg();
-    $('#hint').textContent = '手机在她的屏幕里，直接看她屏幕即可。';
-    return;
-  }
-  img.onerror = () => msg('截不到画面：' + (which === 'pc' ? '桌面内核没运行' : '手机/模拟器没启动'));
+  img.src = '/api/screen/pc?t=' + Date.now();
+  img.alt = '你的电脑屏幕';
+  $('#hint').textContent = '这是你的电脑屏幕（只读截图，自动刷新）；要操作请让她用 pc 工具。';
+  img.onerror = () => msg('截不到画面：桌面内核没运行');
   img.onload = hideMsg;
   $('#view').appendChild(img);
   timer = setInterval(() => {
     const el = document.getElementById('snap');
-    if (el) el.src = '/api/screen/' + (mode === 'pc' ? 'pc' : 'phone') + '?t=' + Date.now();
-  }, which === 'pc' ? 2500 : 3000);
+    if (el) el.src = '/api/screen/pc?t=' + Date.now();
+  }, 2500);
 }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.close(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  // window.close() 只对脚本打开的窗口生效（如 Alt+S 用 window.open 打开）；失败时静默，改提示手动关闭
+  try { window.close(); } catch (err) {}
+  setTimeout(() => {
+    const hint = document.getElementById('hint');
+    if (hint) hint.textContent = '可以直接关闭这个标签页（Alt+S 可从聊天页重新打开）';
+  }, 250);
+});
 async function togglePower(kind){
   const label = kind === 'space' ? '她的屏幕' : '她的手机';
   try {

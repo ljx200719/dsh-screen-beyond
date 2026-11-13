@@ -14,6 +14,7 @@ Usage:
   python phone_ctl.py shell <命令>   (仅代码控制权限下使用)
 """
 import base64
+import re
 import shlex
 import subprocess
 import sys
@@ -22,7 +23,26 @@ import os as _os
 ADB = _os.environ.get("DSH_COMPANION_ADB") or r"D:\dsh-env\android-sdk\platform-tools\adb.exe"
 if not _os.path.exists(ADB):
     ADB = "adb"
-SSH_HOST, SSH_PORT, SSH_USER, SSH_PASS = "127.0.0.1", 2222, "dsh", "DshSpace2026"
+
+
+def _read_ssh_pass():
+    """SSH 密码读取顺序：DSH_COMPANION_SSH_PASS > 同目录 .ssh-password > 旧默认值。"""
+    env = _os.environ.get("DSH_COMPANION_SSH_PASS")
+    if env:
+        return env
+    try:
+        here = _os.path.dirname(_os.path.abspath(__file__))
+        with open(_os.path.join(here, ".ssh-password"), "r", encoding="utf-8") as f:
+            value = f.read().strip()
+        if value:
+            return value
+    except Exception:
+        pass
+    return "DshSpace2026"
+
+
+SSH_HOST, SSH_PORT, SSH_USER = "127.0.0.1", 2222, "dsh"
+SSH_PASS = _read_ssh_pass()
 LXC = "sudo lxc-attach -P /var/lib/waydroid/lxc -n waydroid -- "
 
 
@@ -170,7 +190,11 @@ def main():
             else:
                 print(adb("shell", "input", "text", text.replace(" ", "%s")).strip())
         elif mode == "key":
-            print(adb("shell", "input", "keyevent", sys.argv[2]).strip())
+            key = sys.argv[2] if len(sys.argv) > 2 else ""
+            if not re.fullmatch(r"[A-Za-z0-9_]+", key):
+                print("key 参数非法: %r" % key)
+                return
+            print(adb("shell", "input", "keyevent", key).strip())
         elif mode == "shell":
             cmd = " ".join(sys.argv[2:])
             print(adb("shell", cmd))
@@ -219,7 +243,11 @@ def main():
             q = shlex.quote(text)
             print(lxc(conn, "input text " + q, 60).strip() or "text ok")
         elif mode == "key":
-            print(lxc(conn, "input keyevent " + shlex.quote(sys.argv[2]), 60).strip() or "key ok")
+            key = sys.argv[2] if len(sys.argv) > 2 else ""
+            if not re.fullmatch(r"[A-Za-z0-9_]+", key):
+                print("key 参数非法: %r" % key)
+                return
+            print(lxc(conn, "input keyevent " + key, 60).strip() or "key ok")
         elif mode == "shell":
             cmd = " ".join(sys.argv[2:])
             print(lxc(conn, "sh -c '%s'" % cmd.replace("'", "'\\''"), 120))

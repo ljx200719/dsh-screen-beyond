@@ -32,6 +32,9 @@ fs.mkdirSync(path.join(ROOT, 'data'), { recursive: true });
 const DATA = new DataStore(ROOT, { deviceId: SYNC.deviceId });
 const SCENE_ACTIVITY_CACHE = new Map();
 let SCENE_AI_LAST = 0;
+// 进程级兜底：异步异常不再让整个运行时无声退出（uncaught 仍记录后退出，由插件按退避重启）
+process.on('unhandledRejection', (e) => { try { console.error('[companion] unhandledRejection:', e && (e.stack || e.message || e)); } catch {} });
+process.on('uncaughtException', (e) => { try { console.error('[companion] uncaughtException:', e && (e.stack || e.message || e)); } catch {} setTimeout(() => process.exit(1), 100); });
 
 // ---------- utils ----------
 function readJson(file, dflt) { return DATA.readJson(file, dflt); }
@@ -1002,14 +1005,14 @@ function recordVmCheckFor(id, r) {
   } catch {}
 }
 
-async function lifeTick(id) {
+async function lifeTick(id, opts = {}) {
   const cfg = lifeSimCfg();
-  if (cfg.enabled === false && !(arguments[1] && arguments[1].force)) return null;
+  if (cfg.enabled === false && !opts.force) return null;
   let ctx = lifeSceneFor(id); if (!ctx) return null;
   let st = lifeGetState(id); if (!st) return null;
   const now = Date.now();
   if (st.traveling) {
-    if (!(arguments[1] && arguments[1].force) && now < Number(st.traveling.arrivesAt || 0)) return st;
+    if (!opts.force && now < Number(st.traveling.arrivesAt || 0)) return st;
     lifeSetLocation(id, st.traveling.toMapId, st.traveling.toPlaceId);
     const ctx2 = lifeSceneFor(id);
     if (ctx2) {
@@ -1024,7 +1027,7 @@ async function lifeTick(id) {
     }
     return st;
   }
-  if (!(arguments[1] && arguments[1].force) && now < Number(st.endsAt || 0)) return st;
+  if (!opts.force && now < Number(st.endsAt || 0)) return st;
   let decision = null;
   try { decision = await lifeAskAI(id, st, ctx); } catch { decision = null; }
   // 跨地图/换地点
@@ -1067,7 +1070,7 @@ async function lifeTick(id) {
   // 事件判断
   try {
     const tell = !!(decision && decision.tellUser && decision.message);
-    const date = new Date().toISOString().slice(0, 10);
+    const date = todayStr();
     if (st.eventsDate !== date) { st.eventsDate = date; st.eventsToday = 0; }
     const gapOk = now - Number(st.lastEventAt || 0) >= Number(cfg.minEventGapMin || 90) * 60000;
     if (tell && !lifeQuietNow(cfg) && gapOk && Number(st.eventsToday || 0) < Number(cfg.maxDaily || 8)) {
@@ -1492,9 +1495,12 @@ function loadWallet() {
   if (changed) writeWalletRaw({ ...raw, balance, usedTokens, lastIncomeAt, lastWageAt });
   return { balance, usedTokens, lastIncomeAt, lastWageAt };
 }
+function tokenGlobalUsed() {
+  try { const u = readJson(path.join(ROOT, 'data', 'token-usage.json'), null); return Number(u && u.usedTokens) || 0; } catch { return 0; }
+}
 function walletMoney() {
   const econ = loadEconomy(); const w = loadWallet();
-  const remainingTokens = Math.max(0, Number(econ.tokenBudget) - (Number(w.usedTokens) || 0));
+  const remainingTokens = Math.max(0, Number(econ.tokenBudget) - tokenGlobalUsed());
   const tokenMode = econ.moneyType === 'token';
   const realRmb = (REAL_BALANCE && REAL_BALANCE.ok && Number.isFinite(Number(REAL_BALANCE.total))) ? Math.max(0, Number(REAL_BALANCE.total)) : null;
   // 实时 token 模式：真实人民币是“用户的钱”，她自己的花销仍走虚拟钱包
@@ -1518,16 +1524,44 @@ function earnMoney(amount) {
   const balance = (Number.isFinite(Number(raw.balance)) ? Number(raw.balance) : econ.initialBalance) + Math.round(Number(amount) || 0);
   writeWalletRaw({ ...raw, balance }); return balance;
 }
+// token 用量是「用户级」数据，不能存在当前角色钱包里（切角色账目会变）。统一存数据根 data/token-usage.json。
+const TOKEN_USAGE_PATH = path.join(ROOT, 'data', 'token-usage.json');
+function loadTokenUsage() {
+  const u = readJson(TOKEN_USAGE_PATH, null);
+  if (u && typeof u === 'object' && Number.isFinite(Number(u.usedTokens))) {
+    return { usedTokens: Number(u.usedTokens) || 0, dailyDate: String(u.dailyDate || ''), dailyUsed: Number(u.dailyUsed) || 0 };
+  }
+  // 首次迁移：把各角色旧钱包里的计数加总（旧版本按角色分开记，且只记了部分调用）
+  let used = 0, daily = 0;
+  const today = todayStr();
+  try {
+    for (const c of listCharacters()) {
+      const w = readJson(path.join(charDir(c.id), 'wallet.json'), {});
+      used += Number(w.usedTokens) || 0;
+      if (w.dailyDate === today) daily += Number(w.dailyUsed) || 0;
+    }
+  } catch {}
+  const data = { usedTokens: used, dailyDate: today, dailyUsed: daily, migratedAt: new Date().toISOString() };
+  try { writeJson(TOKEN_USAGE_PATH, data); } catch {}
+  return data;
+}
+function saveTokenUsage(u) { try { writeJson(TOKEN_USAGE_PATH, u); } catch {} }
+function addTokenUsage(total) {
+  if (!(total > 0)) return loadTokenUsage();
+  const u = loadTokenUsage();
+  const today = todayStr();
+  if (u.dailyDate !== today) { u.dailyDate = today; u.dailyUsed = 0; }
+  u.usedTokens += total; u.dailyUsed += total; u.updatedAt = new Date().toISOString();
+  saveTokenUsage(u);
+  return u;
+}
 function recordUsageTokens(usage) {
   if (!usage) return;
   const total = (Number(usage.prompt_tokens) || 0) + (Number(usage.completion_tokens) || 0);
   if (total <= 0) return;
-  const raw = readWalletRaw();
-  const date = todayStr();
-  const prevDaily = raw.dailyDate === date ? (Number(raw.dailyUsed) || 0) : 0;
-  writeWalletRaw({ ...raw, usedTokens: (Number(raw.usedTokens) || 0) + total, dailyDate: date, dailyUsed: prevDaily + total });
+  addTokenUsage(total);
 }
-let REAL_BALANCE = { ok: false, at: 0, error: '还没查', currency: 'CNY', total: null, granted: null, toppedUp: null, available: null };
+let REAL_BALANCE = { ok: false, at: 0, error: '还没查', currency: 'CNY', total: null, granted: null, toppedUp: null, available: null, todayRmb: null, note: '' };
 async function refreshRealBalance() {
   const now = Date.now();
   if (REAL_BALANCE.at && now - REAL_BALANCE.at < 60000) return REAL_BALANCE;
@@ -1543,6 +1577,17 @@ async function refreshRealBalance() {
     const total = Number(info.total_balance) || 0;
     const date = todayStr();
     const day = CONFIG.balanceDay;
+    let keyHash = '';
+    try { keyHash = createHash('sha1').update(String(apiKey())).digest('hex').slice(0, 12); } catch {}
+    if (day && CONFIG.balanceKeyHash && keyHash && CONFIG.balanceKeyHash !== keyHash) {
+      // 换了 Key 就是另一个账号/额度，沿用旧余额差没有意义
+      CONFIG.balanceDay = { date, start: total, last: total };
+      CONFIG.balanceKeyHash = keyHash; saveConfig();
+      const todayRmb0 = 0;
+      REAL_BALANCE = { ok: true, at: now, error: '', currency: info.currency || 'CNY', total, todayRmb: todayRmb0, granted: Number(info.granted_balance) || 0, toppedUp: Number(info.topped_up_balance) || 0, available: !!j.is_available, note: '检测到 API Key 变化，今日消耗基准已重置' };
+      return REAL_BALANCE;
+    }
+    if (keyHash) CONFIG.balanceKeyHash = keyHash;
     if (!day || day.date !== date) {
       CONFIG.balanceDay = { date, start: total, last: total };
     } else {
@@ -1557,6 +1602,7 @@ async function refreshRealBalance() {
       currency: info.currency || 'CNY',
       total,
       todayRmb: Math.round(todayRmb * 100) / 100,
+      note: '今日消耗=按 DeepSeek 余额差估算，包含同一 API Key 的其它程序（如 DSH 本体）的消耗',
       granted: Number(info.granted_balance) || 0,
       toppedUp: Number(info.topped_up_balance) || 0,
       available: !!j.is_available,
@@ -1568,12 +1614,12 @@ async function refreshRealBalance() {
 }
 function tokenStats() {
   const m = walletMoney();
-  const raw = readWalletRaw();
+  const u = loadTokenUsage();
   const today = todayStr();
   return {
     remainingTokens: m.remainingTokens,
-    usedTokens: Number(raw.usedTokens) || 0,
-    dailyUsed: raw.dailyDate === today ? (Number(raw.dailyUsed) || 0) : 0,
+    usedTokens: u.usedTokens,
+    dailyUsed: u.dailyDate === today ? u.dailyUsed : 0,
     tokenBudget: Number(m.econ.tokenBudget) || 0,
     moneyType: m.moneyType,
     tokenMode: m.tokenMode,
@@ -1791,6 +1837,10 @@ function autoWanderMaybe(force = false) {
 
 // ---------- LLM ----------
 let typing = false, busy = false, lastTurnAt = 0, lastUsage = null;
+let typingStartedAt = 0;
+let currentTurn = null;
+const TURN_MAX_MS = 300000;
+function abortTurn() { try { if (currentTurn && currentTurn.ctrl) currentTurn.ctrl.abort(); } catch {} }
 const streamClients = new Set();
 const streamState = { active: false, text: '' };
 function broadcast(obj) { for (const res of streamClients) { try { res.write('data: ' + JSON.stringify(obj) + '\n\n'); } catch {} } }
@@ -1816,7 +1866,7 @@ function apiKey() {
   try { const y = fs.readFileSync(path.join(HOME, '.dsh', '.credentials.yaml'), 'utf8'); const m = y.match(/(?:deepseek[_-]?api[_-]?key|DEEPSEEK_API_KEY)\s*:\s*(\S+)/i); if (m) return m[1].trim(); } catch {}
   throw new Error('没有找到 DeepSeek API Key');
 }
-async function chatCompletion(body) {
+async function chatCompletion(body, opts = {}) {
   const m = loadModelCfg();
   const payload = { ...body, model: body.model || m.name };
   if (payload.reasoning_effort === undefined) payload.reasoning_effort = m.reasoningEffort;
@@ -1826,7 +1876,7 @@ async function chatCompletion(body) {
     method: 'POST',
     headers: { authorization: 'Bearer ' + apiKey(), 'content-type': 'application/json' },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(180000),
+    signal: opts.signal || AbortSignal.timeout(180000),
   });
   const text = await res.text();
   if (!res.ok) {
@@ -1834,6 +1884,7 @@ async function chatCompletion(body) {
     throw new Error('deepseek HTTP ' + res.status + ': ' + text.slice(0, 300));
   }
   const j = JSON.parse(text);
+  try { if (j && j.usage) recordUsageTokens(j.usage); } catch {}
   return j;
 }
 
@@ -1950,6 +2001,8 @@ function adbDevicePresent() {
   });
 }
 let resourcesCache = { at: 0, data: null };
+let VM_STATUS_CACHE = { at: 0, data: null };
+let STAGE_CACHE = { at: 0, payload: null };
 async function resourcesInfo() {
   if (resourcesCache.data && Date.now() - resourcesCache.at < 8000) return resourcesCache.data;
   const space = await vmRunningNow();
@@ -2286,7 +2339,7 @@ function buildSystemPrompt(userText) {
       ? '用户允许你自己开屏幕/手机：如果发现没开，你可以自己启动（会占内存，别乱开）。'
       : '用户没允许你自己开机：屏幕/手机没开时不要自己启动，先跟用户说一声让他开。');
   }
-  return parts.join('\n\n');
+  return parts.join('\n\n').slice(0, 20000);
 }
 function buildUserTurnText(text, image) {
   if (!image) return text;
@@ -2306,11 +2359,16 @@ function buildMessages(userText) {
   const ctx = loadContext();
   const limit = ctx.historyMode === 'off' ? 0 : (ctx.historyMode === 'minimal' ? 4 : ((ctx.historyMode === 'short' || ctx.historyMode === 'compact') ? 8 : 30));
   const recent = messages.filter((m) => m.role === 'user' || m.role === 'her').slice(-limit);
+  // 图片预算：最多最近 4 张、base64 总量 ~24MB，超出降级成文字，避免请求体过大/API 400
+  let imgCount = 0, imgBytes = 0;
   const conv = recent.map((m) => {
     const role = m.role === 'her' ? 'assistant' : 'user';
     if (m.image) {
       const du = imageDataUrl(m.image);
-      if (du) return { role, content: [{ type: 'text', text: m.text || '（发来一张图片）' }, { type: 'image_url', image_url: { url: du } }] };
+      if (du && imgCount < 4 && imgBytes + du.length < 24 * 1024 * 1024) {
+        imgCount++; imgBytes += du.length;
+        return { role, content: [{ type: 'text', text: m.text || '（发来一张图片）' }, { type: 'image_url', image_url: { url: du } }] };
+      }
     }
     return { role, content: m.text };
   });
@@ -2373,8 +2431,11 @@ function runShell(command, timeoutMs = 120000) {
 }
 function isDangerousCommand(text) {
   const s = String(text || '');
-  const re = /(rm\s+-rf|del\s+\/[fqs]|format\s+[a-z]:|shutdown|stop-computer|taskkill|mkfs|dd\s+if=|curl[^|]*\|\s*(ba)?sh|wget[^|]*\|\s*(ba)?sh|reg\s+delete|takeown|icacls[^\n]*\/reset|git\s+push[^\n]*--force|drop\s+(database|table)|truncate\s+table|删除|卸载|关机|格式化|转账|清空)/i;
-  return re.test(s);
+  const re = /(rm\s+-rf|del\s+\/[fqs]|rd\s+\/s|rmdir\s+\/s|format\s+[a-z]:|shutdown|stop-computer|restart-computer|taskkill|mkfs|dd\s+if=|reg\s+(add|delete)|takeown|icacls|net\s+user|sc\s+(delete|stop|config)|schtasks|certutil|bitsadmin|wmic|diskpart|bcdedit|vssadmin|wevtutil|invoke-expression|\biex\b|invoke-webrequest|start-bitstransfer|remove-item|clear-disk|set-executionpolicy|git\s+push[^\n]*--force|drop\s+(database|table)|truncate\s+table|(curl|wget)[^|\n]*\|\s*(ba)?sh|删除|卸载|关机|格式化|转账|清空)/i;
+  if (re.test(s)) return true;
+  // 编码/下载执行类组合也按危险处理
+  if (/(^|[;&|]\s*)(powershell|pwsh|cmd)\s/i.test(s) && /(-enc\b|encodedcommand|frombase64string|downloadstring|invoke-)/i.test(s)) return true;
+  return false;
 }
 async function runCodeTool(args) {
   const env = loadEnv();
@@ -2496,6 +2557,7 @@ async function runSpaceTool(args) {
       typeArg = ['type', '--text-file=' + tf];
     } catch { typeArg = ['type', String(args.text || '')]; }
   }
+  if (action === 'key' && !/^[A-Za-z0-9+_-]{1,40}$/.test(String(args.key || ''))) return { text: '不支持的按键组合（只允许字母数字和 +_-）' };
   const map = { click: [ 'click', args.x, args.y, ...winArg], dclick: ['dclick', args.x, args.y, ...winArg], move: ['move', args.x, args.y, ...winArg], drag: ['drag', args.x, args.y, args.x2, args.y2, ...winArg], type: [...typeArg, ...winArg], key: ['key', args.key, ...winArg], res: ['res'] };
   if (action === 'batch') {
     if (!loadTokenSaving().batchActions) return { text: '批量动作开关没开：设置 → 模型 → 省 token 开关里打开「批量动作」后再用。' };
@@ -2516,7 +2578,7 @@ async function runSpaceTool(args) {
       else if (a === 'dclick') cmdArgs = ['dclick', st.x, st.y];
       else if (a === 'move') cmdArgs = ['move', st.x, st.y];
       else if (a === 'drag') cmdArgs = ['drag', st.x, st.y, st.x2, st.y2];
-      else cmdArgs = ['key', st.key];
+      else { if (!/^[A-Za-z0-9+_-]{1,40}$/.test(String(st.key || ''))) return { text: '第 ' + (i + 1) + ' 步按键组合不合法' }; cmdArgs = ['key', st.key]; }
       const r = await runPy('space_ctl.py', cmdArgs, 30000);
       if (!r.ok) return { text: '批量动作第 ' + (i + 1) + ' 步失败（' + a + '）：' + String(r.out || r.err || '').slice(0, 300) + '；已完成：' + done.join('、') };
       done.push(a === 'type' ? 'type' : a + '(' + (st.x ?? '') + ',' + (st.y ?? '') + ')');
@@ -2629,16 +2691,18 @@ async function runTool(name, args) {
 }
 async function generateReply(userText) {
   if (typing) return;
-  typing = true; busy = true;
+  typing = true; busy = true; typingStartedAt = Date.now();
+  currentTurn = { ctrl: new AbortController(), startedAt: Date.now() };
+  const turn = currentTurn;
   try {
     if (CONFIG.weatherMode === 'real') { try { await getRealWeather(); } catch {} }
     const convo = buildMessages(userText);
     let sent = false;
     const maxSteps = Math.max(4, Math.min(60, Number(loadModelCfg().maxSteps) || 20));
     for (let step = 0; step < maxSteps; step++) {
-      const resp = await chatCompletion({ messages: convo, tools: buildTools(userText), tool_choice: 'auto' });
+      if (Date.now() - turn.startedAt > TURN_MAX_MS) throw new Error('这一轮处理太久了，已自动停止');
+      const resp = await chatCompletion({ messages: convo, tools: buildTools(userText), tool_choice: 'auto' }, { signal: turn.ctrl.signal });
       lastUsage = resp.usage || lastUsage;
-      try { recordUsageTokens(resp.usage); } catch {}
       lastTurnAt = Date.now();
       const msg = resp && resp.choices && resp.choices[0] && resp.choices[0].message;
       if (!msg) break;
@@ -2685,7 +2749,7 @@ async function generateReply(userText) {
             break;
           }
         }
-        const resp2 = await chatCompletion({ messages: convo2, max_tokens: 300, temperature: 0.8 });
+        const resp2 = await chatCompletion({ messages: convo2, max_tokens: 300, temperature: 0.8 }, { signal: turn.ctrl.signal });
         const msg2 = resp2 && resp2.choices && resp2.choices[0] && resp2.choices[0].message;
         const txt2 = msg2 ? String(msg2.content || '').trim() : '';
         if (txt2) { await streamText(txt2); addMessage('her', txt2); sent = true; }
@@ -2696,8 +2760,12 @@ async function generateReply(userText) {
     maybeSummarize().catch(() => {});
     maybeExtractFacts(userText).catch(() => {});
   } catch (e) {
-    addMessage('system', '（她这边出了点问题：' + String(e.message || e).slice(0, 200) + '）');
-  } finally { typing = false; busy = false; }
+    const stopped = e && (e.name === 'AbortError' || /aborted|abort/i.test(String(e.message || '')));
+    addMessage('system', stopped ? '（已停止生成）' : '（她这边出了点问题：' + String(e.message || e).slice(0, 200) + '）');
+  } finally {
+    typing = false; busy = false; typingStartedAt = 0;
+    if (currentTurn === turn) currentTurn = null;
+  }
 }
 async function maybeSummarize() {
   if (messages.length < 24) return;
@@ -2835,8 +2903,14 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   try {
     const reqOrigin = String((req.headers && req.headers.origin) || '');
+    const hostHdr = String((req.headers && req.headers.host) || '').toLowerCase();
+    const hostName = hostHdr.startsWith('[') ? hostHdr.slice(1, hostHdr.indexOf(']')) : hostHdr.split(':')[0];
+    if (hostHdr && !['127.0.0.1', 'localhost', '::1'].includes(hostName)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('forbidden host'); return; }
+    if (String((req.headers && req.headers['sec-fetch-site']) || '') === 'cross-site') { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('forbidden site'); return; }
     if (reqOrigin && !originAllowed(reqOrigin)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('forbidden origin'); return; }
     if (reqOrigin) { res.setHeader('access-control-allow-origin', reqOrigin); res.setHeader('vary', 'Origin'); }
+    res.setHeader('x-content-type-options', 'nosniff');
+    res.setHeader('content-security-policy', "frame-ancestors 'self' http://127.0.0.1:* http://localhost:*");
     if (req.method === 'OPTIONS') {
       res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
       res.setHeader('access-control-allow-headers', 'authorization,content-type,x-sync-token');
@@ -2987,13 +3061,30 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/screen/pc') {
+      let file = null;
       try {
         const r = await kernelCall('/desktop/capture', { analyze: false });
-        const file = r && r.image_path;
-        if (!file || !fs.existsSync(file)) { res.writeHead(503, {'content-type':'text/plain;charset=utf-8'}); res.end('桌面内核无截图'); return; }
-        res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'no-store' });
+        if (r && r.image_path && fs.existsSync(r.image_path)) file = r.image_path;
+      } catch {}
+      if (!file) {
+        // 桌面内核没开时的兜底：直接抓宿主机屏幕（只读截图，不依赖内核）
+        try {
+          const out = path.join(ROOT, 'data', 'screens', 'host-' + Date.now() + '.png');
+          fs.mkdirSync(path.dirname(out), { recursive: true });
+          const { execFile } = await import('node:child_process');
+          await new Promise((resolve, reject) => {
+            execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (fs.existsSync(path.join(RUNTIME_DIR, 'env', 'capture_screen.ps1')) ? path.join(RUNTIME_DIR, 'env', 'capture_screen.ps1') : path.join(ENV_DIR, 'capture_screen.ps1')), out], { timeout: 25000, windowsHide: true }, (e) => e ? reject(e) : resolve());
+          });
+          if (fs.existsSync(out) && fs.statSync(out).size > 1000) file = out;
+          try { pruneUploadFiles(path.join(ROOT, 'data', 'screens'), 'host-', 3); } catch {}
+        } catch {}
+      }
+      if (!file) { res.writeHead(503, {'content-type':'text/plain;charset=utf-8'}); res.end('桌面内核没在运行，兜底截图也失败了'); return; }
+      try {
+        const mime = /\.png$/i.test(file) ? 'image/png' : 'image/jpeg';
+        res.writeHead(200, { 'content-type': mime, 'cache-control': 'no-store' });
         res.end(fs.readFileSync(file));
-      } catch (e) { res.writeHead(503, {'content-type':'text/plain;charset=utf-8'}); res.end('桌面内核不可用'); }
+      } catch (e) { res.writeHead(503, {'content-type':'text/plain;charset=utf-8'}); res.end('读取截图失败'); }
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/screen/phone') {
@@ -3072,7 +3163,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/avatar.png') {
-      const cid = path.basename(String(url.searchParams.get('c') || ACTIVE_CHAR || ''));
+      const cidRaw = path.basename(String(url.searchParams.get('c') || ACTIVE_CHAR || ''));
+      const cid = safeCharId(cidRaw) || safeCharId(ACTIVE_CHAR) || '';
       const file = cid ? path.join(CHARS_ROOT, cid, 'avatar.bin') : avatarPath();
       if (!fs.existsSync(file)) { res.writeHead(404); res.end('no avatar'); return; }
       const buf = fs.readFileSync(file);
@@ -3123,10 +3215,17 @@ const server = http.createServer(async (req, res) => {
         if (img.ok) image = img.url;
       }
       if (!text && !image) { json(res, 400, { ok: false, error: '空消息' }); return; }
+      // 看门狗：异常情况下 typing 卡死超过 10 分钟自动解锁
+      if (typing && typingStartedAt && Date.now() - typingStartedAt > 10 * 60 * 1000) { typing = false; busy = false; typingStartedAt = 0; currentTurn = null; }
       if (typing) { json(res, 429, { ok: false, error: '她还在说话' }); return; }
       addMessage('user', text || '[图片]', image);
       generateReply(buildUserTurnText(text, image));
       json(res, 200, { ok: true });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/chat/cancel') {
+      abortTurn();
+      json(res, 200, { ok: true, typing });
       return;
     }
 
@@ -3278,6 +3377,7 @@ function importMemoryItems(raw) {
       }
       const id = String(b.id || '');
       if (!listCharacters().some((c) => c.id === id)) { json(res, 404, { ok: false, error: '没有这个角色' }); return; }
+      if (typing || busy) { json(res, 409, { ok: false, error: '她还在说话，等这一轮结束再切角色' }); return; }
       activateCharacter(id);
       json(res, 200, { ok: true, active: id, characters: listCharacters(), character: { id, name: loadMeta().name, avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + Date.now() : '/default-avatar.png' } });
       return;
@@ -3646,7 +3746,7 @@ function importMemoryItems(raw) {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/vm-chat/settings') {
-      json(res, 200, { ok: true, settings: { enabled: false, checkMessages: true, autoStart: true, idleShutdown: true, checkIntervalMin: 15, ...(CONFIG.vmChat || {}) } });
+      json(res, 200, { ok: true, settings: { enabled: false, checkMessages: true, autoStart: true, idleShutdown: true, checkIntervalMin: 15, targetContact: '', unreadScan: false, watchdog: true, sendImages: true, ...(CONFIG.vmChat || {}) } });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/vm-chat/settings') {
@@ -3657,12 +3757,19 @@ function importMemoryItems(raw) {
       if (typeof b.autoStart === 'boolean') cur.autoStart = b.autoStart;
       if (typeof b.idleShutdown === 'boolean') cur.idleShutdown = b.idleShutdown;
       if (Number.isFinite(Number(b.checkIntervalMin))) cur.checkIntervalMin = Math.max(2, Math.min(1440, Number(b.checkIntervalMin)));
+      if (typeof b.targetContact === 'string') cur.targetContact = b.targetContact.trim().slice(0, 60);
+      if (typeof b.unreadScan === 'boolean') cur.unreadScan = b.unreadScan;
+      if (typeof b.watchdog === 'boolean') cur.watchdog = b.watchdog;
+      if (typeof b.sendImages === 'boolean') cur.sendImages = b.sendImages;
       CONFIG.vmChat = cur; saveConfig();
       json(res, 200, { ok: true, settings: cur });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/vm-chat/status') {
-      try { json(res, 200, { ok: true, status: await VM_CHAT.status() }); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      try {
+        if (!VM_STATUS_CACHE.data || Date.now() - VM_STATUS_CACHE.at > 5000) { VM_STATUS_CACHE = { at: Date.now(), data: await VM_CHAT.status() }; }
+        json(res, 200, { ok: true, status: VM_STATUS_CACHE.data });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/vm-chat/wake') {
@@ -3679,7 +3786,17 @@ function importMemoryItems(raw) {
     }
     if (req.method === 'POST' && url.pathname === '/api/vm-chat/send') {
       const b = (req._json || {});
-      try { json(res, 200, { ok: true, result: await VM_CHAT.sendText(String(b.text || '')) }); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      try {
+        if (b.imagePath) {
+          const imgRoot = path.resolve(ROOT, 'data', 'images');
+          const p = path.resolve(imgRoot, path.basename(String(b.imagePath)));
+          if (!p.startsWith(imgRoot + path.sep) || !fs.existsSync(p)) { json(res, 400, { ok: false, error: '图片路径不允许（只允许 data/images 下的文件）' }); return; }
+          if (typeof VM_CHAT.sendImageToUser !== 'function') { json(res, 501, { ok: false, error: '当前运行时还不支持图片发送' }); return; }
+          json(res, 200, { ok: true, result: await VM_CHAT.sendImageToUser(p, String(b.text || '')) });
+          return;
+        }
+        json(res, 200, { ok: true, result: await VM_CHAT.sendText(String(b.text || '')) });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/scene/settings') {
@@ -3785,7 +3902,10 @@ function importMemoryItems(raw) {
       const b = (req._json || {});
       CONFIG.lifeSim = { ...(CONFIG.lifeSim || {}) };
       for (const k of ['enabled']) if (typeof b[k] === 'boolean') CONFIG.lifeSim[k] = b[k];
-      for (const k of ['minEventGapMin', 'maxDaily', 'quietStart', 'quietEnd', 'photoChance']) if (Number.isFinite(Number(b[k]))) CONFIG.lifeSim[k] = Number(b[k]);
+      const lifeBounds = { minEventGapMin: [5, 720], maxDaily: [0, 100], quietStart: [0, 23], quietEnd: [0, 23], photoChance: [0, 1] };
+      for (const k of Object.keys(lifeBounds)) {
+        if (Number.isFinite(Number(b[k]))) { const lo = lifeBounds[k][0], hi = lifeBounds[k][1]; CONFIG.lifeSim[k] = Math.min(hi, Math.max(lo, Number(b[k]))); }
+      }
       saveConfig();
       json(res, 200, { ok: true, settings: lifeSimCfg() });
       return;
@@ -3996,9 +4116,9 @@ function importMemoryItems(raw) {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/economy') {
-      if (!REAL_BALANCE.at || Date.now() - REAL_BALANCE.at > 60000) { try { await refreshRealBalance(); } catch {} }
-      const econ = loadEconomy(); const w = walletMoney();
-      json(res, 200, { ok: true, economy: econ, realBalance: REAL_BALANCE, wallet: { balance: w.wallet.balance, spendable: w.spendable, tokenMode: w.tokenMode, remainingTokens: w.remainingTokens, usedTokens: w.wallet.usedTokens, moneyType: w.moneyType } });
+      if (!REAL_BALANCE.at || Date.now() - REAL_BALANCE.at > 60000) { refreshRealBalance().catch(() => {}); }
+      const econ = loadEconomy(); const w = walletMoney(); const t = tokenStats();
+      json(res, 200, { ok: true, economy: econ, realBalance: REAL_BALANCE, wallet: { balance: w.wallet.balance, spendable: w.spendable, tokenMode: w.tokenMode, remainingTokens: w.remainingTokens, usedTokens: t.usedTokens, dailyUsed: t.dailyUsed, tokenBudget: t.tokenBudget, moneyType: w.moneyType } });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/economy') {
@@ -4039,7 +4159,12 @@ function importMemoryItems(raw) {
     if (req.method === 'GET' && url.pathname === '/api/stage') { json(res, 200, stagePayload()); return; }
     if (req.method === 'GET' && url.pathname === '/api/stage/stream') {
       res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive' });
-      const send = () => { try { res.write('data: ' + JSON.stringify(stagePayload()) + '\n\n'); } catch {} };
+      const send = () => {
+        try {
+          if (!STAGE_CACHE.payload || Date.now() - STAGE_CACHE.at > 1000) STAGE_CACHE = { at: Date.now(), payload: stagePayload() };
+          res.write('data: ' + JSON.stringify(STAGE_CACHE.payload) + '\n\n');
+        } catch {}
+      };
       send(); const t = setInterval(send, 1000); req.on('close', () => clearInterval(t));
       return;
     }

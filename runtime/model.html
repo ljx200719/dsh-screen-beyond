@@ -39,13 +39,13 @@ input, textarea, select { border-radius: 9px; }
   <div class="row" id="hStatus">…</div>
   <div class="row" id="hMoney">…</div>
   <div class="row"><a href="/">聊天</a><a href="/screen" target="_blank">屏幕</a><a href="/map?drawRoads=1" target="_blank">画 3D 道路</a><a href="/model?previewVehicles=1" target="_blank">预览载具</a><a href="/map">2D 地图</a><a href="/stage">2D 舞台</a><a href="/settings">设置</a></div>
-  <div class="hint">拖拽画面旋转 · 滚轮缩放 · 地图模型在「地图→地图设置→地图模型」里配</div>
+  <div class="hint">拖拽画面旋转 · 滚轮/双指缩放 · 地图模型在「地图→地图设置→地图模型」里配</div>
 </div>
 <div id="loading">three.js 加载中…</div>
 <script src="/wx.js"></script>
 <script type="importmap">{"imports":{"three":"/vendor/three.module.min.js","three/addons/":"/vendor/addons/"}}</script>
 <script>
-window.addEventListener('error', (e) => { const el = document.getElementById('loading'); if (el) el.textContent = 'JS错误：' + (e.message || e.error); });
+window.addEventListener('error', (e) => { if (window.__webglFallback) { e.preventDefault(); return; } const el = document.getElementById('loading'); if (el) el.textContent = 'JS错误：' + (e.message || e.error); });
 window.addEventListener('unhandledrejection', (e) => { const el = document.getElementById('loading'); if (el) el.textContent = 'Promise错误：' + (e.reason && e.reason.message ? e.reason.message : e.reason); });
 </script>
 <script type="module">
@@ -85,7 +85,21 @@ function hudError(msg, id) {
 }
 
 const app = document.getElementById('app');
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// WebGL 兜底：不支持时给出中文提示并停止 3D 初始化
+let renderer = null;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+} catch (e) {
+  window.__webglFallback = true;
+  const ld = document.getElementById('loading');
+  if (ld) {
+    ld.style.display = 'flex';
+    ld.style.zIndex = '20';
+    ld.innerHTML = '<div style="max-width:520px;padding:28px 36px;border:1px solid rgba(120,160,220,.35);border-radius:18px;background:rgba(10,20,35,.9);text-align:center"><div style="font-size:20px;font-weight:600;color:#dce9fb;margin-bottom:10px">3D 舞台不可用</div><div style="font-size:13px;color:#8fa8c4;line-height:1.8">浏览器/显卡不支持 WebGL，可回退 2D 舞台继续查看。</div><div style="margin-top:14px"><a href="/stage" style="display:inline-block;padding:8px 18px;border-radius:10px;background:linear-gradient(135deg,#4f8dff,#7b6bff);color:#fff;text-decoration:none;font-size:13px">打开 2D 舞台</a></div></div>';
+  }
+  if (app) app.style.display = 'none';
+  throw e; // 终止本模块后续初始化（错误监听已按 __webglFallback 静默）
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -93,12 +107,27 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.25;
 app.appendChild(renderer.domElement);
+// WebGL 上下文丢失/恢复
+let contextLostTimer = 0;
+renderer.domElement.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  hudError('3D 上下文丢失，正在恢复…');
+  clearTimeout(contextLostTimer);
+  contextLostTimer = setTimeout(() => {
+    const ctx = renderer.getContext && renderer.getContext();
+    if (ctx && ctx.isContextLost && ctx.isContextLost()) hudError('3D 上下文丢失且恢复失败，请刷新页面');
+  }, 6000);
+});
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+  clearTimeout(contextLostTimer);
+  hudError('');
+});
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x1a2c3a, 140, 320);
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 500);
 
 const WORLD_W = 120, WORLD_H = 77; // 世界尺寸（对应地图归一化坐标）
-function toWorld(x, y) { return new THREE.Vector3((x - 0.5) * WORLD_W, 0, (y - 0.5) * WORLD_H); }
+function toWorld(x, y, out) { return (out || new THREE.Vector3()).set((x - 0.5) * WORLD_W, 0, (y - 0.5) * WORLD_H); }
 
 // 灯光
 const hemi = new THREE.HemisphereLight(0xdceeff, 0x2a3a2a, 1.0); scene.add(hemi);
@@ -112,6 +141,41 @@ dir.shadow.camera.near = 1; dir.shadow.camera.far = 220;
 dir.shadow.bias = -0.0005;
 scene.add(dir);
 const ambient = new THREE.AmbientLight(0x445566, 0.65); scene.add(ambient);
+
+// 相机/阴影按模型尺寸自适应：模型加载完成时更新，尺寸不变不重复调整（避免抖动）
+let envFitRadius = 0, charFitRadius = 0, fitApplied = 0, zoomTouched = false, maxDist = 320;
+function resetSceneFit() {
+  fitApplied = 0;
+  maxDist = 320;
+  if (!zoomTouched) dist = 100;
+  camera.far = 500; camera.updateProjectionMatrix();
+  const sr = 90;
+  dir.shadow.camera.left = -sr; dir.shadow.camera.right = sr;
+  dir.shadow.camera.top = sr; dir.shadow.camera.bottom = -sr;
+  dir.shadow.camera.far = 220;
+  dir.shadow.camera.updateProjectionMatrix();
+  dir.position.set(40, 70, 25);
+  scene.fog.near = 140; scene.fog.far = 320;
+}
+function updateSceneFit() {
+  const r = Math.max(envFitRadius, charFitRadius);
+  if (!(r > 0.001)) { resetSceneFit(); return; }
+  if (Math.abs(r - fitApplied) < 0.01) return;
+  fitApplied = r;
+  maxDist = Math.max(320, Math.min(3000, r * 2.2));
+  if (!zoomTouched) dist = Math.min(maxDist, Math.max(100, r * 1.6));
+  camera.far = Math.max(500, dist * 3);
+  camera.updateProjectionMatrix();
+  const sr = Math.min(240, Math.max(90, r * 1.2));
+  dir.shadow.camera.left = -sr; dir.shadow.camera.right = sr;
+  dir.shadow.camera.top = sr; dir.shadow.camera.bottom = -sr;
+  dir.shadow.camera.far = Math.max(220, sr * 3);
+  dir.shadow.camera.updateProjectionMatrix();
+  dir.position.set(sr * 0.44, sr * 0.78, sr * 0.28);
+  scene.fog.near = Math.max(140, r * 1.4);
+  scene.fog.far = Math.max(320, r * 3.2);
+}
+
 // 3D 底座：让官方地图像一座海岛模型，不再悬在空网格里
 const basePlane = new THREE.Mesh(
   new THREE.PlaneGeometry(190, 130),
@@ -393,7 +457,6 @@ function ribbon(points, width, color, y, rough = .9, opacity = 1) {
   const m = new THREE.MeshStandardMaterial({ color, roughness: rough, side: THREE.DoubleSide, transparent: opacity < 1, opacity });
   const mesh = new THREE.Mesh(g, m); mesh.receiveShadow = true; return mesh;
 }
-const MARKERS_ONLY = true;
 function buildOfficialTerrain(map) {
   const places = map.places || [];
   const key = JSON.stringify(places.map(p => [p.id, p.x, p.y])) + JSON.stringify(map.vehicles || {}) + JSON.stringify(map.roads || []);
@@ -531,73 +594,7 @@ function buildOfficialTerrain(map) {
     rock.position.set(s.x, .3, s.z); rock.scale.setScalar(.7 + i * .05); terrainGroup.add(rock);
   }
 
-  if (MARKERS_ONLY) return; // 只留地点建筑与标签，去掉装饰、树木、渔船和码头
-  const pier = new THREE.Group();
-  pier.position.copy(worldP(.86,.41));
-  pier.add(townBox(8, .22, 2.2, 0x9c7b56, 0, .4, 0));
-  for (const x of [-3.4, 0, 3.4]) pier.add(townBox(.22, .7, .22, 0x6d523b, x, .05, -.8));
-  for (const x of [-3.4, 0, 3.4]) pier.add(townBox(.22, .7, .22, 0x6d523b, x, .05, .8));
-  terrainGroup.add(pier);
-  const lighthouse = new THREE.Group(); lighthouse.position.copy(worldP(.90,.27));
-  lighthouse.add(new THREE.Mesh(new THREE.CylinderGeometry(.75, .95, 4, 10), townMat(0xece3d2, .8)));
-  const lhRoof = new THREE.Mesh(new THREE.ConeGeometry(1.0, 1.2, 10), townMat(0xb45d54, .7)); lhRoof.position.y = 2.6; lighthouse.add(lhRoof);
-  terrainGroup.add(lighthouse);
-
-  for (const [u, v] of [[.10,.50],[.13,.58],[.21,.44],[.28,.36],[.35,.30],[.56,.46],[.60,.57],[.66,.65],[.73,.58],[.27,.70],[.33,.78],[.70,.30]]) {
-    const w = worldP(u, v); terrainGroup.add(townTree(w.x, w.z, .85 + ((u * 7 + v * 11) % 3) * .12));
-  }
-
-  // 海岸与街道细节：灌木、花、礁石、路灯、小船
-  const bushMat = townMat(0x5f8f5a, .95);
-  const flowerMats = [townMat(0xe6a3b6, .85), townMat(0xf1d17a, .85), townMat(0xd98776, .85)];
-  const bushGeo = new THREE.ConeGeometry(.7, 1.1, 6);
-  for (const [u,v,s] of [[.10,.30,.8],[.14,.72,.7],[.21,.24,.8],[.28,.78,.7],[.35,.22,.7],[.39,.69,.8],[.56,.25,.75],[.62,.73,.8],[.71,.64,.7],[.76,.38,.7],[.06,.52,.75],[.48,.18,.7]]) {
-    const w = worldP(u,v);
-    const bush = new THREE.Mesh(bushGeo, bushMat); bush.position.set(w.x, .55*s, w.z); bush.scale.setScalar(s); bush.castShadow = true; terrainGroup.add(bush);
-  }
-  for (let i = 0; i < 26; i++) {
-    const a = i * 2.13, r = 7 + (i % 7) * 3.2;
-    const w = worldP(.50 + Math.cos(a) * .018 * r, .52 + Math.sin(a) * .018 * r);
-    const flower = new THREE.Mesh(new THREE.SphereGeometry(.16, 6, 5), flowerMats[i % flowerMats.length]);
-    flower.position.set(w.x, .28, w.z); terrainGroup.add(flower);
-  }
-  const lampMat = townMat(0x4e5556, .7, .2);
-  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffe0a3 });
-  for (const [u,v] of [[.25,.52],[.34,.45],[.47,.36],[.58,.39],[.62,.58],[.39,.70]]) {
-    const w = worldP(u,v);
-    const lamp = new THREE.Group(); lamp.position.set(w.x, .18, w.z);
-    lamp.add(townBox(.13, 2.0, .13, 0x4e5556, 0, 1.0, 0));
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(.18, 8, 6), bulbMat); bulb.position.y = 2.05; lamp.add(bulb);
-    terrainGroup.add(lamp);
-  }
-  const boat = new THREE.Group(); boat.position.copy(worldP(.80,.58));
-  boat.add(townBox(2.8, .45, 1.1, 0x9a6f48, 0, .18, 0));
-  boat.add(townBox(2.2, .2, .8, 0x6e9db1, 0, .43, 0));
-  const mast = townBox(.08, 2.4, .08, 0x7c5a3d, .4, 1.2, 0); boat.add(mast);
-  terrainGroup.add(boat);
-
-    // 空白处补村庄、田地和果园
-  function cottage(u, v, s = 1, ry = 0) {
-    const w = worldP(u, v); const c = new THREE.Group(); c.position.set(w.x, .02, w.z); c.rotation.y = ry;
-    c.add(townBox(2.8*s, 1.5*s, 2.4*s, 0xe0cfb4, 0, .75*s, 0));
-    c.add(townRoof(2.8*s, 1.15*s, 2.4*s, 0x9a5f4d, 0, 1.95*s, 0));
-    c.add(townBox(.2*s, 1.1*s, .2*s, 0x8b6a45, 0, .55*s, 1.0*s));
-    c.add(townBox(.5*s, .07*s, .5*s, 0x75573d, .9*s, 1.8*s, -.25*s));
-    terrainGroup.add(c);
-  }
-  function field(u, v, w, d, ry, color) {
-    const p = worldP(u, v); const f = new THREE.Group(); f.position.set(p.x, .06, p.z); f.rotation.y = ry;
-    f.add(townBox(w, .10, d, color, 0, 0, 0));
-    for (let i = 0; i < Math.floor(d / 1.4); i++) f.add(townBox(w * .92, .12, .28, 0x7d8d58, 0, .04, -d/2 + .8 + i*1.4));
-    terrainGroup.add(f);
-  }
-  field(.12,.34, 4.0, 4.5, .1, 0xc9c17b);
-  field(.20,.56, 3.2, 3.6, -.2, 0xb6c17b);
-  field(.54,.66, 3.8, 3.2, .35, 0xc7bd76);
-  field(.73,.25, 3.2, 3.0, -.15, 0xb9c479);
-  for (let i = 0; i < 4; i++) { const w = worldP(.13 + i*.7, .47); terrainGroup.add(townTree(w.x, w.z, .7)); }
-
-
+  // 只保留地点建筑与标签；原 MARKERS_ONLY=true 之后的码头/灯塔/村庄/田地等装饰是不可达死代码，已删除
 }
 
 
@@ -690,6 +687,7 @@ window.playCharClip = playCharClip;
 let spriteTex = null, spritePlane = null, fallbackBody = null, shadowBlob = null;
 function clearChar() {
   disposeChildren(charGroup, TOWN_MAT_SHARED);
+  charFitRadius = 0;
   if (mixer) { mixer.stopAllAction(); mixer = null; }
   spriteTex = null;
   spritePlane = null; charModel = null; fallbackBody = null; charActions = []; activeCharAction = null;
@@ -762,9 +760,12 @@ async function buildChar(character) {
       const box = new THREE.Box3().setFromObject(charModel);
       charModel.position.y = -box.min.y;
       charGroup.add(charModel);
+      // 按角色模型包围盒参与相机/阴影自适应（与地图模型取较大者）
+      const csize = box.getSize(new THREE.Vector3());
+      charFitRadius = Math.max(csize.x, csize.y, csize.z) * 1.2;
+      updateSceneFit();
       const clips = gltf.animations || [];
-      charActions = clips.map((clip) => new THREE.AnimationMixer(charModel).clipAction(clip));
-      if (charActions.length) { mixer = new THREE.AnimationMixer(charModel); charActions = clips.map((clip) => mixer.clipAction(clip)); playCharClip(desiredCharClip || 'Idle'); }
+      if (clips.length) { mixer = new THREE.AnimationMixer(charModel); charActions = clips.map((clip) => mixer.clipAction(clip)); playCharClip(desiredCharClip || 'Idle'); }
     } catch (e) {
       if (charKind !== kindKey) return;
       makeFallback();
@@ -787,7 +788,7 @@ async function buildChar(character) {
   if (fallbackBody) fallbackBody.visible = false;
   if (spritePlane) spritePlane.visible = false;
   // 3D/GLB 模型已经加载时不要再叠一个程序化小人，否则会出现两个小鲸
-  if (!charModel) charGroup.add(buildChibi(character));
+  if (!charModel) { charGroup.add(buildChibi(character)); updateSceneFit(); }
 }
 
 // 路径线
@@ -816,12 +817,13 @@ async function poll() {
     pollBusy = false;
   }
 }
-function characterWorldPos() {
-  if (!stage) return new THREE.Vector3();
+function characterWorldPos(out) {
+  const v = out || new THREE.Vector3();
+  if (!stage) return v.set(0, 0, 0);
   const loc = stage.location;
   if (loc.state === 'stationary') {
     const p = stage.map.places.find(x => x.id === loc.placeId) || { x: 0.5, y: 0.5 };
-    return toWorld(p.x, p.y);
+    return toWorld(p.x, p.y, v);
   }
   if (loc.state === 'traveling' && loc.traveling && loc.traveling.path && loc.traveling.path.length > 1) {
     const t = loc.traveling;
@@ -835,12 +837,12 @@ function characterWorldPos() {
         const r = segs[i] ? target / segs[i] : 0;
         const nx = path[i].x + (path[i + 1].x - path[i].x) * Math.min(1, Math.max(0, r));
         const ny = path[i].y + (path[i + 1].y - path[i].y) * Math.min(1, Math.max(0, r));
-        return toWorld(nx, ny);
+        return toWorld(nx, ny, v);
       }
       target -= segs[i];
     }
   }
-  return toWorld(0.5, 0.2);
+  return toWorld(0.5, 0.2, v);
 }
 function apply() {
   if (!stage) return;
@@ -934,7 +936,7 @@ async function buildEnv(map) {
   if (ground) ground.visible = !hideProcedural;
   if (grid) grid.visible = !hideProcedural;
   for (const r of roadMeshes || []) r.visible = !hideProcedural;
-  if (!hideProcedural) return;
+  if (!hideProcedural) { envFitRadius = 0; updateSceneFit(); return; }
   try {
     const gltf = await new GLTFLoader().loadAsync(model.url);
     if (envKey !== key) { disposeObject3D(gltf.scene); return; }
@@ -944,8 +946,13 @@ async function buildEnv(map) {
     obj.position.y = Number(model.yOffset) || 0;
     obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     envGroup.add(obj);
+    // 按地图模型包围盒自适应相机距离与阴影范围
+    const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
+    envFitRadius = Math.max(size.x, size.z) / 2;
+    updateSceneFit();
   } catch (e) {
     if (envKey !== key) return;
+    envFitRadius = 0; updateSceneFit();
     hudError('地图模型加载失败：' + (e && e.message ? e.message : e));
     if (ground) ground.visible = true;
     if (grid) grid.visible = true;
@@ -953,13 +960,49 @@ async function buildEnv(map) {
   }
 }
 
-// 相机：跟随 + 拖拽旋转 + 滚轮缩放
+// 相机：跟随 + 拖拽旋转 + 滚轮/双指缩放
 let camTarget = new THREE.Vector3(0, 0, 0);
 let yaw = 0.9, pitch = 0.72, dist = 100;
-let dragging = false, lastX = 0, lastY = 0;
-renderer.domElement.addEventListener('pointerdown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
-window.addEventListener('pointerup', () => { dragging = false; });
+let dragging = false, lastX = 0, lastY = 0, pinchDist = 0;
+const pointers = new Map();
+const camPosTmp = new THREE.Vector3(), focusTmp = new THREE.Vector3(), prevTmp = new THREE.Vector3(), charPos = new THREE.Vector3();
+function pinchDistance() {
+  const it = pointers.values();
+  const a = it.next().value, b = it.next().value;
+  if (!a || !b) return 0;
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+function clampDist(d) { return Math.min(maxDist, Math.max(30, d)); }
+renderer.domElement.style.touchAction = 'none';
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  try { renderer.domElement.setPointerCapture(e.pointerId); } catch (err) {}
+  if (pointers.size === 1) { dragging = true; lastX = e.clientX; lastY = e.clientY; }
+  else { dragging = false; pinchDist = pinchDistance(); }
+});
+function endPointer(e) {
+  pointers.delete(e.pointerId);
+  try {
+    if (renderer.domElement.hasPointerCapture && renderer.domElement.hasPointerCapture(e.pointerId)) renderer.domElement.releasePointerCapture(e.pointerId);
+  } catch (err) {}
+  if (pointers.size === 1) {
+    const p = pointers.values().next().value;
+    dragging = true; lastX = p.x; lastY = p.y; pinchDist = 0;
+  } else {
+    dragging = false; pinchDist = 0;
+  }
+}
+window.addEventListener('pointerup', endPointer);
+window.addEventListener('pointercancel', endPointer);
 window.addEventListener('pointermove', (e) => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size >= 2) {
+    const d = pinchDistance();
+    if (pinchDist > 0 && d > 0) { dist = clampDist(dist * (pinchDist / d)); zoomTouched = true; }
+    pinchDist = d;
+    return;
+  }
   if (!dragging) return;
   yaw -= (e.clientX - lastX) * 0.005;
   pitch = Math.min(1.35, Math.max(0.18, pitch - (e.clientY - lastY) * 0.004));
@@ -967,24 +1010,25 @@ window.addEventListener('pointermove', (e) => {
 });
 renderer.domElement.addEventListener('wheel', (e) => {
   e.preventDefault();
-  dist = Math.min(260, Math.max(30, dist + (e.deltaY > 0 ? 8 : -8)));
+  dist = clampDist(dist + (e.deltaY > 0 ? 8 : -8));
+  zoomTouched = true;
 }, { passive: false });
 const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.1);
   if (document.hidden) return;   // 页面隐藏时跳过渲染；delta 已封顶，恢复时不会跳帧
-  const p = characterWorldPos();
+  const p = characterWorldPos(charPos);
   // 站在建筑前侧，避免小鲸被地点建筑盖住
   p.x += 1.6; p.z += 2.6;
-  const focus = p.clone();
-  camTarget.lerp(focus, 0.08);
+  focusTmp.copy(p);
+  camTarget.lerp(focusTmp, 0.08);
   const cx = camTarget.x + Math.sin(yaw) * Math.cos(pitch) * dist;
   const cz = camTarget.z + Math.cos(yaw) * Math.cos(pitch) * dist;
   const cyv = camTarget.y + 6 + Math.sin(pitch) * dist;
-  camera.position.lerp(new THREE.Vector3(cx, cyv, cz), 0.1);
+  camera.position.lerp(camPosTmp.set(cx, cyv, cz), 0.1);
   camera.lookAt(camTarget.x, camTarget.y + 5, camTarget.z);
-  const prev = charGroup.position.clone();
+  prevTmp.copy(charGroup.position);
   charGroup.position.lerp(p, 0.12);
   vehicleGroup.position.copy(charGroup.position);
   if (spritePlane) spritePlane.lookAt(camera.position);
@@ -992,7 +1036,7 @@ function animate() {
   const st = stage && stage.location ? stage.location : null;
   const traveling = !!(st && st.traveling);
   if (traveling) {
-    const dx = charGroup.position.x - prev.x, dz = charGroup.position.z - prev.z;
+    const dx = charGroup.position.x - prevTmp.x, dz = charGroup.position.z - prevTmp.z;
     if (Math.abs(dx) + Math.abs(dz) > 0.0005) {
       const targetYaw = Math.atan2(dx, dz);
       let cur = charGroup.rotation.y;

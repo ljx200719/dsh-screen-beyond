@@ -87,7 +87,18 @@ export class SyncStore {
     return this.#readEvents().filter((ev) => Number(ev.seq) > cursor).slice(0, max);
   }
 
+  #rotateIfNeeded() {
+    try {
+      if (!fs.existsSync(this.eventsPath)) return;
+      if (fs.statSync(this.eventsPath).size < 8 * 1024 * 1024) return;
+      try { fs.unlinkSync(this.eventsPath + '.1'); } catch {}
+      fs.renameSync(this.eventsPath, this.eventsPath + '.1');
+      this._seq = 0;
+    } catch {}
+  }
+
   record(type, entity, entityId, payload) {
+    this.#rotateIfNeeded();
     if (this._seq === undefined) {
       const events0 = this.#readEvents();
       this._seq = events0.length ? (Number(events0[events0.length - 1].seq) || 0) : 0;
@@ -109,6 +120,7 @@ export class SyncStore {
 
   /** 接受另一台设备推来的事件；按事件 id 去重，不做业务合并。 */
   acceptRemote(rawEvents) {
+    this.#rotateIfNeeded();
     const list = Array.isArray(rawEvents) ? rawEvents.slice(0, 200) : [];
     const eventsAll = this.#readEvents();
     const existing = new Map(eventsAll.map((ev) => [ev.id, ev]));

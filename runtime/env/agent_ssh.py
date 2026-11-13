@@ -1,7 +1,31 @@
-"""SSH/SFTP helper for the AI space VM (host -> guest 127.0.0.1:2222)."""
+"""SSH/SFTP helper for the AI space VM (host -> guest 127.0.0.1:2222).
+
+SSH 密码读取顺序（与 space_ctl.py / phone_ctl.py / space_ensure.py 一致）：
+  1) 环境变量 DSH_COMPANION_SSH_PASS
+  2) 本文件同目录的 .ssh-password（一行纯文本，方便换机/改默认密码）
+  3) 旧默认值 DshSpace2026（兼容历史 VM；正式使用建议改用 1 或 2）
+"""
+import os
 import sys, time, paramiko
 
-HOST, PORT, USER, PASS = "127.0.0.1", 2222, "dsh", "DshSpace2026"
+
+def _read_ssh_pass():
+    env = os.environ.get("DSH_COMPANION_SSH_PASS")
+    if env:
+        return env
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, ".ssh-password"), "r", encoding="utf-8") as f:
+            value = f.read().strip()
+        if value:
+            return value
+    except Exception:
+        pass
+    return "DshSpace2026"
+
+
+HOST, PORT, USER = "127.0.0.1", 2222, "dsh"
+PASS = _read_ssh_pass()
 
 
 def connect(retries=40, delay=5):
