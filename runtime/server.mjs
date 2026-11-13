@@ -2476,7 +2476,9 @@ function buildMessages(userText) {
   let imgCount = 0, imgBytes = 0;
   const conv = recent.map((m) => {
     const role = m.role === 'her' ? 'assistant' : 'user';
-    if (m.image) {
+    // DeepSeek 接口不接受 assistant 消息里带图片（会 400: Image in assistant message is not supported）。
+    // 她主动发过的图仍保留在聊天记录里，但进上下文时只带文字，避免整轮请求失败。
+    if (m.image && role === 'user') {
       const du = imageDataUrl(m.image);
       if (du && imgCount < 4 && imgBytes + du.length < 24 * 1024 * 1024) {
         imgCount++; imgBytes += du.length;
