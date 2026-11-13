@@ -461,10 +461,12 @@ function Refresh-Status() {
       if ($script:statusText) {
         $script:statusText.ToolTip = ('真实余额：{0}{1}{2}今日消耗（估算，含同一 Key 的其它程序）：{0}{3:0.00}{4}今日 token：{5:N0}{6}她的零花：{7} 元（虚拟）' -f $cur, [string]$bal.total, [Environment]::NewLine, $todayRmb, [Environment]::NewLine, [double]$t.dailyUsed, [Environment]::NewLine, [string]$t.spendable)
       }
-      if ($script:attrBalance) { $script:attrBalance.Text = ('余额 {0}{1} · 今日 ¥{2:0.00}' -f $cur, [string]$bal.total, $todayRmb) }
+      if ($script:attrBalance) { $script:attrBalance.Text = ('余额 {0}{1}' -f $cur, [string]$bal.total) }
+      if ($script:attrToday) { $script:attrToday.Text = ('今日 ¥{0:0.00}' -f $todayRmb) }
     } else {
       if ($script:statusText) { $script:statusText.ToolTip = '暂时读不到 DeepSeek 真实余额（不会用虚拟货币代替）' }
       if ($script:attrBalance) { $script:attrBalance.Text = '余额读取失败' }
+      if ($script:attrToday) { $script:attrToday.Text = '今日 —' }
     }
   }
   $loc = ''; if ($st.place) { $loc = [string]$st.place.icon + ' ' + [string]$st.place.name }
@@ -755,6 +757,7 @@ $script:attrPlace = New-AttrBox '🏠 家' '#5E7895'
 $script:attrAct = New-AttrBox '待着' '#8A6A4E'
 $script:attrEnergy = New-AttrBox '精力很足' '#5C8A70'
 $script:attrBalance = New-AttrBox '余额 —' '#A06A3C'
+$script:attrToday = New-AttrBox '今日 —' '#8A6A4E'
 
 # balance 行：贴着脚，做成一枚更明显的小胶囊
 $script:tokenText = New-Object System.Windows.Controls.TextBlock

@@ -17,11 +17,11 @@
 
 | 项目 | 状态 |
 |---|---|
-| 源码版本 | **0.7.21** |
+| 源码版本 | **0.7.22** |
 | Git main | `922a02e` |
-| Git tag | `v0.7.21` |
-| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.21` |
-| npm latest | **0.7.21**（提交后需等 npm 审核可见） |
+| Git tag | `v0.7.22` |
+| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.22` |
+| npm latest | **0.7.22**（提交后需等 npm 审核可见） |
 | npm 0.7.13 | 已上线 |
 | npm 0.7.14 | 已上线但有金额显示 bug（勿用，等 0.7.16） |
 | npm 0.7.15 | 审核中 |
@@ -30,17 +30,18 @@
 | npm 0.7.18 | 已发布但桌宠属性悬停修复不完整（勿用） |
 | npm 0.7.19 | 已发布（属性面板常显版） |
 | npm 0.7.20 | 已发布（属性按钮版） |
+| npm 0.7.21 | 已发布（UI 位置调整版） |
 | 发布产物 | `F:\屏幕彼端\发布产物\` |
 | 最新备份 | 见 `D:\dsh-companion\backups\` 最新 `backup-*.zip` |
 | 当前运行服务 | `http://127.0.0.1:8900` |
 
-> 2026-11-13：第二轮全量修复随 **0.7.21** 提交（npm 审核中 / GitHub Release 已建），摘要见 §8.6，完整清单见 `docs/FIXES-2026-11-13.md`。
+> 2026-11-13：第二轮全量修复随 **0.7.22** 提交（npm 审核中 / GitHub Release 已建），摘要见 §8.6，完整清单见 `docs/FIXES-2026-11-13.md`。
 
 ### 产物
 
-- `dsh-screen-beyond-0.7.21.tgz`
-- `dsh-screen-beyond-0.7.21.zip`
-- `RELEASE-0.7.21.md`
+- `dsh-screen-beyond-0.7.22.tgz`
+- `dsh-screen-beyond-0.7.22.zip`
+- `RELEASE-0.7.22.md`
 - 源码目录已初始化 git，工作区干净
 
 ### 发布注意
@@ -572,6 +573,11 @@ ID：
 - 布局：形象居中（imgLeft 由固定 140 改为按窗口宽度居中、imgTop=92）；状态气泡顶部居中（left=155, top=6）；属性面板贴左（left=6, top=96）；右侧按钮与形象顶部对齐（btnTop=96），四个按钮 chat / look / 大小 / 属性。
 - 效果：气泡不再压住属性胶囊，属性面板与按钮左右分列、上下对齐，整体居中。
 - 交接报告 Markdown 版：`F:\屏幕彼端\发布产物\屏幕彼端-交接报告-2026-11-13.md`（原报告 9 章 + 追加章节）。
+### 8.14 2026-11-13 0.7.22 属性拆分与性能收尾
+
+- 桌宠属性面板：「余额 ¥x」与「今日 ¥y」拆成两个独立胶囊（原来一行显示看不清）。
+- 性能：桌宠状态轮询 300ms→2000ms、动画 45ms→60ms、光标轮询 120ms→220ms、窗口夹取 250ms→1000ms（commit 7217c7a）；虚拟机内停用/屏蔽 packagekit 与 gnome-software 后台更新扫描，宿主机 CPU 由 12% 降到 2~8%。
+- 布局保持：气泡顶部居中、形象居中、属性左列、右侧四按钮 chat/look/大小/属性。
 ## 9. 接下来计划
 
 ### P0：虚拟机聊天闭环
