@@ -18,7 +18,7 @@
 | 项目 | 状态 |
 |---|---|
 | 源码版本 | **0.7.19** |
-| Git main | `6d0c2d0` |
+| Git main | `d8d015b` |
 | Git tag | `v0.7.19` |
 | GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.19` |
 | npm latest | **0.7.19**（提交后需等 npm 审核可见） |
