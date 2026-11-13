@@ -17,23 +17,23 @@
 
 | 项目 | 状态 |
 |---|---|
-| 源码版本 | **0.7.13** |
+| 源码版本 | **0.7.14** |
 | Git main | `de8455a` |
-| Git tag | `v0.7.13` |
-| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.13` |
-| npm latest | **0.7.13** |
-| npm 0.7.12 | 也已上线 |
+| Git tag | `v0.7.14` |
+| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.14` |
+| npm latest | **0.7.14** |
+| npm 0.7.13 | 也已上线 |
 | 发布产物 | `F:\屏幕彼端\发布产物\` |
 | 最新备份 | 见 `D:\dsh-companion\backups\` 最新 `backup-*.zip` |
 | 当前运行服务 | `http://127.0.0.1:8900` |
 
-> 2026-11-13：审查修复已提交到工作区（未发版、未 bump 版本），摘要见 §8.4，完整清单见 `docs/FIXES-2026-11-13.md`。
+> 2026-11-13：审查修复已随 **0.7.14** 发布（npm / GitHub Release），摘要见 §8.4，完整清单见 `docs/FIXES-2026-11-13.md`。
 
 ### 产物
 
-- `dsh-screen-beyond-0.7.13.tgz`
-- `dsh-screen-beyond-0.7.13.zip`
-- `RELEASE-0.7.13.md`
+- `dsh-screen-beyond-0.7.14.tgz`
+- `dsh-screen-beyond-0.7.14.zip`
+- `RELEASE-0.7.14.md`
 - 源码目录已初始化 git，工作区干净
 
 ### 发布注意
@@ -42,6 +42,7 @@
 - 处理方式：不反复重发同一版本，等它完成或发新版本号。
 - `0.7.12` 曾进入 staged，后来可见；`0.7.13` 作为重新发布版本，现已上线。
 - Git 凭据由 Windows Git Credential Manager 管理，不要写明文密码或 token。
+- `0.7.14` 为 2026-11-13 审查修复版：安全（Origin 校验/路径穿越）、稳定性（运行时版本校验/生活模拟/桌宠）、前端与备份恢复修复，详见 `docs/FIXES-2026-11-13.md`。
 
 ---
 
@@ -485,7 +486,7 @@ ID：
 
 ---
 
-### 8.4 2026-11-13 审查修复（未发版）
+### 8.4 2026-11-13 审查修复（0.7.14 已发布）
 
 > 完整清单与验证证据见 `docs/FIXES-2026-11-13.md`。
 
@@ -669,3 +670,4 @@ git push origin vX.Y.Z
 - Git / GitHub Release / npm 0.7.13 已发布
 - 剩余问题主要是外部账号验证、跨应用适配、图片发送和高级内容资源，不是聊天核心链路阻塞
 - 下一接手人优先做 P0：登录验证 UX、未读扫描、图片发送、应用健康守护
+- **0.7.14（2026-11-13）**：审查修复版已发布，补齐 §8.4/§8.5；剩余优化项见 `docs/FIXES-2026-11-13.md` 第五节
