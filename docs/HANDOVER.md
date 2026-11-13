@@ -17,25 +17,26 @@
 
 | 项目 | 状态 |
 |---|---|
-| 源码版本 | **0.7.16** |
+| 源码版本 | **0.7.17** |
 | Git main | `c468f99` |
-| Git tag | `v0.7.16` |
-| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.16` |
-| npm latest | **0.7.16**（提交后需等 npm 审核可见） |
+| Git tag | `v0.7.17` |
+| GitHub Release | `https://github.com/ljx200719/dsh-screen-beyond/releases/tag/v0.7.17` |
+| npm latest | **0.7.17**（提交后需等 npm 审核可见） |
 | npm 0.7.13 | 已上线 |
 | npm 0.7.14 | 已上线但有金额显示 bug（勿用，等 0.7.16） |
 | npm 0.7.15 | 审核中 |
+| npm 0.7.16 | 已发布但有 forbidden site 回归（勿用，等 0.7.17） |
 | 发布产物 | `F:\屏幕彼端\发布产物\` |
 | 最新备份 | 见 `D:\dsh-companion\backups\` 最新 `backup-*.zip` |
 | 当前运行服务 | `http://127.0.0.1:8900` |
 
-> 2026-11-13：第二轮全量修复随 **0.7.16** 提交（npm 审核中 / GitHub Release 已建），摘要见 §8.6，完整清单见 `docs/FIXES-2026-11-13.md`。
+> 2026-11-13：第二轮全量修复随 **0.7.17** 提交（npm 审核中 / GitHub Release 已建），摘要见 §8.6，完整清单见 `docs/FIXES-2026-11-13.md`。
 
 ### 产物
 
-- `dsh-screen-beyond-0.7.16.tgz`
-- `dsh-screen-beyond-0.7.16.zip`
-- `RELEASE-0.7.16.md`
+- `dsh-screen-beyond-0.7.17.tgz`
+- `dsh-screen-beyond-0.7.17.zip`
+- `RELEASE-0.7.17.md`
 - 源码目录已初始化 git，工作区干净
 
 ### 发布注意
@@ -520,7 +521,12 @@ ID：
 | VM 聊天 | 联系人白名单、未读扫描、图片发送（SFTP+剪贴板）、应用健康守护、发送后校验、登录提示、SSH 密码 `DSH_COMPANION_SSH_PASS` 可配 |
 | 工程 | `package.json` engines/`npm run check`；ROADMAP 过时说明；数据根旧覆盖源归档 |
 
-**仍未处理（已知限制）**：`api-key.txt`/`image-api-key.txt` 仍是明文（未接 DPAPI）；`config.json` 仍单文件全量写；备份/恢复仍无 UI 入口；`runtime/assets/pet/xiaojing|xiaoke-*` 资源仍按角色名命名（代码已可回退）；端口文件仍是全局单例；VM 聊天发送/图片链路需登录 QQ 后才能真机验证；无 ESLint/自动化测试/CI。## 9. 接下来计划
+**仍未处理（已知限制）**：`api-key.txt`/`image-api-key.txt` 仍是明文（未接 DPAPI）；`config.json` 仍单文件全量写；备份/恢复仍无 UI 入口；`runtime/assets/pet/xiaojing|xiaoke-*` 资源仍按角色名命名（代码已可回退）；端口文件仍是全局单例；VM 聊天发送/图片链路需登录 QQ 后才能真机验证；无 ESLint/自动化测试/CI。### 8.7 2026-11-13 0.7.17 热修（forbidden site + 她的屏幕黑屏）
+
+- **页面全黑 "forbidden site"（回归，P0）**：0.7.16 的安全加固无条件拒绝 `Sec-Fetch-Site: cross-site`，把 DSH 面板 iframe 加载运行时页面的导航请求也拦了。修复：只拦"没有可放行 Origin 的脚本类跨站请求"，页面导航放行，本机回环 Origin 的 fetch 正常放行并回 CORS 头。
+- **她的屏幕全黑（P0）**：VM 内 `x11vnc` 掉线（websockify 还在）时，旧的 TCP 6081 探测仍报"正常"，noVNC 打开就是黑屏；虚拟机闲置后 DPMS 关屏也会全黑。修复：`/api/screen/space/status` 改读 VM 内真实链路（x11vnc/websockify/6080，5s 缓存）；`ensure` 后按链路判定成功；启动看护 60s 巡检真实链路、断了自动修；`ensure` 时关闭 DPMS/屏保；看屏幕页恢复后自动重载 noVNC 画面。
+- 账目修复（全局 token 账本/集中记账/换 Key 重置）与 0.7.16 相同，不受影响。
+## 9. 接下来计划
 
 ### P0：虚拟机聊天闭环
 

@@ -2003,6 +2003,8 @@ function adbDevicePresent() {
 let resourcesCache = { at: 0, data: null };
 let VM_STATUS_CACHE = { at: 0, data: null };
 let STAGE_CACHE = { at: 0, payload: null };
+let SPACE_STATUS_CACHE = { at: 0, data: null };
+let SPACE_HEAL_AT = 0;
 async function resourcesInfo() {
   if (resourcesCache.data && Date.now() - resourcesCache.at < 8000) return resourcesCache.data;
   const space = await vmRunningNow();
@@ -2906,7 +2908,12 @@ const server = http.createServer(async (req, res) => {
     const hostHdr = String((req.headers && req.headers.host) || '').toLowerCase();
     const hostName = hostHdr.startsWith('[') ? hostHdr.slice(1, hostHdr.indexOf(']')) : hostHdr.split(':')[0];
     if (hostHdr && !['127.0.0.1', 'localhost', '::1'].includes(hostName)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('forbidden host'); return; }
-    if (String((req.headers && req.headers['sec-fetch-site']) || '') === 'cross-site') { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('forbidden site'); return; }
+    // 跨站拦截只针对脚本请求（fetch/XHR）：DSH 面板用 iframe 嵌页面，页面导航本身也会带 cross-site，不能拦
+    if (String((req.headers && req.headers['sec-fetch-site']) || '') === 'cross-site') {
+      const mode = String((req.headers && req.headers['sec-fetch-mode']) || '');
+      const originOk = !!reqOrigin && originAllowed(reqOrigin);
+      if (!originOk && mode && mode !== 'navigate') { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('forbidden site'); return; }
+    }
     if (reqOrigin && !originAllowed(reqOrigin)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('forbidden origin'); return; }
     if (reqOrigin) { res.setHeader('access-control-allow-origin', reqOrigin); res.setHeader('vary', 'Origin'); }
     res.setHeader('x-content-type-options', 'nosniff');
@@ -3027,16 +3034,28 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/screen') return servePage(res, 'screen.html');
     if (req.method === 'GET' && url.pathname === '/api/screen/space/status') {
-      const probe = (port) => new Promise((resolve) => { const s = net.connect({ host: '127.0.0.1', port }, () => { s.end(); resolve(true); }); s.setTimeout(800); s.on('timeout', () => { s.destroy(); resolve(false); }); s.on('error', () => resolve(false)); });
-      const httpOk = await probe(6081);
-      let vm = false;
-      try {
-        const { execFile } = await import('node:child_process');
-        vm = await new Promise((resolve) => {
-          execFile(VBOX, ['list', 'runningvms'], { timeout: 8000, windowsHide: true }, (e, out) => resolve(!e && String(out || '').includes('DSH-Space')));
-        });
-      } catch {}
-      json(res, 200, { ok: true, vm, http: httpOk, url: 'http://127.0.0.1:6081/vnc.html' });
+      if (!SPACE_STATUS_CACHE.data || Date.now() - SPACE_STATUS_CACHE.at > 5000) {
+        let chain = null, vm = false;
+        try { vm = await vmRunningNow(); } catch {}
+        if (vm) {
+          try {
+            const r = await runPy('space_ensure.py', ['status'], 15000);
+            const raw = String(r.out || '');
+            const m = raw.match(/\{[\s\S]*\}/);
+            if (m) chain = JSON.parse(m[0]);
+          } catch {}
+        }
+        const chainOk = !!(chain && chain.x11vnc && chain.websockify && chain.listening_6080);
+        const httpOk = chainOk || (!chain && !vm ? false : !vm ? false : false);
+        // 链路断了：自动修（30s 内只修一次，避免页面轮询放大）
+        let healing = false;
+        if (vm && !chainOk && Date.now() - SPACE_HEAL_AT > 30 * 1000) {
+          SPACE_HEAL_AT = Date.now(); healing = true;
+          runPy('space_ensure.py', ['ensure'], 45000).catch(() => {});
+        }
+        SPACE_STATUS_CACHE = { at: Date.now(), data: { ok: true, vm, http: chainOk, chain, healing, url: 'http://127.0.0.1:6081/vnc.html' } };
+      }
+      json(res, 200, SPACE_STATUS_CACHE.data);
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/screen/space/ensure') {
@@ -3055,9 +3074,17 @@ const server = http.createServer(async (req, res) => {
       } catch {}
       let ensured = null;
       try { const r = await runPy('space_ensure.py', ['ensure'], 45000); ensured = String(r.out || '').trim().slice(0, 500); } catch {}
-      let httpOk = false;
-      for (let i = 0; i < 16; i++) { httpOk = await probe(6081); if (httpOk) break; await new Promise((r) => setTimeout(r, 500)); }
-      json(res, 200, { ok: httpOk, vm: true, http: httpOk, ensured });
+      let chainOk = false;
+      for (let i = 0; i < 10; i++) {
+        try {
+          const r2 = await runPy('space_ensure.py', ['status'], 15000);
+          const m2 = String(r2.out || '').match(/\{[\s\S]*\}/);
+          if (m2) { const s2 = JSON.parse(m2[0]); chainOk = !!(s2.x11vnc && s2.websockify && s2.listening_6080); if (chainOk) break; }
+        } catch {}
+        await new Promise((r) => setTimeout(r, 800));
+      }
+      SPACE_STATUS_CACHE = { at: 0, data: null };
+      json(res, 200, { ok: chainOk, vm: true, http: chainOk, ensured });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/screen/pc') {
@@ -4329,14 +4356,23 @@ function boot() {
     scheduleNextProactive();
   }, 60 * 1000).unref?.();
 
-  // 她的屏幕守护：VNC 链路掉了自动修复（不主动开虚拟机）
+  // 她的屏幕守护：检查 VM 内的 x11vnc/websockify 链路（TCP 探测抓不到 x11vnc 挂掉导致的黑屏），断了自动修
   let lastEnsureAt = 0;
   setInterval(async () => {
     try {
-      if (Date.now() - lastEnsureAt < 5 * 60 * 1000) return;
       if (!(await vmRunningNow())) return;
-      if (await probeTcp(6081)) return;
+      let chain = null;
+      try {
+        const r = await runPy('space_ensure.py', ['status'], 15000);
+        const m = String(r.out || '').match(/\{[\s\S]*\}/);
+        if (m) chain = JSON.parse(m[0]);
+      } catch {}
+      if (!chain) return;
+      const ok = !!(chain.x11vnc && chain.websockify && chain.listening_6080);
+      if (ok) return;
+      if (Date.now() - lastEnsureAt < 60 * 1000) return;
       lastEnsureAt = Date.now();
+      console.error('[companion] 她的屏幕链路异常，自动修复：' + JSON.stringify(chain));
       runPy('space_ensure.py', ['ensure'], 45000).catch(() => {});
     } catch {}
   }, 60 * 1000).unref?.();

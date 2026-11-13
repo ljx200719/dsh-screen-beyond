@@ -57,8 +57,15 @@ def main():
         status["websockify"] = bool(ws)
         listener = run("ss -lnt 2>/dev/null | grep -c ':6080 ' || true").strip()
         status["listening_6080"] = listener not in ("", "0")
+        try:
+            dpms = run("export DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority; xset q 2>/dev/null | grep -i 'DPMS is' | head -1 || true").strip()
+            status["dpms"] = dpms or "unknown"
+        except Exception:
+            status["dpms"] = "unknown"
         started = []
         if ensure:
+            # 先唤醒屏幕并关掉 DPMS/屏保：虚拟机闲置后 X 会被关显示，noVNC 里就是全黑
+            run("export DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority; xset s off; xset -dpms; xset s noblank; (command -v gsettings >/dev/null && gsettings set org.gnome.desktop.session idle-delay 0 && gsettings set org.gnome.desktop.screensaver idle-activation-enabled false) >/dev/null 2>&1; true", 10)
             if not status["x11vnc"]:
                 run("nohup x11vnc -display :0 -forever -shared -localhost -rfbport 5900 -noxdamage >/tmp/x11vnc.log 2>&1 &", 10)
                 started.append("x11vnc")

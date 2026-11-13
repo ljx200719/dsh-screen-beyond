@@ -87,9 +87,9 @@ async function checkSpace(){
       if (f && r.http) f.src = vncSrc(false);
     }
     if (ensureTimer) return; // 启动轮询期间由 ensureSpace 负责状态文案
-    if (r.http) { dot.style.background = '#22c55e'; txt.textContent = '已连接'; }
+    if (r.http) { dot.style.background = '#22c55e'; txt.textContent = '已连接'; if (window.__spaceWasDown) { window.__spaceWasDown = false; try { const f = document.getElementById('spaceFrame'); if (f && typeof vncSrc === 'function') f.src = vncSrc(true); } catch (e) {} } }
     else if (!r.vm) { dot.style.background = '#ef4444'; txt.innerHTML = '她的屏幕没开 <button onclick="ensureSpace()" style="margin-left:6px;background:#2563eb;color:#fff;border:0;border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer">启动</button>'; }
-    else { dot.style.background = '#f59e0b'; txt.innerHTML = '连接掉了 <button onclick="ensureSpace()" style="margin-left:6px;background:#2563eb;color:#fff;border:0;border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer">修复屏幕</button>'; }
+    else { window.__spaceWasDown = true; dot.style.background = '#f59e0b'; txt.innerHTML = '连接掉了 <button onclick="ensureSpace()" style="margin-left:6px;background:#2563eb;color:#fff;border:0;border-radius:7px;padding:2px 8px;font-size:11px;cursor:pointer">修复屏幕</button>'; }
   } catch (e) { dot.style.background = '#ef4444'; txt.textContent = '运行时连不上'; }
 }
 async function ensureSpace(){
@@ -195,6 +195,13 @@ function showPhoneErrButton(){
   b.onclick = () => show('space');
   m.appendChild(b);
 }
+function refreshView(){
+  try {
+    const f = document.querySelector('#view iframe');
+    if (f) f.src = (noVncUrl || 'http://127.0.0.1:6081/vnc.html') + '?autoconnect=1&reconnect=1&t=' + Date.now();
+  } catch (e) {}
+}
+window.refreshView = refreshView;
 function show(which){
   mode = which; clearView();
   setOn(which==='space'?'bSpace':which==='pc'?'bPc':'bPhone');
