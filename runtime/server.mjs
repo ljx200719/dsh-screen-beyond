@@ -3015,7 +3015,11 @@ function syncJson(res, status, obj) {
 function originAllowed(origin) {
   if (!origin) return true;
   try {
-    const h = new URL(origin).hostname.toLowerCase();
+    const u = new URL(origin);
+    // DSH 桌面客户端的 iframe 用自定义 scheme（dsh-app://app）发 API 请求；
+    // 这是本机宿主，不是外部网页。只放行这个精确 origin，不放行任意自定义 scheme。
+    if (u.protocol === 'dsh-app:' && u.hostname === 'app') return true;
+    const h = u.hostname.toLowerCase();
     return h === '127.0.0.1' || h === 'localhost' || h === '::1' || h === '[::1]';
   } catch { return false; }
 }

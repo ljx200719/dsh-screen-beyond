@@ -106,6 +106,10 @@ try {
     r = await rawReq(base + '/api/memory', { Origin: 'http://127.0.0.1:62252', 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'cors' });
     check('本机回环 Origin 200 + ACAO', r.status === 200 && r.headers['access-control-allow-origin'] === 'http://127.0.0.1:62252', 'status=' + r.status);
 
+    // DSH 桌面客户端 iframe 的自定义 origin；缺这个会导致舞台页 /api/stage 403 白屏
+    r = await rawReq(base + '/api/stage', { Origin: 'dsh-app://app', 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'cors' });
+    check('DSH 桌面 Origin 200 + ACAO', r.status === 200 && r.headers['access-control-allow-origin'] === 'dsh-app://app', 'status=' + r.status);
+
     r = await rawReq(base + '/', { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate' });
     check('iframe 导航 200（不拦页面）', r.status === 200, 'status=' + r.status);
 
