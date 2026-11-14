@@ -307,8 +307,10 @@ ${extra}`;
     const v = await vision(prompt, shot);
     const note = String((v && v.note) || '');
     const hasConv = !!(v && (String(v.conversation || '').trim() || (Array.isArray(v.recent) && v.recent.length)));
-    const requiresLogin = !hasConv || /登录|扫码|login|验证码|滑动验证/i.test(note);
-    return { ok: true, apps, windows: wins, screen: shot, analysis: v, requiresLogin };
+    // 「没识别到会话」不等于登录页：只有明确出现登录/扫码文案才拦截发送。
+    // 否则冷启动/主界面/视觉漏读都会把正常发送误判成登录页。
+    const requiresLogin = /登录|扫码|login|验证码|滑动验证/i.test(note);
+    return { ok: true, apps, windows: wins, screen: shot, analysis: v, requiresLogin, noConversation: !hasConv };
   }
 
   let screenSize = null;
@@ -378,7 +380,6 @@ ${extra}`;
         if (!a.ok) return a;
         an = a.analysis;
         if (!an) return { ok: false, error: 'AI 没有看懂屏幕', screen: a.screen };
-        if (a.requiresLogin) return { ok: false, error: '虚拟机聊天停在登录/扫码页，先登录再发送', requiresLogin: true, analysis: an, screen: a.screen };
         if (a.requiresLogin) return { ok: false, error: '虚拟机聊天停在登录/扫码页，先登录再发送', requiresLogin: true, analysis: an, screen: a.screen };
         if (!an.appId || !an.composer) {
           await ensureApp();
@@ -483,6 +484,7 @@ ${extra}`;
    * 找输入框 → 点击 → space_ctl send-image（SFTP 上传到 VM + xclip 剪贴板 → ctrl+v）→ 回车 → 校验。
    */
   async function sendImageToUser(hostImagePath, hint) {
+    if (cfg().sendImages === false) return { ok: false, error: '虚拟机图片发送已关闭（sendImages=false）' };
     const local = String(hostImagePath || '');
     if (!local || !fs.existsSync(local)) return { ok: false, error: '图片文件不存在: ' + (local || '(空)') };
     if (busy) return { ok: false, error: 'vm-chat busy' };
@@ -494,7 +496,6 @@ ${extra}`;
         if (!a.ok) return a;
         an = a.analysis;
         if (!an) return { ok: false, error: 'AI 没有看懂屏幕', screen: a.screen };
-        if (a.requiresLogin) return { ok: false, error: '虚拟机聊天停在登录/扫码页，先登录再发送', requiresLogin: true, analysis: an, screen: a.screen };
         if (a.requiresLogin) return { ok: false, error: '虚拟机聊天停在登录/扫码页，先登录再发送', requiresLogin: true, analysis: an, screen: a.screen };
         if (!an.appId || !an.composer) {
           await ensureApp();
