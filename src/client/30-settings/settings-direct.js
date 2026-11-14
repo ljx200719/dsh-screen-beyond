@@ -64,7 +64,8 @@ function DirectChatCard() {
   },
     err ? h(ErrorBox, { error: err, onRetry: load }) : null,
     h(Note, {}, '需要本机已经有一个 OneBot 11 实现（HTTP 接口），填它的地址和 token。注意：NapCat 已下架、Lagrange 官方签名服务已停、LLOneBot 转收费，现成能直接用的桥越来越少。'),
-    h(Note, { style: { color: T.warn || T.danger } }, 'QQ 桥目前在研究中：我在自写「官方 QQ 客户端注入 + OneBot 11」的桥（预研阶段，暂不可用）。在它可用之前，直连需要你自己提供一个能跑的 OneBot 11 实现。'),
+    h(Note, {}, '自建桥（研究分支已打通，可选）：QQ 9.9.37 便携副本 + 开源注入器 TzdInjectorNTQQ（LGPL，内存注入、不改 QQ 文件）+ 本地 OneBot 11 子集（默认 127.0.0.1:3010）。装什么、注意什么、怎么改，见插件目录下的 docs/DIRECT-CHAT.md（桥代码在 docs/self-bridge/）。'),
+h(Note, { style: { color: T.warn || T.danger } }, '自建桥注意：① 注入类方案有账号风险，只建议给小号用；② QQ 重启后要重跑 start-bridge.ps1（内存注入，不是服务）；③ 目前只支持单个会话的文本消息（图片/群聊未做）；④ 插件不内置也不启动这个桥，装不装由你决定。'),
     h(Note, {}, '插件不内置、不捆绑任何桥；QQ 风控/封号风险由你选择的桥承担。不想用直连就保持关闭，原来的虚拟机看屏幕通道照常可用。'),
     s ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
       h(Row, { gap: 10, wrap: true },
@@ -97,7 +98,7 @@ function DirectChatCard() {
         diag ? h('span', { style: { color: st.ok ? T.ok || T.text2 : T.danger } }, '最近操作：' + diag) : null,
       ) : null,
     ) : h(Loading, {}),
-    h(Note, {}, '· 入站消息由 OneBot 桥 POST 到运行时的 /api/direct-chat/event（桥的 HTTP 上报地址填这个）。'),
+    h(Note, {}, '· 入站消息由 OneBot 桥 POST 到运行时的 /api/direct-chat/event（桥的 HTTP 上报地址填这个；自建桥已内置这一上报）。'),
     h(Note, {}, '· 只处理私聊消息；群聊需要另外开（避免她在群里乱说话）。'),
   )
 }

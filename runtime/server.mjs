@@ -1,4 +1,4 @@
-import http from 'node:http';
+﻿import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -3751,6 +3751,18 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204, { 'cache-control': 'public, max-age=86400' }); res.end(); return; }
+    // 2D 骨骼角色的贴图与 rig.json（可自定义：优先数据目录 skeleton-assets，其次插件自带）
+    if (req.method === 'GET' && url.pathname.startsWith('/skeleton-assets/')) {
+      const rel = decodeURIComponent(url.pathname.replace(/^\/skeleton-assets\//, '')).replace(/\\/g, '/').replace(/\.\./g, '')
+      const roots = [path.join(ROOT, 'skeleton-assets'), path.join(RUNTIME_DIR, '..', 'examples', '2d-skeleton-demo', 'assets')]
+      let file = null
+      for (const r of roots) { const fp = path.join(r, rel); if (fs.existsSync(fp) && fs.statSync(fp).isFile()) { file = fp; break } }
+      if (!file) { res.writeHead(404); res.end('not found'); return }
+      const ext = path.extname(file).toLowerCase()
+      const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.json': 'application/json; charset=utf-8' }[ext] || 'application/octet-stream'
+      res.writeHead(200, { 'content-type': mime, 'cache-control': 'no-cache' })
+      res.end(fs.readFileSync(file)); return
+    }
     if (req.method === 'GET' && (url.pathname.startsWith('/vendor/') || url.pathname.startsWith('/models/'))) {
       const isVendor = url.pathname.startsWith('/vendor/');
       const rel = decodeURIComponent(url.pathname.replace(isVendor ? /^\/vendor\// : /^\/models\//, '')).replace(/\\/g, '/').replace(/\.\./g, '');
@@ -4987,3 +4999,4 @@ async function watchScreenTick() {
 setInterval(watchScreenTick, 60 * 1000).unref?.();
 
 boot();
+

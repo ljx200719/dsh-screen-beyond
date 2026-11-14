@@ -191,7 +191,12 @@ function MapCanvas(props) {
         transition: 'left 1s linear, top 1s linear',
       },
     },
-      h(Avatar, { path: c.avatar, name: c.name, size: c.isActive ? 30 : 24 }),
+      h(SkeletonAvatar, {
+        path: c.avatar, name: c.name, x: c.x, y: c.y,
+        moving: c.state ? c.state !== 'stationary' : undefined,
+        size: c.isActive ? 96 : 72,
+        fallbackSize: c.isActive ? 30 : 24,
+      }),
       h('span', {
         style: {
           fontSize: 9.5, lineHeight: '13px', whiteSpace: 'nowrap',

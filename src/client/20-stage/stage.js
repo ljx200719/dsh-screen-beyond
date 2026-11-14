@@ -374,18 +374,12 @@ function StageView(props) {
           transition: 'left .9s linear, top .9s linear',
         },
       },
-        spriteImg.src && !spriteFailed && spritePath
-          ? h('img', {
-              src: spriteImg.src,
-              alt: character.name || '她',
-              draggable: false,
-              onError: () => setSpriteFailed(true),
-              style: {
-                height: compact ? 54 : 94, width: 'auto', display: 'block',
-                filter: 'drop-shadow(0 4px 8px rgba(0,0,0,.45))',
-              },
-            })
-          : h(Avatar, { path: avatarPath, name: character.name, size: compact ? 26 : 38 }),
+        h(SkeletonAvatar, {
+          path: avatarPath, name: character.name,
+          moving: marker && marker.tag ? !!marker.tag : false,
+          size: compact ? 64 : 118,
+          fallbackSize: compact ? 30 : 44,
+        }),
         marker.tag
           ? h('span', {
               style: {

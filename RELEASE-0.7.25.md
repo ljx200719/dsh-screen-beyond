@@ -16,6 +16,16 @@
 - 桌面端原生化（DSH 原生 React 面板替换 iframe 网页壳）、3D 舞台、聊天软件直连（OneBot 11，不捆绑桥）、插件自动更新、余额刷新提速；
 - 详细见 `RELEASE-0.7.24.md` 与 `docs/UNVERIFIED.md`。
 
+## 5. 2D 骨骼角色接入（2026-11-15，AI 贴图，已进客户端）
+
+地图和 2D 舞台上的她不再是「一张图平移」，而是一个有骨骼的角色：
+
+- 新增 `src/client/20-stage/skeleton.js`：DOM 骨骼（hips/chest/head/arms/legs/hair/tail）+ 程序化 idle/walk 动画（呼吸、眨眼不可用但走路有手脚摆动和身体起伏），方向自动翻转，接入了 `map.js` 与 `stage.js`；
+- 贴图用 AI 按当前角色「小鲸」生成全身参考图后切分成 9 层（head / hairBack / torso / armL / armR / skirt / legL / legR / tail），放在 `examples/2d-skeleton-demo/assets/`；
+- 运行时新增 `/skeleton-assets/` 静态路由：顾客可以只换图/改 rig.json 就换成自己的角色（优先数据目录 `skeleton-assets/`），**不用改代码**；
+- 兼容：拉不到 rig/图片失败时自动回退原来的头像图片。
+- 还没做的：眨眼/表情（脸是整张图）、爬坡/遮挡、换装（目前只有一套衣服的贴图）。
+
 ## 4. 研究分支：自写 QQ 桥 MVP 打通（2026-11-15 凌晨，未集成）
 
 现成 OneBot 实现被清掉之后（NapCat 下架 / Lagrange 停服 / LLOneBot 收费），用「**官方 QQ 客户端内存注入**」路线做了个自写桥的研究原型：QQ 9.9.37 便携副本 + 开源注入器 TzdInjectorNTQQ（LGPL-3.0，**零文件修改**）+ 自建 OneBot 11 子集 HTTP 桥（`127.0.0.1:3010`）。

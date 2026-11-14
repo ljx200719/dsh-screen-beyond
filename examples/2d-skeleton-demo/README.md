@@ -1,39 +1,40 @@
-# 2D 骨骼角色原型（单文件可跑）
+# 小鲸 · 2D 骨骼角色（真实 AI 贴图 + rig.json）
 
 > 对应设计文档：`docs/2D-SKELETON-PET-DESIGN.md`
-> 这是**独立原型**，还没有接进插件；打开 `index.html` 即可看效果。
+> 这套素材已经接进插件（地图 / 2D 舞台），这里是可以单独打开看效果的预览页。
 
-## 打开
+## 怎么打开
 
-双击 `index.html`（任意现代浏览器），或：
+`index.html` 用 `fetch` 读 `assets/rig.json`，`file://` 下会被浏览器拦，需要起一个静态服务：
 
 ```powershell
-Start-Process 'F:\屏幕彼端\插件最新版\dsh-screen-beyond\examples\2d-skeleton-demo\index.html'
+# 在 examples/2d-skeleton-demo 目录
+C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -Command "cd 'F:\屏幕彼端\插件最新版\dsh-screen-beyond\examples\2d-skeleton-demo'; python -m http.server 8099"
+# 然后浏览器打开 http://127.0.0.1:8099/index.html
 ```
 
-## 能看什么
+## 能看什么 / 能调什么
 
-- **地图模式**：点地面，她会走过去（`walk` 程序化骨骼动画：腿/手臂摆动、身体起伏、方向自动翻转），停下切 `idle`（呼吸、眨眼、偶尔转头）。
-- **换装**：上衣颜色、裙/裤、直发/双马尾、发色，实时生效（对应设计里的槽位系统）。
-- **桌宠模式**：点头 → 蹭蹭/爱心；点脸 → 鼓脸；点手臂 → 击掌；点身体 → 抬头回应；都有台词气泡。
-- **URL 参数**（方便截图/分享状态）：
-  `?mode=pet&twin=1&pants=1&top=%238ad3b0&hair=%23c9b6f2&walk=1&say=...`
+- **待机 / 走路**：程序化骨骼动画（走路有手脚摆动、身体起伏；待机有呼吸、尾巴/头发轻摆）；
+- **朝向**：左右翻转；
+- **衣服染色**：演示换装的一半（真换装 = 换 torso/skirt 的贴图）。
 
-## 截图
+## 文件
 
-- `screenshots/map-idle.png`：地图模式静止态
-- `screenshots/pet-mode.png`：桌宠模式 + 双马尾 + 换装
+| 文件 | 说明 |
+|---|---|
+| `assets/*.png` | 9 层贴图：head / hairBack / torso / armL / armR / skirt / legL / legR / tail |
+| `assets/rig.json` | 骨骼（`bones` 关节坐标）+ 部件（`parts.box` 贴图位置、`parts.pivot` 支点）+ 层级（`z`） |
+| `index.html` | 预览页（和插件里 `src/client/20-stage/skeleton.js` 同一套骨骼数学） |
 
-## 核心实现（对应设计文档）
+## 换成你自己的角色
 
-- **骨骼**：DOM 嵌套 div，每个骨骼一个节点，`transform-origin` 在关节，父骨骼带动子骨骼；
-- **部件**：挂在骨骼上的绝对定位元素（原型用 CSS/SVG 形状代替真实立绘，真实素材换成 `<img>` 即可）；
-- **动画**：`requestAnimationFrame` 里按相位算角度（walk 用 sin，idle 用呼吸/眨眼），不是逐帧图；
-- **换装**：CSS 变量 + 类切换替换部件/颜色；真实版本换成部件图路径映射；
-- **数据入口**：`RIG`/`OUTFITS` 常量集中在 JS 顶部，后续搬进插件时替换为接口下发。
+1. 画 9 层透明 PNG（同一张画布、正面站姿、关节处对齐），**同名覆盖** `assets/` 里的文件；
+2. 关节位置/贴图位置不对 → 改 `rig.json`（或把改好的 `rig.json` 放到数据目录的 `skeleton-assets/xiaojing/` 下）；
+3. 想让插件里也生效：把贴图 + `rig.json` 放到 `<数据目录>\skeleton-assets\xiaojing\`（优先于插件自带），刷新面板即可。
 
 ## 已知简化
 
-- 部件是程序化形状，不是真实分层立绘；
-- 走路是水平移动 + 相位动画，没有寻路/坡道/遮挡；
-- 桌宠壳（WPF + WebView2）还没接，这里只是渲染层原型。
+- 脸是整张图（做不了眨眼/表情切换，要靠换 head 贴图）；
+- 走路是原地相位动画，水平移动由地图位置驱动；
+- 换装目前只有一套衣服（染色靠 CSS filter 演示），真换装需要多套贴图。

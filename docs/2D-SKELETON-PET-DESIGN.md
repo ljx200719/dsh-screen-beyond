@@ -159,6 +159,18 @@ root(位置/朝向)
 
 ---
 
+## 3.5 已落地到插件（2026-11-15 凌晨，P1 第一版）
+
+- 新增 `src/client/20-stage/skeleton.js`：`SkeletonAvatar` 组件（DOM 骨骼 + 程序化 idle/walk + 方向翻转 + 自动回退头像），已接入 `map.js`（地图角色）与 `stage.js`（2D 舞台上的她）。
+- 贴图由 AI 按当前实例角色「小鲸」生成并切片：`examples/2d-skeleton-demo/assets/`（head/hairBack/torso/armL/armR/skirt/legL/legR/tail 九层 + `rig.json`）。
+- 运行时新增静态路由 `/skeleton-assets/`（优先读数据目录 `skeleton-assets/<角色>/`，其次读插件自带 assets）——**顾客换贴图不用改代码**。
+- 内置一份 rig 常量（拉不到 rig.json 时用），任何一张图加载失败 → 自动回退原来的头像图片，不会白屏。
+
+### 怎么换成自己的角色/贴图
+1. 画分层图（透明 PNG，同一张画布、正面站姿对齐），文件名与现有同名即可直接覆盖；
+2. 想挪关节：把 `rig.json` 放数据目录 `skeleton-assets/xiaojing/rig.json`（`bones` 是关节坐标、`parts.box` 是贴图位置、`parts.pivot` 是支点），刷新面板生效；
+3. 想加动作：改 `skeleton.js` 里的 `skeletonMotion()`（idle/walk 的角度函数）。
+
 ## 4. 风险 / 待定
 
 - **素材**：真实角色需要分层立绘；没有素材时用程序化占位（原型已证明流程）。

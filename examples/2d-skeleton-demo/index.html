@@ -3,489 +3,220 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>屏幕彼端 · 2D 骨骼角色原型（walk / idle / 换装 / 桌宠互动）</title>
+<title>小鲸 · 2D 骨骼角色（真实贴图 + rig.json 预览）</title>
 <style>
-  :root {
-    --skin: #f6d7c3;
-    --skin-dark: #e8bda6;
-    --hair: #f2b6c6;
-    --hair-dark: #d98ea4;
-    --top: #7c9cf5;
-    --top-dark: #5f7fdc;
-    --skirt: #4a5b8c;
-    --skirt-dark: #3a4a75;
-    --line: rgba(20, 24, 40, .35);
-    --bubble-bg: #fffaf2;
-    --bubble-ink: #3a3226;
-    --scene-top: #1d2436;
-    --scene-bottom: #2f3d5c;
-    --ink: #e9eefc;
-    --muted: #93a1c4;
-  }
+  :root { --ink: #e9eefc; --muted: #93a1c4; }
   * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
   body {
-    background: radial-gradient(1200px 600px at 50% 0%, #26305a 0%, #121726 60%, #0b0f1a 100%);
-    color: var(--ink);
+    margin: 0; min-height: 100vh; color: var(--ink);
+    background: radial-gradient(1100px 560px at 50% 0%, #26305a 0%, #121726 62%, #0b0f1a 100%);
     font: 14px/1.5 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
-    display: flex; flex-direction: column; align-items: center;
-    padding: 18px;
+    display: flex; flex-direction: column; align-items: center; padding: 22px 16px 40px;
     user-select: none;
   }
-  h1 { font-size: 17px; font-weight: 600; margin: 0 0 4px; letter-spacing: .4px; }
-  .sub { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
-  .stage-wrap { position: relative; width: min(960px, 96vw); }
-  .scene {
-    position: relative; height: 380px; border-radius: 16px; overflow: hidden;
-    background: linear-gradient(180deg, var(--scene-top) 0%, #38476b 58%, #2b3550 58.5%, #232c45 100%);
+  h1 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .stage {
+    position: relative; width: min(920px, 96vw); height: 460px; border-radius: 16px; overflow: hidden;
+    background: linear-gradient(180deg, #2a3452 0%, #3a4a70 60%, #2e3852 60.5%, #262f47 100%);
     border: 1px solid rgba(120,150,220,.22);
-    box-shadow: 0 18px 50px rgba(0,0,0,.45) inset, 0 10px 30px rgba(0,0,0,.35);
-    cursor: crosshair;
+    box-shadow: 0 14px 40px rgba(0,0,0,.45), inset 0 0 60px rgba(0,0,0,.35);
   }
-  .scene.pet-mode { cursor: default; background: linear-gradient(180deg, #2a2540 0%, #3a2f52 58%, #2c2440 58.5%, #241e36 100%); }
-  .ground { position: absolute; left: 0; right: 0; bottom: 0; height: 42%; background: radial-gradient(60% 90% at 50% 0%, rgba(255,255,255,.06), transparent 70%); }
-  .stars { position: absolute; inset: 0; background-image: radial-gradient(2px 2px at 12% 18%, rgba(255,255,255,.55), transparent 60%), radial-gradient(1.5px 1.5px at 32% 8%, rgba(255,255,255,.4), transparent 60%), radial-gradient(2px 2px at 68% 22%, rgba(255,255,255,.35), transparent 60%), radial-gradient(1.5px 1.5px at 84% 12%, rgba(255,255,255,.45), transparent 60%), radial-gradient(1.5px 1.5px at 54% 30%, rgba(255,255,255,.3), transparent 60%); }
-  .badge { position: absolute; top: 10px; left: 12px; font-size: 11px; color: var(--muted); background: rgba(10,14,24,.55); border: 1px solid rgba(130,160,230,.18); padding: 3px 8px; border-radius: 999px; }
-
-  /* ============ 骨骼角色 ============ */
-  .avatar {
-    position: absolute; left: 50%; bottom: 8px; width: 160px; height: 300px;
-    transform: translateX(-50%);
-    transition: left .05s linear;
-    will-change: left;
+  .ground-line { position: absolute; left: 0; right: 0; bottom: 70px; height: 1px; background: rgba(255,255,255,.06); }
+  .avatar-wrap {
+    position: absolute; left: 50%; bottom: 58px; transform: translateX(-50%);
+    transition: left .08s linear;
   }
-  .avatar .shadow { position: absolute; left: 50%; bottom: 24px; width: 62px; height: 12px; margin-left: -31px; border-radius: 50%; background: radial-gradient(rgba(0,0,0,.45), transparent 70%); }
-  .bone { position: absolute; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
-  .part { position: absolute; }
-  .part svg { display: block; overflow: visible; }
-
-  /* 头 */
-  .head-shape { position: absolute; left: -24px; top: -46px; width: 48px; height: 50px; border-radius: 46% 46% 48% 48%; background: linear-gradient(180deg, var(--skin) 0%, var(--skin-dark) 100%); box-shadow: inset 0 -6px 0 rgba(0,0,0,.05); }
-  .hair-back { position: absolute; left: -30px; top: -52px; width: 60px; height: 74px; border-radius: 50% 50% 44% 44%; background: var(--hair-dark); }
-  .hair-front { position: absolute; left: -25px; top: -50px; width: 50px; height: 30px; border-radius: 46% 46% 30% 30%; background: var(--hair); }
-  .hair-front::after { content: ""; position: absolute; left: 6px; right: 6px; top: 20px; height: 10px; background: var(--hair); clip-path: polygon(0 0, 30% 0, 46% 100%, 60% 0, 100% 0, 100% 42%, 0 42%); border-radius: 0 0 6px 6px; }
-  .avatar.style-twin .hair-front::before { content: ""; position: absolute; left: -12px; top: -2px; width: 12px; height: 46px; border-radius: 8px; background: var(--hair); transform: rotate(6deg); }
-  .avatar.style-twin .hair-front::after { content: ""; position: absolute; right: -12px; top: -2px; left: auto; width: 12px; height: 46px; border-radius: 8px; background: var(--hair); transform: rotate(-6deg); clip-path: none; }
-  .face { position: absolute; left: -24px; top: -30px; width: 48px; height: 30px; }
-  .eye { position: absolute; top: 14px; width: 5px; height: 7px; border-radius: 50%; background: #2b2434; transition: transform .08s; transform-origin: center; }
-  .eye.l { left: 10px; } .eye.r { right: 10px; }
-  .blush { position: absolute; top: 20px; width: 7px; height: 4px; border-radius: 50%; background: rgba(245,140,150,.55); }
-  .blush.l { left: 6px; } .blush.r { right: 6px; }
-  .mouth { position: absolute; left: 50%; top: 25px; width: 8px; height: 4px; margin-left: -4px; border-radius: 0 0 8px 8px; background: #b4545f; }
-
-  /* 躯干 */
-  .body-shape { position: absolute; left: -22px; top: -4px; width: 44px; height: 64px; border-radius: 16px 16px 12px 12px; background: linear-gradient(180deg, var(--top) 0%, var(--top-dark) 100%); }
-  .skirt { position: absolute; left: -27px; top: 2px; width: 54px; height: 36px; background: linear-gradient(180deg, var(--skirt) 0%, var(--skirt-dark) 100%); clip-path: polygon(28% 0, 72% 0, 100% 100%, 0 100%); border-radius: 4px; }
-  .avatar.pants .skirt { clip-path: polygon(24% 0, 40% 0, 40% 100%, 24% 100%), polygon(60% 0, 76% 0, 76% 100%, 60% 100%); background: var(--skirt); }
-  .avatar.pants .skirt::before, .avatar.pants .skirt::after { content: ""; position: absolute; top: 0; width: 18px; height: 42px; background: var(--skirt); border-radius: 3px; }
-  .avatar.pants .skirt { clip-path: none; background: transparent; }
-  .avatar.pants .skirt::before { left: 6px; } .avatar.pants .skirt::after { right: 6px; }
-  .neck-shape { position: absolute; left: -8px; top: -8px; width: 16px; height: 16px; background: var(--skin-dark); border-radius: 3px; }
-
-  /* 四肢 */
-  .limb { position: absolute; border-radius: 999px; background: linear-gradient(180deg, var(--top), var(--top-dark)); }
-  .arm .limb.upper { left: -6px; top: 0; width: 12px; height: 34px; }
-  .arm .limb.fore { left: -5px; top: 0; width: 10px; height: 30px; background: linear-gradient(180deg, var(--skin), var(--skin-dark)); }
-  .hand { position: absolute; left: -6px; top: 26px; width: 12px; height: 12px; border-radius: 50%; background: var(--skin); }
-  .leg .limb.thigh { left: -8px; top: 0; width: 16px; height: 42px; background: linear-gradient(180deg, var(--skirt), var(--skirt-dark)); border-radius: 8px 8px 6px 6px; }
-  .leg .limb.shin { left: -7px; top: 0; width: 14px; height: 40px; background: linear-gradient(180deg, var(--skin), var(--skin-dark)); border-radius: 7px; }
-  .foot { position: absolute; left: -10px; top: 34px; width: 20px; height: 12px; border-radius: 8px 8px 6px 6px; background: #2a2f45; }
-
-  /* 桌宠反应 */
-  .bubble {
-    position: absolute; left: 50%; bottom: 320px; transform: translateX(-50%) scale(.9);
-    background: var(--bubble-bg); color: var(--bubble-ink); padding: 8px 12px; border-radius: 12px;
-    font-size: 13px; max-width: 260px; text-align: center; box-shadow: 0 6px 18px rgba(0,0,0,.35);
-    opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s;
-  }
-  .bubble::after { content: ""; position: absolute; left: 50%; bottom: -6px; margin-left: -6px; border: 6px solid transparent; border-top-color: var(--bubble-bg); border-bottom: 0; }
-  .bubble.show { opacity: 1; transform: translateX(-50%) scale(1); }
-  .heart { position: absolute; left: 50%; bottom: 300px; color: #ff9bb3; font-size: 18px; opacity: 0; pointer-events: none; }
-  .heart.pop { animation: pop 900ms ease-out forwards; }
-  @keyframes pop { 0% { opacity: 0; transform: translate(-50%, 0) scale(.6); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -70px) scale(1.15); } }
-
-  /* 控制面板 */
-  .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; align-items: center; }
-  .group { display: flex; align-items: center; gap: 6px; background: rgba(18,24,38,.72); border: 1px solid rgba(130,160,230,.18); border-radius: 10px; padding: 6px 8px; }
-  .group .label { color: var(--muted); font-size: 11px; margin-right: 2px; }
-  button {
-    appearance: none; border: 1px solid rgba(140,170,240,.28); background: rgba(60,80,130,.35); color: var(--ink);
-    font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 8px; cursor: pointer; transition: .12s;
-  }
-  button:hover { background: rgba(90,120,190,.45); }
+  .avatar-wrap.flip { transform: translateX(-50%) scaleX(-1); }
+  .avatar { position: relative; }
+  .part-anchor { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; }
+  .part-anchor img { position: absolute; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.28)); }
+  .shadow { position: absolute; left: 50%; bottom: 2px; width: 74px; height: 12px; margin-left: -37px; border-radius: 50%;
+    background: radial-gradient(rgba(0,0,0,.45), rgba(0,0,0,0) 70%); }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; justify-content: center; }
+  .group { display: flex; align-items: center; gap: 6px; background: rgba(18,24,38,.75);
+    border: 1px solid rgba(130,160,230,.18); border-radius: 10px; padding: 6px 9px; }
+  .group .label { color: var(--muted); font-size: 11px; }
+  button { appearance: none; border: 1px solid rgba(140,170,240,.28); background: rgba(60,80,130,.35);
+    color: var(--ink); font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 8px; cursor: pointer; }
   button.on { background: #4f7cf0; border-color: #7ba0ff; color: #fff; }
-  input[type="range"] { width: 96px; accent-color: #6f9bff; }
-  .hint { color: var(--muted); font-size: 12px; margin-top: 10px; text-align: center; }
-  .legend { position: absolute; right: 12px; top: 10px; font-size: 11px; color: var(--muted); text-align: right; line-height: 1.6; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 12px; text-align: center; line-height: 1.7; }
+  .err { color: #ffb4b4; font-size: 12px; margin-top: 8px; }
 </style>
 </head>
 <body>
-  <h1>2D 骨骼角色原型</h1>
-  <div class="sub">程序化 walk / idle · 方向翻转 · 换装换色 · 桌宠点击互动（单文件、无依赖、无外部素材）</div>
+  <h1>小鲸 · 2D 骨骼角色</h1>
+  <div class="sub">真实 AI 贴图（9 层）+ rig.json 骨骼 + 程序化 idle / walk（需要本地起一个静态服务打开，file:// 下 fetch 会被拦）</div>
 
-  <div class="stage-wrap">
-    <div class="scene" id="scene">
-      <div class="stars"></div>
-      <div class="ground"></div>
-      <div class="badge" id="modeBadge">地图模式 · 点地面让她走过去</div>
-      <div class="legend">点击她：头 / 脸 / 身体 / 手<br />点击地面：走路</div>
-
-      <div class="avatar" id="avatar">
-        <div class="shadow"></div>
-
-        <!-- 髋 -->
-        <div class="bone" id="b-hips" style="left:80px; top:196px;">
-          <!-- 腿 L -->
-          <div class="bone leg" id="b-thighL" style="left:-11px; top:0;">
-            <div class="part" style="left:0; top:0;"><div class="limb thigh"></div></div>
-            <div class="bone" id="b-shinL" style="left:0; top:38px;">
-              <div class="part" style="left:0; top:0;"><div class="limb shin"></div></div>
-              <div class="bone" id="b-footL" style="left:0; top:34px;"><div class="part" style="left:0; top:0;"><div class="foot"></div></div></div>
-            </div>
-          </div>
-          <!-- 腿 R -->
-          <div class="bone leg" id="b-thighR" style="left:11px; top:0;">
-            <div class="part" style="left:0; top:0;"><div class="limb thigh"></div></div>
-            <div class="bone" id="b-shinR" style="left:0; top:38px;">
-              <div class="part" style="left:0; top:0;"><div class="limb shin"></div></div>
-              <div class="bone" id="b-footR" style="left:0; top:34px;"><div class="part" style="left:0; top:0;"><div class="foot"></div></div></div>
-            </div>
-          </div>
-          <!-- 裙子 / 裤子 -->
-          <div class="part" style="left:0; top:0;"><div class="skirt"></div></div>
-
-          <!-- 脊柱 -->
-          <div class="bone" id="b-chest" style="left:0; top:-46px;">
-            <div class="part" style="left:0; top:0;"><div class="body-shape"></div></div>
-            <!-- 手臂 L -->
-            <div class="bone arm" id="b-armL" style="left:-24px; top:-2px;">
-              <div class="part" style="left:0; top:0;"><div class="limb upper"></div></div>
-              <div class="bone" id="b-foreL" style="left:0; top:30px;">
-                <div class="part" style="left:0; top:0;"><div class="limb fore"></div></div>
-                <div class="part" style="left:0; top:0;"><div class="hand"></div></div>
-              </div>
-            </div>
-            <!-- 手臂 R -->
-            <div class="bone arm" id="b-armR" style="left:24px; top:-2px;">
-              <div class="part" style="left:0; top:0;"><div class="limb upper"></div></div>
-              <div class="bone" id="b-foreR" style="left:0; top:30px;">
-                <div class="part" style="left:0; top:0;"><div class="limb fore"></div></div>
-                <div class="part" style="left:0; top:0;"><div class="hand"></div></div>
-              </div>
-            </div>
-            <!-- 脖子 + 头 -->
-            <div class="bone" id="b-neck" style="left:0; top:-4px;">
-              <div class="part" style="left:0; top:0;"><div class="neck-shape"></div></div>
-              <div class="bone" id="b-head" style="left:0; top:-6px;">
-                <div class="part" style="left:0; top:0;"><div class="hair-back"></div></div>
-                <div class="part" style="left:0; top:0;"><div class="head-shape"></div></div>
-                <div class="part" style="left:0; top:0;"><div class="hair-front"></div></div>
-                <div class="part face">
-                  <div class="eye l"></div><div class="eye r"></div>
-                  <div class="blush l"></div><div class="blush r"></div>
-                  <div class="mouth"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="bubble" id="bubble"></div>
-      <div class="heart" id="heart">♥</div>
+  <div class="stage" id="stage">
+    <div class="ground-line"></div>
+    <div class="avatar-wrap" id="wrap">
+      <div class="avatar" id="avatar"></div>
+      <div class="shadow"></div>
     </div>
+  </div>
+  <div class="err" id="err"></div>
 
-    <div class="controls">
-      <div class="group">
-        <span class="label">模式</span>
-        <button id="btnMap" class="on">地图</button>
-        <button id="btnPet">桌宠</button>
-      </div>
-      <div class="group">
-        <span class="label">上衣</span>
-        <button data-top="#7c9cf5" class="on">蓝</button>
-        <button data-top="#f29a76">粉橙</button>
-        <button data-top="#8ad3b0">薄荷</button>
-      </div>
-      <div class="group">
-        <span class="label">下装</span>
-        <button id="btnSkirt" class="on">裙</button>
-        <button id="btnPants">裤</button>
-      </div>
-      <div class="group">
-        <span class="label">发型</span>
-        <button id="btnHair1" class="on">直发</button>
-        <button id="btnHair2">双马尾</button>
-      </div>
-      <div class="group">
-        <span class="label">发色</span>
-        <button data-hair="#f2b6c6" class="on">粉</button>
-        <button data-hair="#c9b6f2">紫</button>
-        <button data-hair="#3c3a4a">黑</button>
-      </div>
-      <div class="group">
-        <span class="label">步速</span>
-        <input id="speed" type="range" min="30" max="220" value="110" />
-      </div>
+  <div class="controls">
+    <div class="group">
+      <span class="label">动作</span>
+      <button id="btnIdle" class="on">待机</button>
+      <button id="btnWalk">走路</button>
     </div>
-    <div class="hint">桌宠模式下：点头 → 蹭蹭；点脸 → 鼓脸；点身体/手 → 回应；她还会眨眼、呼吸、偶尔转头。</div>
+    <div class="group">
+      <span class="label">朝向</span>
+      <button id="btnDir">右</button>
+    </div>
+    <div class="group">
+      <span class="label">衣服染色（演示换装的一半）</span>
+      <button id="btnTint0" class="on">原色</button>
+      <button id="btnTint1">偏紫</button>
+      <button id="btnTint2">偏绿</button>
+    </div>
+  </div>
+  <div class="hint">
+    文件：<code>assets/rig.json</code> + <code>assets/*.png</code>；
+    换成你自己的角色 = 同画布分层透明 PNG（同名覆盖）+ 改 rig.json 的关节/box/pivot。
   </div>
 
 <script>
-(function () {
+(async function () {
   'use strict'
+  const AVATAR_H = 340            // 展示高度（像素）
+  const stage = document.getElementById('stage')
+  const wrap = document.getElementById('wrap')
+  const avatarEl = document.getElementById('avatar')
+  const errEl = document.getElementById('err')
 
-  // ---------- 骨骼绑定 ----------
-  const B = {}
-  ;['hips', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'chest', 'armL', 'foreL', 'armR', 'foreR', 'neck', 'head'].forEach(function (n) {
-    B[n] = document.getElementById('b-' + n)
+  let rig
+  try {
+    rig = await (await fetch('assets/rig.json', { cache: 'no-store' })).json()
+  } catch (e) {
+    errEl.textContent = '加载 assets/rig.json 失败：' + e.message + '（用静态服务器打开，别用 file://）'
+    return
+  }
+  const k = AVATAR_H / rig.canvas[1]
+  avatarEl.style.width = rig.canvas[0] * k + 'px'
+  avatarEl.style.height = rig.canvas[1] * k + 'px'
+  avatarEl.style.position = 'relative'
+
+  const PART_BONE = { head: 'head', hairBack: 'hairBack', torso: 'chest', armL: 'armL', armR: 'armR', skirt: 'hips', legL: 'legL', legR: 'legR', tail: 'tail' }
+  const parts = Object.keys(rig.parts)
+    .filter((n) => PART_BONE[n] && rig.bones[PART_BONE[n]])
+    .sort((a, b) => (Number(rig.z[a]) || 0) - (Number(rig.z[b]) || 0))
+
+  const nodes = {}
+  for (const name of parts) {
+    const info = rig.parts[name]
+    const box = info.box, pv = info.pivot
+    const anchor = document.createElement('div')
+    anchor.className = 'part-anchor'
+    anchor.style.zIndex = Math.round(Number(rig.z[name]) || 0)
+    const img = document.createElement('img')
+    img.src = info.file + '?v=' + Date.now()
+    img.alt = ''
+    img.draggable = false
+    img.style.left = -pv[0] * k + 'px'
+    img.style.top = -pv[1] * k + 'px'
+    img.style.width = (box[2] - box[0]) * k + 'px'
+    img.style.height = (box[3] - box[1]) * k + 'px'
+    img.dataset.part = name
+    anchor.appendChild(img)
+    avatarEl.appendChild(anchor)
+    nodes[name] = anchor
+  }
+
+  // 骨骼拓扑
+  const order = []
+  const visit = (n) => { if (!rig.bones[n] || order.includes(n)) return; const p = rig.bones[n].parent; if (p) visit(p); order.push(n) }
+  Object.keys(rig.bones).forEach(visit)
+
+  const state = { mode: 'idle', dir: 1, phase: 0, t: Math.random() * 10, tint: 0 }
+
+  document.getElementById('btnIdle').addEventListener('click', (e) => {
+    state.mode = 'idle'; toggle(e.target, 'btnIdle', 'btnWalk')
   })
-  const avatar = document.getElementById('avatar')
-  const scene = document.getElementById('scene')
-  const bubble = document.getElementById('bubble')
-  const heart = document.getElementById('heart')
-  const modeBadge = document.getElementById('modeBadge')
+  document.getElementById('btnWalk').addEventListener('click', (e) => {
+    state.mode = 'walk'; toggle(e.target, 'btnWalk', 'btnIdle')
+  })
+  document.getElementById('btnDir').addEventListener('click', (e) => {
+    state.dir = -state.dir
+    wrap.classList.toggle('flip', state.dir < 0)
+    e.target.textContent = state.dir > 0 ? '右' : '左'
+  })
+  document.getElementById('btnTint0').addEventListener('click', (e) => setTint(e.target, 0))
+  document.getElementById('btnTint1').addEventListener('click', (e) => setTint(e.target, 1))
+  document.getElementById('btnTint2').addEventListener('click', (e) => setTint(e.target, 2))
 
-  // ---------- 状态 ----------
-  const state = {
-    mode: 'map',            // map | pet
-    x: 0.5,                 // 0~1 场景内位置
-    targetX: 0.5,
-    dir: 1,                 // 1 右 / -1 左
-    speed: 110,             // px/s（场景内基准）
-    phase: 0,               // 走路相位
-    idleT: Math.random() * 10,
-    blink: 0,
-    blinking: false,
-    reaction: '',           // 互动反应名
-    reactionT: 0,
-    bubbleT: 0,
-    lookX: 0,
+  function toggle(el, onId, offId) {
+    el.classList.add('on')
+    document.getElementById(offId).classList.remove('on')
   }
-
-  // ---------- 工具 ----------
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
-  const lerp = (a, b, t) => a + (b - a) * t
-  function rot(el, deg) { el.style.transform = 'rotate(' + deg.toFixed(2) + 'deg)' }
-  function setVar(name, value) { avatar.style.setProperty(name, value) }
-  function bubbleSay(text, ms) {
-    bubble.textContent = text
-    bubble.classList.add('show')
-    state.bubbleT = performance.now() + (ms || 2200)
-  }
-  function popHeart() {
-    heart.classList.remove('pop')
-    void heart.offsetWidth
-    heart.classList.add('pop')
-  }
-
-  // ---------- 换装 ----------
-  document.querySelectorAll('[data-top]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      document.querySelectorAll('[data-top]').forEach((b) => b.classList.remove('on'))
-      btn.classList.add('on')
-      const c = btn.getAttribute('data-top')
-      setVar('--top', c)
-      setVar('--top-dark', shade(c, -22))
-      bubbleSay('换了件 ' + btn.textContent + ' 色的上衣～', 1600)
+  function setTint(el, n) {
+    state.tint = n
+    ;['btnTint0', 'btnTint1', 'btnTint2'].forEach((id, i) => document.getElementById(id).classList.toggle('on', i === n))
+    const filters = ['', 'hue-rotate(35deg) saturate(1.1)', 'hue-rotate(-60deg) saturate(1.15)']
+    ;['torso', 'skirt'].forEach((n) => {
+      const img = nodes[n].querySelector('img')
+      img.style.filter = filters[n] + ' drop-shadow(0 2px 3px rgba(0,0,0,.28))'
     })
-  })
-  document.querySelectorAll('[data-hair]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      document.querySelectorAll('[data-hair]').forEach((b) => b.classList.remove('on'))
-      btn.classList.add('on')
-      const c = btn.getAttribute('data-hair')
-      setVar('--hair', c)
-      setVar('--hair-dark', shade(c, -26))
-      bubbleSay(btn.textContent + '色头发，好看吗？', 1600)
-    })
-  })
-  document.getElementById('btnSkirt').addEventListener('click', function () {
-    avatar.classList.remove('pants')
-    document.getElementById('btnSkirt').classList.add('on')
-    document.getElementById('btnPants').classList.remove('on')
-    bubbleSay('裙子凉快一点～', 1400)
-  })
-  document.getElementById('btnPants').addEventListener('click', function () {
-    avatar.classList.add('pants')
-    document.getElementById('btnPants').classList.add('on')
-    document.getElementById('btnSkirt').classList.remove('on')
-    bubbleSay('裤子方便走来走去。', 1400)
-  })
-  document.getElementById('btnHair1').addEventListener('click', function () {
-    avatar.classList.remove('style-twin')
-    document.getElementById('btnHair1').classList.add('on')
-    document.getElementById('btnHair2').classList.remove('on')
-    bubbleSay('换回直发啦。', 1200)
-  })
-  document.getElementById('btnHair2').addEventListener('click', function () {
-    avatar.classList.add('style-twin')
-    document.getElementById('btnHair2').classList.add('on')
-    document.getElementById('btnHair1').classList.remove('on')
-    bubbleSay('双马尾！精神多了。', 1200)
-  })
-  const speedInput = document.getElementById('speed')
-  speedInput.addEventListener('input', function () { state.speed = Number(speedInput.value) })
-
-  function shade(hex, delta) {
-    const n = parseInt(hex.slice(1), 16)
-    let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
-    r = clamp(r + delta, 0, 255); g = clamp(g + delta, 0, 255); b = clamp(b + delta, 0, 255)
-    return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)
   }
 
-  // ---------- 模式切换 ----------
-  const btnMap = document.getElementById('btnMap')
-  const btnPet = document.getElementById('btnPet')
-  function setMode(m) {
-    state.mode = m
-    scene.classList.toggle('pet-mode', m === 'pet')
-    btnMap.classList.toggle('on', m === 'map')
-    btnPet.classList.toggle('on', m === 'pet')
-    modeBadge.textContent = m === 'map' ? '地图模式 · 点地面让她走过去' : '桌宠模式 · 点她不同部位有不同反应'
-    if (m === 'pet') bubbleSay('嗯？', 1200)
-  }
-  btnMap.addEventListener('click', () => setMode('map'))
-  btnPet.addEventListener('click', () => setMode('pet'))
-
-  // ---------- 点击 ----------
-  scene.addEventListener('click', function (e) {
-    if (state.mode === 'map') {
-      const rect = scene.getBoundingClientRect()
-      const nx = clamp((e.clientX - rect.left) / rect.width, 0.06, 0.94)
-      state.targetX = nx
-      return
-    }
-    // 桌宠模式：判断点到了哪个部位
-    const rect = avatar.getBoundingClientRect()
-    const ax = (e.clientX - rect.left) / rect.width
-    const ay = (e.clientY - rect.top) / rect.height
-    if (ay < 0.28) {
-      if (ax < 0.35 || ax > 0.65) { popHeart(); bubbleSay('（歪头）在摸哪里呀……', 1800) }
-      else { bubbleSay('（眯起眼蹭了蹭你的手）', 1800); react('happy') }
-    } else if (ay < 0.45) {
-      bubbleSay('（鼓脸）不许戳脸！', 1800); react('pout')
-    } else if (ax < 0.24 || ax > 0.76) {
-      bubbleSay('（抬手跟你击了个掌）', 1800); react('wave')
+  function motion(kind, t, phase) {
+    const o = {}
+    if (kind === 'walk') {
+      const p = phase
+      o.legL = 20 * Math.sin(p); o.legR = -20 * Math.sin(p)
+      o.armL = -15 * Math.sin(p); o.armR = 15 * Math.sin(p)
+      o.chest = 2.2 * Math.sin(2 * p); o.head = -1.8 * Math.sin(2 * p)
+      o.hairBack = 1.6 * Math.sin(p + 1.2); o.tail = 4 * Math.sin(p * 0.9 + 0.4)
+      o.bob = -14 * Math.abs(Math.sin(p))
     } else {
-      bubbleSay('（抬头看你）怎么啦？', 1800)
+      const b = Math.sin(t * 1.6)
+      o.legL = 0.8; o.legR = -0.8
+      o.armL = 1.6 + b * 1.1; o.armR = -1.6 - b * 1.1
+      o.chest = b * 1.1; o.head = -0.8 - b * 0.7
+      o.hairBack = 0.7 * Math.sin(t * 0.8); o.tail = 3 * Math.sin(t * 1.05)
+      o.bob = 0
     }
-  })
-
-  function react(name) {
-    state.reaction = name
-    state.reactionT = performance.now() + 1200
+    return o
   }
 
-  // ---------- 动画循环 ----------
-  let last = performance.now()
+  let last = 0
   function frame(now) {
-    const dt = Math.min(0.05, (now - last) / 1000)
-    last = now
-    const t = now / 1000
-
-    // 位移
-    const sceneW = scene.clientWidth
-    const walkThreshold = 0.004
-    let walking = false
-    let speedPx = 0
-    if (state.mode === 'map') {
-      const dx = state.targetX - state.x
-      if (Math.abs(dx) > walkThreshold) {
-        walking = true
-        const dir = dx > 0 ? 1 : -1
-        state.dir = dir
-        const step = (state.speed / sceneW) * dt * dir
-        state.x = Math.abs(step) > Math.abs(dx) ? state.targetX : state.x + step
-        speedPx = state.speed
+    if (!last) last = now
+    const dt = Math.min(0.06, (now - last) / 1000); last = now
+    if (state.mode === 'walk') state.phase += dt * 7.4
+    else state.t += dt
+    const angles = motion(state.mode, state.t, state.phase)
+    const world = {}
+    for (const name of order) {
+      const bone = rig.bones[name]
+      const local = angles[name] || 0
+      if (!bone.parent) {
+        world[name] = { x: bone.pos[0], y: bone.pos[1] + (angles.bob || 0), ang: local }
+      } else {
+        const pw = world[bone.parent], pb = rig.bones[bone.parent]
+        const dx = bone.pos[0] - pb.pos[0], dy = bone.pos[1] - pb.pos[1]
+        const rad = pw.ang * Math.PI / 180
+        world[name] = {
+          x: pw.x + dx * Math.cos(rad) - dy * Math.sin(rad),
+          y: pw.y + dx * Math.sin(rad) + dy * Math.cos(rad),
+          ang: pw.ang + local,
+        }
       }
     }
-    // 位置（百分比）
-    avatar.style.left = (state.x * 100).toFixed(3) + '%'
-    avatar.style.transform = 'translateX(-50%) scaleX(' + (state.dir < 0 ? -1 : 1) + ')'
-
-    // 行走相位 & 骨骼
-    if (walking) {
-      state.phase += dt * (speedPx / 60) * 2.2
-      const p = state.phase
-      const sw = Math.sin(p)
-      rot(B.thighL, 24 * sw)
-      rot(B.thighR, -24 * sw)
-      rot(B.shinL, Math.max(0, 26 * Math.sin(p + 1.1)))
-      rot(B.shinR, Math.max(0, 26 * Math.sin(p + Math.PI + 1.1)))
-      rot(B.footL, 10 * Math.sin(p + 1.1))
-      rot(B.footR, 10 * Math.sin(p + Math.PI + 1.1))
-      rot(B.armL, -22 * sw)
-      rot(B.armR, 22 * sw)
-      rot(B.foreL, -10 - 8 * Math.abs(sw))
-      rot(B.foreR, -10 - 8 * Math.abs(sw))
-      rot(B.chest, 3 * Math.sin(2 * p))
-      rot(B.head, -2 * Math.sin(2 * p))
-      rot(B.hips, 2 * Math.sin(2 * p))
-    } else {
-      // idle：呼吸 + 轻微摇摆 + 眨眼 + 偶尔转头
-      state.idleT += dt
-      const it = state.idleT
-      const breathe = Math.sin(it * 2.2)
-      rot(B.thighL, 1.5)
-      rot(B.thighR, -1.5)
-      rot(B.shinL, 0)
-      rot(B.shinR, 0)
-      rot(B.footL, 0)
-      rot(B.footR, 0)
-      rot(B.armL, 2 + breathe * 1.6)
-      rot(B.armR, -2 - breathe * 1.6)
-      rot(B.foreL, -8)
-      rot(B.foreR, -8)
-      rot(B.chest, breathe * 1.2)
-      rot(B.hips, breathe * 0.8)
-      rot(B.head, -1 + Math.sin(it * 1.1) * 1.2 + state.lookX * 3)
-      // 眨眼
-      if (!state.blinking && Math.random() < dt * 0.28) { state.blinking = true; state.blink = 0 }
-      if (state.blinking) {
-        state.blink += dt * 9
-        const k = Math.sin(Math.min(Math.PI, state.blink * Math.PI))
-        const s = 1 - k * 0.92
-        document.querySelectorAll('.eye').forEach(function (el) { el.style.transform = 'scaleY(' + s.toFixed(2) + ')' })
-        if (state.blink >= 1) { state.blinking = false; document.querySelectorAll('.eye').forEach(function (el) { el.style.transform = 'scaleY(1)' }) }
-      }
+    for (const name of parts) {
+      const w = world[PART_BONE[name]]
+      const el = nodes[name]
+      if (!w || !el) continue
+      el.style.transform = 'translate3d(' + (w.x * k).toFixed(2) + 'px,' + (w.y * k).toFixed(2) + 'px,0) rotate(' + w.ang.toFixed(2) + 'deg)'
     }
-
-    // 互动反应（覆盖基础姿态）
-    if (state.reaction && now < state.reactionT) {
-      const k = Math.sin((state.reactionT - now) / 1200 * Math.PI)
-      if (state.reaction === 'happy') {
-        rot(B.head, -4 * k)
-        rot(B.armL, 8 + 16 * k); rot(B.armR, -8 - 16 * k)
-      } else if (state.reaction === 'pout') {
-        rot(B.head, 3 * k)
-      } else if (state.reaction === 'wave') {
-        rot(B.armR, 6 + 40 * k)
-      }
-    } else if (state.reaction) { state.reaction = '' }
-
-    if (now > state.bubbleT && bubble.classList.contains('show')) bubble.classList.remove('show')
-
     requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)
-
-  // URL 参数（方便截图/分享状态）：?mode=pet&twin=1&pants=1&top=%238ad3b0&hair=%23c9b6f2&walk=1
-  try {
-    const q = new URLSearchParams(location.search)
-    if (q.get('mode') === 'pet') setMode('pet')
-    if (q.get('twin') === '1') { avatar.classList.add('style-twin'); document.getElementById('btnHair2').classList.add('on'); document.getElementById('btnHair1').classList.remove('on') }
-    if (q.get('pants') === '1') { avatar.classList.add('pants'); document.getElementById('btnPants').classList.add('on'); document.getElementById('btnSkirt').classList.remove('on') }
-    const t2 = q.get('top'); if (t2) { setVar('--top', t2); setVar('--top-dark', shade(t2, -22)) }
-    const h2 = q.get('hair'); if (h2) { setVar('--hair', h2); setVar('--hair-dark', shade(h2, -26)) }
-    if (q.get('walk') === '1') { state.targetX = 0.72 }
-    if (q.get('say')) bubbleSay(decodeURIComponent(q.get('say')), 8000)
-  } catch (e) {}
-  // 开场
-  setTimeout(() => bubbleSay('（打了个哈欠）早……今天要去哪？', 2600), 400)
 })()
 </script>
 </body>
 </html>
-
 

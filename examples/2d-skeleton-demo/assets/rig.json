@@ -1,0 +1,238 @@
+{
+ "name": "xiaojing",
+ "canvas": [
+  1362,
+  2244
+ ],
+ "bones": {
+  "hips": {
+   "parent": null,
+   "pos": [
+    681,
+    1290
+   ]
+  },
+  "chest": {
+   "parent": "hips",
+   "pos": [
+    681,
+    987
+   ]
+  },
+  "head": {
+   "parent": "chest",
+   "pos": [
+    661,
+    909
+   ]
+  },
+  "armL": {
+   "parent": "chest",
+   "pos": [
+    293,
+    1133
+   ]
+  },
+  "armR": {
+   "parent": "chest",
+   "pos": [
+    1069,
+    1133
+   ]
+  },
+  "legL": {
+   "parent": "hips",
+   "pos": [
+    561,
+    1571
+   ]
+  },
+  "legR": {
+   "parent": "hips",
+   "pos": [
+    801,
+    1571
+   ]
+  },
+  "hairBack": {
+   "parent": "chest",
+   "pos": [
+    681,
+    931
+   ]
+  },
+  "tail": {
+   "parent": "hips",
+   "pos": [
+    1090,
+    1324
+   ]
+  }
+ },
+ "parts": {
+  "head": {
+   "file": "assets/head.png",
+   "box": [
+    6,
+    0,
+    1314,
+    908
+   ],
+   "pivot": [
+    654,
+    908
+   ],
+   "size": [
+    420,
+    291
+   ]
+  },
+  "hairBack": {
+   "file": "assets/hairBack.png",
+   "box": [
+    27,
+    908,
+    1334,
+    1615
+   ],
+   "pivot": [
+    654,
+    23
+   ],
+   "size": [
+    420,
+    227
+   ]
+  },
+  "torso": {
+   "file": "assets/torso.png",
+   "box": [
+    367,
+    886,
+    994,
+    1290
+   ],
+   "pivot": [
+    314,
+    404
+   ],
+   "size": [
+    420,
+    270
+   ]
+  },
+  "armL": {
+   "file": "assets/armL.png",
+   "box": [
+    204,
+    1110,
+    401,
+    1492
+   ],
+   "pivot": [
+    88,
+    23
+   ],
+   "size": [
+    197,
+    382
+   ]
+  },
+  "armR": {
+   "file": "assets/armR.png",
+   "box": [
+    960,
+    1110,
+    1157,
+    1492
+   ],
+   "pivot": [
+    109,
+    23
+   ],
+   "size": [
+    197,
+    382
+   ]
+  },
+  "skirt": {
+   "file": "assets/skirt.png",
+   "box": [
+    27,
+    1155,
+    1334,
+    1716
+   ],
+   "pivot": [
+    654,
+    11
+   ],
+   "size": [
+    420,
+    180
+   ]
+  },
+  "legL": {
+   "file": "assets/legL.png",
+   "box": [
+    442,
+    1559,
+    681,
+    2232
+   ],
+   "pivot": [
+    119,
+    11
+   ],
+   "size": [
+    239,
+    673
+   ]
+  },
+  "legR": {
+   "file": "assets/legR.png",
+   "box": [
+    681,
+    1559,
+    919,
+    2232
+   ],
+   "pivot": [
+    119,
+    11
+   ],
+   "size": [
+    238,
+    673
+   ]
+  },
+  "tail": {
+   "file": "assets/tail.png",
+   "box": [
+    994,
+    1122,
+    1355,
+    1974
+   ],
+   "pivot": [
+    95,
+    201
+   ],
+   "size": [
+    361,
+    852
+   ]
+  }
+ },
+ "z": {
+  "hairBack": 0.5,
+  "tail": 0.4,
+  "legL": 2,
+  "legR": 2,
+  "skirt": 3,
+  "torso": 4,
+  "armL": 5,
+  "armR": 5,
+  "head": 6
+ }
+}
