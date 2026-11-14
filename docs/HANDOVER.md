@@ -18,6 +18,7 @@
 3. `docs/NATIVE-CLIENT-ARCH.md` —— 实现契约：文件边界、构建方式、共享 API、组件契约
 4. `docs/API-CONTRACT.md` + `docs/schema/` + `docs/MOBILE-GATE.md` —— 冻结的后端契约与手机门
 5. `RELEASE-0.7.24.md` —— 本版变更与验证
+   - **未验证项**：见 `docs/UNVERIFIED.md`（每条含「验到哪一步 / 没验什么 / 怎么自己验 / 风险」）。
    - **0.7.24 追加能力**：聊天软件直连（OneBot 11，插件不捆绑桥）、插件自动更新（git 检出可一键 pull）、余额/token 刷新提速、VM 通道视觉超时与手动坐标快通道。真实写操作 73/73，VM 通道真发 aedo 验证过。
 
 关键变化：

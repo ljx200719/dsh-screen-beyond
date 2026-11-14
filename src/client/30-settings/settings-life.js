@@ -92,12 +92,32 @@ function stgLifeSchedulesSeed(d) {
 
 function SettingsLifeScheduleCard() {
   const api = useApi('/api/life')
+  // 地点下拉的数据源：GET /api/routine 的 places（[{id,name,icon}]）。
+  // 不传 refreshMs → 只在挂载 / 点重试时请求一次，改输入不会重复拉接口。
+  const placesApi = useApi('/api/routine')
   const [busy, run] = stgCoreBusy()
   const [newTime, setNewTime] = React.useState('')
   const [newLabel, setNewLabel] = React.useState('')
+  const [newPlace, setNewPlace] = React.useState('')
   const f = stgCoreDraft(api, stgLifeSchedulesSeed)
   const d = f.draft
   const rows = (d && d.schedules) || []
+  const placeList = (placesApi.data && Array.isArray(placesApi.data.places)) ? placesApi.data.places : []
+  const placeOptions = [{ value: '', label: '（不指定）' }].concat(placeList.map((p) => ({
+    value: String(p.id),
+    label: String((p.icon ? p.icon + ' ' : '') + (p.name || p.id)),
+  })))
+  const placesReady = !placesApi.error && placeList.length > 0
+  // 历史数据里的 place 可能已经不在当前地图：补一条选项保住原值（不要静默清空）
+  const optionsForPlace = (current) => {
+    if (!current) return placeOptions
+    if (placeOptions.some((o) => o.value === String(current))) return placeOptions
+    return placeOptions.concat([{ value: String(current), label: String(current) + '（地点已不存在）' }])
+  }
+  const placeLabel = (id) => {
+    const hit = placeList.find((p) => String(p.id) === String(id))
+    return hit ? String((hit.icon ? hit.icon + ' ' : '') + (hit.name || hit.id)) : String(id)
+  }
   const patchRows = (next) => f.patch({ schedules: next })
   const addRow = () => {
     const time = String(newTime || '').trim()
@@ -105,9 +125,10 @@ function SettingsLifeScheduleCard() {
     if (!time || !label) { toast('时间和内容都要填', 'error'); return }
     if (!STG_LIFE_TIME_RE.test(time)) { toast('时间格式像 07:30 或 21:00-22:00', 'error'); return }
     if (rows.length >= 24) { toast('作息最多 24 条', 'error'); return }
-    patchRows(rows.concat({ time: time.slice(0, 20), label: label.slice(0, 40), days: '每天', place: '' }))
+    patchRows(rows.concat({ time: time.slice(0, 20), label: label.slice(0, 40), days: '每天', place: newPlace || '' }))
     setNewTime('')
     setNewLabel('')
+    setNewPlace('')
   }
   const save = () => run(async () => {
     if (!d || !f.base) return
@@ -142,14 +163,33 @@ function SettingsLifeScheduleCard() {
           value: row.label, placeholder: '起床 / 上学 / 午饭…',
           onChange: (v) => patchRows(rows.map((x, j) => (j === i ? Object.assign({}, x, { label: v }) : x))),
         })),
+        placesReady
+          ? h('span', { title: '这个时段她更倾向去的地方（不指定就按地图权重自己决定）', style: { width: 134, minWidth: 104 } },
+              h(Select, {
+                value: row.place || '',
+                onChange: (v) => patchRows(rows.map((x, j) => (j === i ? Object.assign({}, x, { place: v }) : x))),
+                options: optionsForPlace(row.place),
+              }))
+          : h('span', { style: { width: 134, minWidth: 104, fontSize: 11, color: T.text3, wordBreak: 'break-all' } },
+              row.place ? '地点：' + placeLabel(row.place) : ''),
         h(Btn, { size: 'sm', kind: 'ghost', title: '删掉这条（保存后生效）', onClick: () => patchRows(rows.filter((x, j) => j !== i)) }, '✕'),
       )) : h(Note, {}, '还没有作息，先在下面加一条'),
       h(Row, { gap: 6, style: { marginTop: 4 } },
         h('span', { style: { width: 148, minWidth: 110 } }, h(TextInput, { value: newTime, placeholder: '21:00-22:00', onChange: setNewTime, onEnter: addRow })),
         h('span', { style: { flex: 1, minWidth: 0 } }, h(TextInput, { value: newLabel, placeholder: '做什么（自由填写）', onChange: setNewLabel, onEnter: addRow })),
+        placesReady
+          ? h('span', { style: { width: 134, minWidth: 104 } }, h(Select, { value: newPlace, onChange: setNewPlace, options: placeOptions }))
+          : null,
         h(Btn, { size: 'sm', kind: 'ghost', onClick: addRow }, '+ 添加作息'),
       ),
       h(Note, {}, '时间可以写单点（07:30）也可以写时段（21:00-22:00）；作息会影响她去哪、什么时候该睡。'),
+      h(Note, {}, '指定地点 = 这个时段命中时她更倾向去那里（权重 ×1.8，不锁死）；不指定就按地图权重和她的心情自己决定。'),
+      placesApi.error
+        ? h(Row, { gap: 8, wrap: true },
+            h('span', { style: { flex: 1, minWidth: 0 } }, h(Note, {}, '地点列表读取失败（下拉暂不可用，已选地点会原样保留）：' + placesApi.error)),
+            h(Btn, { size: 'sm', kind: 'ghost', onClick: placesApi.reload }, '重试'),
+          )
+        : null,
     ) : (api.error ? null : h(Loading, { text: '读取作息…' })),
   )
 }
