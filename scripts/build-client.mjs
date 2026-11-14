@@ -24,6 +24,7 @@ export const FILES = [
   '00-core/ui.js',
   '00-core/hooks.js',
   '10-chat/chat.js',
+  '20-stage/three3d.js',
   '20-stage/stage.js',
   '20-stage/map.js',
   '30-settings/settings-core.js',

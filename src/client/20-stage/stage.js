@@ -1,12 +1,13 @@
-// 20-stage/stage.js —— 2D 舞台（原生实现，替代 runtime/stage.html）
+// 20-stage/stage.js —— 舞台（2D 底图 + 3D 舞台；原生实现，替代 runtime/stage.html 与 model.html）
 //
 // 契约：function StageView(props)；props.compact=true 表示聊天分屏里的小尺寸。
 // 数据：GET /api/stage（useApi 轮询 STAGE_POLL_MS；不再自己 setInterval + 每秒重建 DOM）
 //      点击地点：POST /api/location { placeId, instant:true }；被拒绝（refused）时显示 reason。
-// 范围：本次只做 2D（D03 B）。没有 2D 底图就明确提示去地图页，不白屏、不崩（M06/M07）。
+// 范围：2D（底图/地点钉/角色）+ 3D（ThreeStage，见 20-stage/three3d.js）。
+//      3D 需要 WebGL；不可用时自动回退 2D 并留下说明，不白屏、不崩（M06/M07）。
 //
 // 静态部分（底图/地点钉）只在数据变化时重建；角色位置沿用旧网页的 left/top 百分比 + CSS
-// transition，行程中平滑移动，不逐帧改写 DOM（N04）。
+// transition，行程中平滑移动，不逐帧改写 DOM（N04）。3D 分支由 ThreeStage 自己全权接管渲染与清理。
 
 const STAGE_MAP_ASPECT_FALLBACK = 1000 / 640
 
@@ -159,6 +160,10 @@ function StageView(props) {
   const [spriteFailed, setSpriteFailed] = React.useState(false)
   const [moving, setMoving] = React.useState('')
   const [notice, setNotice] = React.useState('')
+  // 2D / 3D：localStorage `companionStage3D` 是用户的显式选择（null = 没选过，按地图 displayMode 决定）
+  const [mode3dPref, setMode3dPref] = useLocal('companionStage3D', null)
+  // 3D 启动失败的原因（WebGL/three 不可用）：非空就强制走 2D，并在底部留一行说明
+  const [fail3d, setFail3d] = React.useState('')
 
   // 换地图/换底图：重置比例与失败标记，按新图重新适配
   React.useEffect(() => {
@@ -166,6 +171,36 @@ function StageView(props) {
     setBgFailed(false)
   }, [mapImgPath])
   React.useEffect(() => { setSpriteFailed(false) }, [spritePath])
+  // 换地图：上一次的 3D 失败结论不能带到新地图上（换张图可能就能 3D）
+  React.useEffect(() => { setFail3d('') }, [map.id])
+
+  // 这张地图有没有 3D 资源：map.has3d=true 或配了 3D 模型；其余情况 3D 开关禁用
+  const can3d = !!(map.has3d === true || (map.model && map.model.url))
+  const want3d = can3d && !fail3d && (mode3dPref === null ? map.displayMode === '3d' : !!mode3dPref)
+  // 3D 组件由 20-stage/three3d.js 提供（同一次构建的片段）；用 typeof 兜一层：
+  // 万一构建清单里漏了这个片段，面板也只是没有 3D，不会因为 ReferenceError 整页白掉。
+  const has3dModule = typeof ThreeStage === 'function'
+  const use3d = !!data && want3d && has3dModule
+
+  const toggle3d = (next) => {
+    if (next && !can3d) {
+      toast('这张地图没有 3D 资源', 'error')
+      return
+    }
+    if (next && !has3dModule) {
+      toast('3D 模块没有打进这次构建（缺少 20-stage/three3d.js）', 'error')
+      return
+    }
+    setFail3d('')
+    setMode3dPref(!!next)
+  }
+
+  // 3D 挂了：toast 中文原因 + 自动切回 2D（不写 localStorage，保留用户偏好，方便修好后重试）
+  const on3dFail = (reason) => {
+    const msg = String(reason || '3D 舞台不可用')
+    setFail3d(msg)
+    toast('3D 舞台不可用：' + msg + '，已切回 2D', 'error')
+  }
 
   const rect = sbcFitRect(size, aspect)
   const marker = stageMarkerPos(data)
@@ -250,7 +285,7 @@ function StageView(props) {
         noBg ? '当前地图没有 2D 底图' : '底图加载失败'),
       h('div', { style: { fontSize: compact ? 10 : 11.5, color: T.text3, lineHeight: 1.65, maxWidth: 330 } },
         noBg
-          ? ('「' + (map.name || '这张地图') + '」还没有 2D 底图。舞台只做 2D（这个版本不做 3D），加一张底图后她就会出现在地图上。')
+          ? ('「' + (map.name || '这张地图') + '」还没有 2D 底图。加一张底图后她就会出现在地图上' + (can3d ? '；也可以直接切 3D 舞台看三维小镇。' : '。'))
           : '底图文件没能加载出来，可以重试一次；地点和位置数据本身是好的。'),
       h(Row, { gap: 6, style: { justifyContent: 'center' } },
         noBg ? h(Btn, { size: 'sm', kind: 'primary', onClick: openMapPage }, '去地图页加底图') : null,
@@ -390,10 +425,23 @@ function StageView(props) {
     h(Chip, { key: 'time', title: '现在时间' }, fmtTime(Date.now())),
     !compact && energy !== null ? h(Chip, { key: 'energy', title: '她的精力' }, energyLabel(energy)) : null,
     !compact && moneyText ? h(Chip, { key: 'money', title: '她的零花（不是 DeepSeek 余额）' }, '💰 ' + moneyText) : null,
+    // 2D / 3D 切换（viewMode）：3D 需要地图有 3D 资源且 WebGL 可用
     h(Chip, {
-      key: 'mode',
-      title: map.has3d ? '这张地图有 3D 资源，但这个版本的舞台只显示 2D（D03 B）' : '这个版本的舞台只做 2D（D03 B）',
+      key: 'mode2d',
+      active: !use3d,
+      onClick: () => toggle3d(false),
+      title: '2D 舞台（底图 + 地点）',
     }, '2D'),
+    h(Chip, {
+      key: 'mode3d',
+      active: use3d,
+      onClick: () => toggle3d(true),
+      title: can3d
+        ? (fail3d ? '3D 上次没起来（' + fail3d + '），点这里重试' : '3D 舞台：拖动旋转 · 滚轮缩放 · 点地点让她去')
+        : '这张地图没有 3D 资源',
+      style: can3d ? undefined : { opacity: 0.45, cursor: 'not-allowed' },
+    }, '3D'),
+    fail3d ? h(Chip, { key: 'fail3d', tone: 'warn', title: '3D 失败原因：' + fail3d }, '3D 不可用') : null,
   ].filter(Boolean)
 
   const statusLine = () => {
@@ -428,6 +476,16 @@ function StageView(props) {
           h('span', { style: { flex: 1 } }),
           weatherText ? h('span', { title: '天气' }, weatherText) : null,
           h('span', { title: '现在时间' }, fmtTime(Date.now())),
+          // 分屏里用一个小胶囊切换 2D/3D（占位小，不挤掉地点）
+          h(Chip, {
+            key: 'mode',
+            active: use3d,
+            onClick: () => toggle3d(!use3d),
+            title: can3d
+              ? (use3d ? '切到 2D 舞台' : (fail3d ? '3D 上次没起来：' + fail3d + '，点这里重试' : '切到 3D 舞台'))
+              : '这张地图没有 3D 资源',
+            style: { padding: '1px 7px', fontSize: 10, lineHeight: '14px', opacity: can3d ? 1 : 0.5 },
+          }, use3d ? '3D' : '2D'),
         )
       : h('div', {
           style: {
@@ -453,7 +511,10 @@ function StageView(props) {
       ref: fit.ref,
       style: { position: 'relative', flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', background: T.bg2, borderRadius: compact ? 8 : 12 },
     },
-      h('div', { style: mapViewStyle }, renderMap()),
+      // 3D：ThreeStage 自己铺满容器（WebGL 画布）；失败回调在这里切回 2D
+      use3d
+        ? h(ThreeStage, { data, compact, onPickPlace: goPlace, onFail: on3dFail })
+        : h('div', { style: mapViewStyle }, renderMap()),
       // 断线但还有旧数据：顶部细提示条，不清空舞台（不抖）
       stage.error
         ? h('div', {
@@ -490,6 +551,20 @@ function StageView(props) {
         : null,
       notice
         ? h('div', { style: { fontSize: 10.5, color: T.danger, lineHeight: 1.5 } }, '她没去：' + notice)
+        : null,
+      // 3D 失败：留一行说明（toast 会消失，这行一直在；点 HUD 的「3D」可重试）
+      fail3d
+        ? h('div', {
+            title: '3D 失败原因：' + fail3d,
+            style: {
+              fontSize: 10.5, color: T.warn, lineHeight: 1.5,
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            },
+          }, '3D 舞台不可用：' + fail3d + '（已切回 2D，点上方「3D」可重试）')
+        : null,
+      want3d && !has3dModule
+        ? h('div', { style: { fontSize: 10.5, color: T.warn, lineHeight: 1.5 } },
+            '3D 模块没进这次构建：把 src/client/20-stage/three3d.js 加进构建清单后重新构建')
         : null,
     ),
   )

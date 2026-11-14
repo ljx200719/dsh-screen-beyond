@@ -65,12 +65,33 @@ function AboutView() {
   const base = useRuntimeBase()
   const [info, setInfo] = React.useState(null)
   const [infoErr, setInfoErr] = React.useState('')
+  const [threeState, setThreeState] = React.useState('检测中…')
   const loadInfo = React.useCallback(() => {
     Api.get('/api/version').then((r) => {
       if (r.ok) { setInfo(r.data); setInfoErr('') } else { setInfo(null); setInfoErr(r.error || '读取失败') }
     })
   }, [])
   React.useEffect(() => { loadInfo() }, [loadInfo])
+  // 3D 舞台引擎自检：面板里 three 是从本机运行时动态 import 的（跨源 + blob 依赖改写），
+  // 在宿主页面策略不同的地方可能被拦；这里直接探一次，失败就显示原因（面板会自动回退 2D）。
+  React.useEffect(() => {
+    let alive = true
+    setThreeState('检测中…')
+    const probe = async () => {
+      try {
+        const b = await Runtime.base()
+        const mod = await import(b + '/vendor/three.module.min.js')
+        if (!alive) return
+        if (mod && typeof mod.WebGLRenderer === 'function') setThreeState('可用（three ' + String(mod.REVISION || '?') + '）')
+        else setThreeState('已加载，但缺少 WebGLRenderer')
+      } catch (e) {
+        if (!alive) return
+        setThreeState('加载失败：' + String((e && e.message) || e))
+      }
+    }
+    probe()
+    return () => { alive = false }
+  }, [])
   const st = status.data || {}
   return h('div', { className: 'sbc-scroll', style: { flex: 1, minHeight: 0, overflow: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 } },
     h(Card, { title: '屏幕彼端 · 原生面板', sub: 'DSH 原生 React，不再用 iframe 嵌网页', tag: '0 个 iframe' },
@@ -83,6 +104,7 @@ function AboutView() {
         h(KV, { k: '消息条数', v: st.count === undefined ? '—' : String(st.count) }),
         h(KV, { k: '模型', v: st.model || '—' }),
         h(KV, { k: 'API 版本', v: info && info.apiVersion !== undefined ? String(info.apiVersion) : (infoErr || '读取中…') }),
+        h(KV, { k: '3D 舞台引擎', v: threeState }),
       ),
     ),
     h(Card, { title: '接口契约', sub: '给未来手机客户端用的冻结契约（不做手机 UI）' },
@@ -103,13 +125,36 @@ function AboutView() {
   )
 }
 
+// 单个标签内容渲染出错时兜住，避免整个面板白屏（N03）
+class SbcViewBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: '' } }
+  static getDerivedStateFromError(e) { return { error: String((e && e.message) || e) } }
+  componentDidCatch(e) { try { console.warn('[screen-beyond] 视图渲染失败', e) } catch (err) {} }
+  render() {
+    if (this.state.error) {
+      return h('div', { style: { padding: 16, display: 'flex', flexDirection: 'column', gap: 8 } },
+        h(ErrorBox, {
+          title: ((this.props && this.props.name) || '面板') + '渲染失败',
+          error: this.state.error,
+          onRetry: () => this.setState({ error: '' }),
+        }),
+        h(Note, {}, '点「重试」重新渲染；反复失败说明这次的数据有异常。'),
+      )
+    }
+    return (this.props && this.props.children) || null
+  }
+}
+
 function AppShell() {
   ensureUiStyle()
   const base = useRuntimeBase()
   const status = useStatus()
   const st = status.data || {}
-  const [tab, setTab] = useLocal('companionTab', 'chat')
-  const [opened, setOpened] = React.useState(() => ({ chat: true }))
+  // 标签持久化。注意：面板重新挂载时（刷新/客户端热更新）如果 localStorage 里记的是别的标签，
+  // 必须把那个标签一起标成「已打开」，否则会出现「标签高亮但内容空白」（真机踩到过）。
+  const [tabRaw, setTab] = useLocal('companionTab', 'chat')
+  const tab = TABS.some((t) => t.key === tabRaw) ? tabRaw : 'chat'
+  const [opened, setOpened] = React.useState(() => ({ chat: true, [tab]: true }))
   const [wallet, setWallet] = React.useState(null)
   const [reconnecting, setReconnecting] = React.useState(false)
   const [screenBusy, setScreenBusy] = React.useState(false)
@@ -221,10 +266,10 @@ function AppShell() {
         },
           h('div', { style: { flex: 1, minHeight: 0, display: 'flex', gap: 8 } },
             h('div', { style: { flex: 1, minWidth: 0, display: showStage && stageMax ? 'none' : 'flex', flexDirection: 'column' } },
-              h(ChatView, {
+              h(SbcViewBoundary, { name: '聊天' }, h(ChatView, {
                 stageOpen: !!showStage,
                 onToggleStage: () => setShowStage((v) => !v),
-              }),
+              })),
             ),
             showStage
               ? h('div', {
@@ -252,18 +297,18 @@ function AppShell() {
                     h(Chip, { onClick: () => setShowStage(false), title: '隐藏舞台，只留聊天' }, '隐藏'),
                     stageMax ? null : h('span', { style: { fontSize: 10, color: T.text3, minWidth: 26, textAlign: 'right' } }, (Number(stageWidth) || 50) + '%'),
                   ),
-                  h('div', { style: { flex: 1, minHeight: 0, display: 'flex' } }, h(StageView, { compact: true, onOpenMap: () => openTab('map') })),
+                  h('div', { style: { flex: 1, minHeight: 0, display: 'flex' } }, h(SbcViewBoundary, { name: '舞台' }, h(StageView, { compact: true, onOpenMap: () => openTab('map') }))),
                 )
               : null,
           ),
         ),
       ),
       // 独立标签页（打开过就保持挂载）
-      opened.stage ? h('div', { key: 'stage', style: paneStyle('stage') }, h(StageView, { onOpenMap: () => openTab('map') })) : null,
-      opened.map ? h('div', { key: 'map', style: paneStyle('map') }, h(MapView, {})) : null,
-      opened.settings ? h('div', { key: 'settings', style: paneStyle('settings') }, h(SettingsView, {})) : null,
-      opened.screen ? h('div', { key: 'screen', style: paneStyle('screen') }, h(ScreenView, {})) : null,
-      opened.about ? h('div', { key: 'about', style: paneStyle('about') }, h(AboutView, {})) : null,
+      opened.stage ? h('div', { key: 'stage', style: paneStyle('stage') }, h(SbcViewBoundary, { name: '舞台' }, h(StageView, { onOpenMap: () => openTab('map') }))) : null,
+      opened.map ? h('div', { key: 'map', style: paneStyle('map') }, h(SbcViewBoundary, { name: '地图' }, h(MapView, {}))) : null,
+      opened.settings ? h('div', { key: 'settings', style: paneStyle('settings') }, h(SbcViewBoundary, { name: '设置' }, h(SettingsView, {}))) : null,
+      opened.screen ? h('div', { key: 'screen', style: paneStyle('screen') }, h(SbcViewBoundary, { name: '屏幕' }, h(ScreenView, {}))) : null,
+      opened.about ? h('div', { key: 'about', style: paneStyle('about') }, h(SbcViewBoundary, { name: '关于' }, h(AboutView, {}))) : null,
     )
   }
 

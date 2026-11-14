@@ -16,7 +16,7 @@
 | 允许的请求 | 只有 `/api/*` JSON、`/models/*` 与图片、`/api/stream`（fetch 流式 SSE）。**不请求任何 HTML 页面** |
 | 屏幕 | 调 `/api/screen/info` 拿 noVNC 地址，`window.open` 交给系统浏览器；面板内只用截图（`/api/screen/pc`、`/api/screen/phone`） |
 | 旧网页 | 源码保留（调试用），运行时默认不再对外提供页面（`DSH_COMPANION_LEGACY_WEB=1` 才开）；详见 §7 |
-| 3D | 本次不做（D03 B）；舞台只做 2D，地图 `has3d` 只用于提示 |
+| 3D | 0.9.0 起支持（D03 追加改为 A）：three 从运行时 `/vendor` 动态加载；GLTFLoader/BufferGeometryUtils 用「fetch 源码→改裸导入→blob import」；WebGL/加载失败自动回退 2D |
 
 ## 2. 文件边界
 
@@ -31,7 +31,8 @@ src/client/                 源码（不发布到 npm，只有 lib/client.js 会
                             Slider Tabs Modal Empty Loading ErrorBox Dot Badge Avatar Img KV Divider）
     hooks.js                useRuntimeBase / useStatus / useApi / useInterval / useLocal / useImage
   10-chat/chat.js            ChatView（消息列表/发送/停止/打字态/图片/重试/历史/分屏舞台）
-  20-stage/stage.js          StageView（2D 舞台：底图/地点/角色/天气/点击地点）
+  20-stage/three3d.js        ThreeStage（3D 舞台：场景/相机/vendor ESM 加载/资源释放）
+  20-stage/stage.js          StageView（2D/3D 舞台切换：底图/地点/角色/天气/点击地点）
   20-stage/map.js            MapView（地图查看 + 基础编辑：地点拖动/热点/障碍/可走/保存/旅行入口）
   30-settings/settings.js    SettingsView 外壳（分类标签）+ 角色/人设/上下文/经济卡片
   30-settings/settings-life.js    生活/环境/主动消息/桌宠卡片
@@ -67,7 +68,7 @@ npm run check            # 服务端语法 + 生成后的 lib/client.js
 ```
 00-core/const.js → 00-core/api.js → 00-core/format.js → 00-core/store.js
 → 00-core/ui.js → 00-core/hooks.js
-→ 10-chat/chat.js → 20-stage/stage.js → 20-stage/map.js
+→ 10-chat/chat.js → 20-stage/three3d.js → 20-stage/stage.js → 20-stage/map.js
 → 30-settings/settings-core.js → settings-life.js → settings-model.js → settings-data.js → settings-vm.js → settings.js
 → 40-screen/screen.js → 40-screen/pet.js
 → 50-app/app.js
@@ -150,7 +151,8 @@ await alertDialog('已保存')
 | 模块 | 导出（const，构建顺序保证可见） | 说明 |
 |---|---|---|
 | chat | `function ChatView(props)` | 自己管理消息/输入；`props.onOpenStage` 供外壳联动 |
-| stage | `function StageView(props)` | `props.compact` 只读小尺寸（聊天分屏用）；点击地点调 `POST /api/location` |
+| stage | `function StageView(props)` | `props.compact` 只读小尺寸（聊天分屏用）；点击地点调 `POST /api/location`；内部 2D/3D 切换 |
+| 3D | `function ThreeStage(props)` | `props.data` = `/api/stage` 载荷，`props.onPickPlace`、`props.onFail`；WebGL/引擎失败调 onFail，由 StageView 回退 2D |
 | map | `function MapView(props)` | 查看 + 基础编辑；保存成功要有提示 |
 | settings | `function SettingsView(props)` | 内部分类标签，子卡片函数在本模块内 |
 | screen | `function ScreenView(props)` | 一律外部浏览器，禁止在面板里嵌 iframe |

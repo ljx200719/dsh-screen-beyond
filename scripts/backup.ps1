@@ -1,4 +1,4 @@
-# 备份插件 + 运行时 + 角色数据（改动前跑一次）
+﻿# 备份插件 + 运行时 + 角色数据（改动前跑一次）
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File scripts\backup.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\backup.ps1 -DataRoot "D:\你的数据目录"

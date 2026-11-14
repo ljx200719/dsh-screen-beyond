@@ -82,10 +82,21 @@ function createElement(type, props, ...children) {
   else if (children.length > 1) p.children = children;
   return { $$el: true, type, props: p, children };
 }
+// 迷你 React 只实现客户端用到的 API；class 组件（错误边界）也要能挂载
+class MiniComponent {
+  constructor(props) { this.props = props || {}; this.state = this.state || {} }
+  setState(patch) {
+    const next = typeof patch === 'function' ? patch(this.state) : patch
+    this.state = Object.assign({}, this.state, next || {})
+    dirty = true
+  }
+}
+MiniComponent.prototype.isReactComponent = {}
 const React = {
   createElement, Fragment: 'Fragment',
   useState, useEffect, useCallback, useRef, useMemo,
   useLayoutEffect: useEffect, memo: (x) => x,
+  Component: MiniComponent, PureComponent: MiniComponent,
 };
 
 // ───────────────────────── 假 DOM / window / localStorage ─────────────────────────
@@ -278,6 +289,18 @@ function renderNode(node, p) {
   if (!node || !node.$$el) return { text: '[?]' };
   const type = node.type;
   if (typeof type === 'function') {
+    // class 组件（错误边界）：new 出来调 render
+    if (type.prototype && type.prototype.isReactComponent) {
+      const cinst = getInst(p, type);
+      try {
+        if (!cinst.obj) cinst.obj = new type(node.props);
+        cinst.obj.props = node.props;
+        const cout = cinst.obj.render();
+        return { component: type.name || 'anon', path: p, props: node.props, tree: renderNode(cout, p + '>') };
+      } catch (e) {
+        return { text: '[render-error ' + ((e && e.message) || e) + ']', error: true };
+      }
+    }
     const inst = getInst(p, type);
     const prev = currentInst;
     currentInst = inst;
