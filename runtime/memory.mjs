@@ -66,6 +66,10 @@ export class MemoryStore {
   // 幂等衰减：强度只按「上次衰减之后」流逝的时间再乘一次系数（记 decayedAt）。
   // 旧实现每次都从 lastSeenAt 重新算，调用几次就把记忆衰减到 0（老 bug）。
   decay(now = Date.now()) {
+    // 只在「衰减幅度够大」或「归档状态变化」时落盘。
+    // 否则每次 GET /api/memory 都会保存一下，revision 每次都变，前端 expectedRev 永远过期
+    // → 删除/置顶永远 409（2026-11-15 修的「记忆删除没用」就是这个）。
+    const MIN_DELTA = 0.02;
     let changed = false;
     for (const f of this.facts) {
       if (f.pinned) { if (f.strength !== 1) { f.strength = 1; changed = true; } continue; }
@@ -73,11 +77,16 @@ export class MemoryStore {
       const days = (now - refAt) / 86400000;
       if (days <= 0) { if (!f.decayedAt) { f.decayedAt = refAt; changed = true; } continue; }
       const factor = Math.pow(0.5, days / this.cfg.halfLifeDays);
-      const next = Math.max(0, (f.strength ?? 0.5) * factor);
-      f.decayedAt = now; changed = true;
-      if (Number(next.toFixed(4)) !== Number(f.strength ?? 0)) f.strength = Number(next.toFixed(4));
+      const before = Number(f.strength ?? 0.5);
+      const next = Math.max(0, before * factor);
+      const nextR = Number(next.toFixed(4));
+      const archivedBefore = !!f.archived;
+      if (Math.abs(nextR - before) >= MIN_DELTA) {
+        f.strength = nextR; f.decayedAt = now; changed = true;
+      }
       if (f.strength < this.cfg.forgetThreshold && !f.archived) f.archived = true;
       if (f.strength >= this.cfg.forgetThreshold && f.archived && f.lastSeenAt && f.lastSeenAt > (now - 30 * 86400000)) f.archived = false;
+      if (!!f.archived !== archivedBefore) changed = true;
     }
     if (changed) this.save();
   }
