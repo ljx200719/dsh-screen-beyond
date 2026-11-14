@@ -1,0 +1,2953 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 2,
+  "runtimeVersion": "0.7.23",
+  "generatedAt": "2026-11-14",
+  "baseUrl": "http://127.0.0.1:8900",
+  "source": {
+    "file": "runtime/server.mjs",
+    "runtimeVersion": "0.7.23",
+    "note": "端点与字段以源码实现为准；evidence=live 表示已在 127.0.0.1:8900 运行实例上核对过响应，source 表示只读过源码（写操作没有在真实数据上执行），unverified 见 docs/API-CONTRACT.md §12"
+  },
+  "contract": "docs/API-CONTRACT.md",
+  "models": "docs/schema/models.json",
+  "authSchemes": {
+    "default": {
+      "network": "127.0.0.1 only（服务只监听回环）",
+      "origin": "whitelist（127.0.0.1 / localhost / ::1 / dsh-app://app）",
+      "apiToken": "optional（运行实例设置 DSH_COMPANION_API_TOKEN 时必填 x-companion-token 或 companion_token cookie）"
+    },
+    "sync": {
+      "network": "127.0.0.1 only",
+      "origin": "whitelist",
+      "apiToken": "optional",
+      "syncToken": "required（Authorization: Bearer <sync token> 或 x-sync-token；令牌只从 /api/sync/local 取，且该接口仅回环）"
+    },
+    "loopback-only": {
+      "network": "127.0.0.1 only",
+      "origin": "whitelist",
+      "apiToken": "optional",
+      "loopbackIp": "required（remoteAddress 必须是 127.0.0.1 / ::1 / ::ffff:127.0.0.1，否则 403）"
+    },
+    "token-exempt": {
+      "network": "127.0.0.1 only",
+      "origin": "whitelist",
+      "apiToken": "not-required（token 模式下也豁免）"
+    }
+  },
+  "conventions": {
+    "postBody": "Content-Type: application/json；body 不是合法 JSON => 400 {ok:false,error:'请求格式不正确'}；空 body 视为 {}；BOM 会被剥掉",
+    "bodyLimit": "请求体上限 40MB（超过抛 413，错误体是通用 500 文案）—— 未实测",
+    "okField": "成功用 ok:true，失败用 ok:false+error；少数历史接口成功时没有 ok 字段（见各端点 response）",
+    "errorShape": {
+      "ok": false,
+      "error": "string",
+      "hint?": "string",
+      "entity?": "string",
+      "id?": "string",
+      "expectedRev?": "integer",
+      "currentRev?": "integer"
+    },
+    "http200OkFalse": "业务性拒绝用 HTTP 200 + ok:false：/api/map/activate、/api/location、/api/travel/ticket（refused）、/api/wallet/spend（余额不足）、/api/diary/show（今天没日记）、/api/space/start、/api/phone/start（内存不足）、/api/backup/restore（脚本失败）",
+    "time": "除特别标注外，时间字段是 ms epoch 整数；日期字符串是 YYYY-MM-DD；同步事件里的 at/receivedAt 是 ISO 字符串",
+    "ids": "character id ^[A-Za-z0-9_-]{1,40}$；message.id 角色内自增整数；message.uid 是 UUID；place.id 是字符串",
+    "pagination": {
+      "/api/events": "since=上一条 message.id；没有 limit（一次返回全部增量）；服务端最多保留 800 条消息（超了截到 600）",
+      "/api/sync/events": "since=seq 游标；limit 1..1000（默认 500）；events.jsonl 超过 8MB 轮转为 .1，旧事件不再可读",
+      "/api/data/revisions": "全量快照，没有 since/分页",
+      "other": "其余列表接口一次返回全量（memory facts、diary 列表≤60、backup 列表≤30、places≤40）"
+    },
+    "optimisticLock": "支持 expectedRev 的写接口：memory/import|pin|delete、persona、map。版本不一致 => 409 {ok:false,error,entity,id,expectedRev,currentRev}；不传 expectedRev 保持旧行为",
+    "sse": {
+      "frameFormat": "只有 data: <json>\\n\\n，没有 event:/id:/retry/心跳",
+      "/api/stream": [
+        "init",
+        "start",
+        "delta",
+        "done",
+        "message"
+      ],
+      "/api/stage/stream": [
+        "每次推送完整 stagePayload，1 秒一帧"
+      ]
+    },
+    "uploads": "图片走 JSON 里的 data URL 字符串（data:image/…;base64,…）；上传结果 URL 分两类：上传文件落 <数据根>/models/ 返回 /models/…，AI 生成图落 <数据根>/data/images/ 返回 /images/…",
+    "legacyPages": "非 /api 的旧网页入口（/、/map、/stage、/model、/settings、/screen）默认 410 JSON（legacyPage 字段），仅 DSH_COMPANION_LEGACY_WEB=1、--legacy-web 启动参数或 config.legacyWeb=true 才提供；客户端不要请求 HTML"
+  },
+  "groups": [
+    {
+      "id": "meta",
+      "title": "元信息 / 版本 / 状态",
+      "description": "客户端启动与轮询最先用的一组。除 /api/token 外都受 token 模式约束。",
+      "endpoints": [
+        {
+          "id": "version.get",
+          "method": "GET",
+          "path": "/api/version",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "apiVersion": "integer=2（冻结契约版本）",
+            "version": "string（运行时插件版本）",
+            "minClient": "string（建议最低客户端版本，源码当前 0.8.0）",
+            "dataRoot": "string（本机数据目录；手机端不得依赖）",
+            "auth": "object{mode,tokenEndpoint,header,cookie,allowedOrigins}",
+            "features": "object（chat/stream/stage2d/stage3d/mapView/mapEdit/settings/screen/pet/vmChat/memory/diary/backup/sync/image/weatherFx/legacyWeb）",
+            "schema": "object{contract,apiIndex,models}",
+            "endpoints": "object（常用端点快捷路径）"
+          },
+          "errors": [],
+          "notes": "Lead 本轮新增。客户端启动必须先读它再决定调用哪些能力。2026-11-14 重启运行时后已实测 200，返回与 API-CONTRACT §2 完全一致（apiVersion=2、features 17 项、legacyWeb=false）。"
+        },
+        {
+          "id": "token.get",
+          "method": "GET",
+          "path": "/api/token",
+          "auth": "token-exempt",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "token": "string（空字符串=未启用 token 模式）"
+          },
+          "errors": [],
+          "notes": "token 模式下的唯一免 token 接口；同源页面靠它拿 token。启用后任何本机回环+白名单 Origin 都能取到，不要当秘密通道。"
+        },
+        {
+          "id": "status.get",
+          "method": "GET",
+          "path": "/api/status",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "version": "string",
+            "typing": "boolean（她正在生成）",
+            "busy": "boolean",
+            "lastTurnAt": "integer",
+            "usage": "object|null（最近一次模型用量）",
+            "count": "integer（消息总数，含 hidden/system）",
+            "setup": "object{dataRoot,apiKeyOk,characters}",
+            "tokens": "tokenStats（见 models.json）",
+            "model": "string",
+            "modelConfig": "object{name,reasoningEffort,temperature,maxTokens,maxSteps}",
+            "context": "object{historyMode,memoryInject}",
+            "mode": "string（chat|full）",
+            "place": "currentPlace（见 models.json）",
+            "character": "object{id,name,avatar}",
+            "memory": "memoryStats",
+            "diaryToday": "boolean",
+            "energy": "integer"
+          },
+          "errors": [],
+          "notes": "全局状态；建议 4 秒轮询并共享单例，页面隐藏暂停。原生客户端已在 00-core 封装。"
+        },
+        {
+          "id": "resources.get",
+          "method": "GET",
+          "path": "/api/resources",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "space": "boolean（虚拟机运行中）",
+            "phone": "boolean（安卓模拟器已连接）",
+            "mem": "string[]（VBoxHeadless/emulator 进程内存 '进程名:MB'）"
+          },
+          "errors": [],
+          "notes": "8 秒缓存。注意响应没有 ok 字段。"
+        },
+        {
+          "id": "env.check.get",
+          "method": "GET",
+          "path": "/api/env/check",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "checks": "object[]{id,label,ok,detail}",
+            "hints": "string[]",
+            "paths": "object{dataRoot,envDir,envPy,version}"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "环境自检（VirtualBox/SSH/VNC/模拟器/ADBKeyboard/ffmpeg 等），比较慢。checks[].id 固定列表见 API-CONTRACT §5.1。"
+        }
+      ]
+    },
+    {
+      "id": "sync",
+      "title": "同步地基（设备 / 事件 / 版本）",
+      "description": "手机端同步地基：只做协议与事件日志，不做业务合并。与主 API 的 apiVersion 是两套编号。",
+      "endpoints": [
+        {
+          "id": "data.revisions.get",
+          "method": "GET",
+          "path": "/api/data/revisions",
+          "auth": "loopback-only",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "version": "integer",
+            "deviceId": "string",
+            "updatedAt": "ISO string",
+            "entities": "object（键 `<entity>:<entityId>` → {rev,updatedAt,updatedBy,file,hash}）"
+          },
+          "errors": [
+            {
+              "status": 403,
+              "error": "only loopback"
+            }
+          ],
+          "notes": "实体版本全量快照，没有 since 增量。实体名见 models.json revisionsPayload。"
+        },
+        {
+          "id": "sync.local.get",
+          "method": "GET",
+          "path": "/api/sync/local",
+          "auth": "loopback-only",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "apiVersion": "integer=1（同步协议版本）",
+            "device": "object{id,name}",
+            "cursor": "integer（最后 seq）",
+            "eventCount": "integer",
+            "eventTypes": "string[]",
+            "authRequired": "boolean",
+            "merge": "string（'not-implemented-yet'）",
+            "token": "string（本机同步令牌，敏感）"
+          },
+          "errors": [
+            {
+              "status": 403,
+              "error": "only loopback"
+            }
+          ],
+          "notes": "唯一返回同步令牌的接口，只允许本机回环。不要把 device.json/token 发到公开场合。"
+        },
+        {
+          "id": "sync.info.get",
+          "method": "GET",
+          "path": "/api/sync/info",
+          "auth": "sync",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "apiVersion": "integer=1",
+            "device": "object{id,name}",
+            "cursor": "integer",
+            "eventCount": "integer",
+            "eventTypes": "string[]",
+            "authRequired": "boolean",
+            "merge": "string"
+          },
+          "errors": [
+            {
+              "status": 401,
+              "error": "unauthorized"
+            }
+          ],
+          "notes": "同步令牌：Authorization: Bearer <token> 或 x-sync-token。"
+        },
+        {
+          "id": "sync.events.get",
+          "method": "GET",
+          "path": "/api/sync/events",
+          "auth": "sync",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "query": {
+              "since": "integer（默认 0，取 seq > since）",
+              "limit": "integer（默认 500，clamp 1..1000）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "apiVersion": "integer=1",
+            "events": "syncEvent[]（见 models.json）"
+          },
+          "errors": [
+            {
+              "status": 401,
+              "error": "unauthorized"
+            }
+          ],
+          "notes": "事件日志按 seq 分页；events.jsonl 超过 8MB 会轮转为 .1（旧事件不再可读）。"
+        },
+        {
+          "id": "sync.events.post",
+          "method": "POST",
+          "path": "/api/sync/events",
+          "auth": "sync",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "events": "syncEvent[]（也接受直接把数组当 body；最多取前 200 条）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "apiVersion": "integer=1",
+            "accepted": "integer",
+            "cursor": "integer",
+            "eventCount": "integer",
+            "duplicates": "integer"
+          },
+          "errors": [
+            {
+              "status": 401,
+              "error": "unauthorized"
+            }
+          ],
+          "notes": "按事件 id 去重后追加，不做业务合并（merge 仍是 not-implemented-yet）。"
+        }
+      ]
+    },
+    {
+      "id": "chat",
+      "title": "聊天 / 事件 / SSE",
+      "description": "原生聊天的核心：历史用 /api/events 增量轮询，流式用 /api/stream，发送用 /api/chat。",
+      "endpoints": [
+        {
+          "id": "events.get",
+          "method": "GET",
+          "path": "/api/events",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "query": {
+              "since": "integer（默认 0，只返回 id > since 且 !hidden 的消息）"
+            }
+          },
+          "response": {
+            "messages": "message[]（见 models.json）",
+            "typing": "boolean",
+            "lastTurnAt": "integer",
+            "usage": "object|null",
+            "mode": "string"
+          },
+          "errors": [],
+          "notes": "历史增量轮询主接口。没有 limit/分页；一次返回全部新消息（服务端消息最多 800 条，尾部截到 600）。"
+        },
+        {
+          "id": "chat.post",
+          "method": "POST",
+          "path": "/api/chat",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "body": {
+              "text": "string（可与 images 二选一）",
+              "images": "string[]（data:image/…;base64,…，只取第一张，≤8MB）"
+            }
+          },
+          "response": {
+            "ok": "boolean"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "空消息"
+            },
+            {
+              "status": 400,
+              "error": "请求格式不正确"
+            },
+            {
+              "status": 429,
+              "error": "她还在说话"
+            }
+          ],
+          "notes": "立即返回 200，回复异步生成并通过 /api/stream 流式推送；结果消息下次 /api/events 轮询可见。图片落在 <数据根>/models/chat-*，URL 是 /models/…。"
+        },
+        {
+          "id": "chat.cancel.post",
+          "method": "POST",
+          "path": "/api/chat/cancel",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "typing": "boolean"
+          },
+          "errors": [],
+          "notes": "中断当前生成（abort）。typing 可能仍为 true 一小段时间。"
+        },
+        {
+          "id": "stream.get",
+          "method": "GET",
+          "path": "/api/stream",
+          "auth": "default",
+          "sse": true,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "sse": "text/event-stream；每帧只有 `data: <json>\\n\\n`",
+            "init": "{type:'init',active:boolean,text:string}（连接时）",
+            "start": "{type:'start'}",
+            "delta": "{type:'delta',text:string}（每帧约 3 个字符）",
+            "done": "{type:'done'}",
+            "message": "{type:'message'}（系统提示帧；当前唯一发送点是低余额提醒，她发新消息不会发这个帧）"
+          },
+          "errors": [],
+          "notes": "没有 event:/id:/retry 字段，没有心跳；必须自己重连并用 /api/events?since= 补齐消息。详见 §6。"
+        }
+      ]
+    },
+    {
+      "id": "character",
+      "title": "角色 / 人设",
+      "description": "角色切换与编辑。所有「角色作用域」端点都作用于当前激活角色。",
+      "endpoints": [
+        {
+          "id": "characters.get",
+          "method": "GET",
+          "path": "/api/characters",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "characters": "object[]{id,name,avatar}",
+            "active": "string（当前角色 id）"
+          },
+          "errors": [],
+          "notes": "昵称/角色名一律从这里或 /api/status 取，不要写死。"
+        },
+        {
+          "id": "characters.post",
+          "method": "POST",
+          "path": "/api/characters",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "action": "string（switch=默认 | new | delete；未知值按 switch）",
+              "id": "string（switch/delete 必填）",
+              "name": "string（new 可选，默认「新角色」）"
+            }
+          },
+          "response": {
+            "switch": "ok,active,characters,character{id,name,avatar}",
+            "new": "ok,id,characters,active",
+            "delete": "ok,characters,active"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "不能删默认角色"
+            },
+            {
+              "status": 400,
+              "error": "至少要留一个角色"
+            },
+            {
+              "status": 400,
+              "error": "非法的角色 id"
+            },
+            {
+              "status": 404,
+              "error": "没有这个角色"
+            },
+            {
+              "status": 409,
+              "error": "她还在说话，等这一轮结束再切角色"
+            }
+          ],
+          "notes": "切换角色会重载消息与记忆；action=delete 不可删 default，且至少保留一个角色。"
+        },
+        {
+          "id": "persona.get",
+          "method": "GET",
+          "path": "/api/persona",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "meta": "characterMeta（见 models.json）",
+            "body": "string（persona.md 全文）",
+            "rev": "revisionRecord|null",
+            "personaRev": "revisionRecord|null"
+          },
+          "errors": [],
+          "notes": "meta.avatar 是只读运行值。GET 响应没有 ok 字段。"
+        },
+        {
+          "id": "persona.post",
+          "method": "POST",
+          "path": "/api/persona",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "body": {
+              "meta": "object（浅合并进现有 meta；avatar 会被丢弃）",
+              "body": "string（人设正文全文）",
+              "expectedRev": "integer（可选，实体 character 的 rev）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "meta": "characterMeta",
+            "body": "string",
+            "rev": "revisionRecord|null",
+            "personaRev": "revisionRecord|null"
+          },
+          "errors": [
+            {
+              "status": 409,
+              "error": "版本冲突：数据已被修改，请刷新后再试（附 entity/id/expectedRev/currentRev）"
+            }
+          ],
+          "notes": "只写传了的字段；body 写入会单独记 persona 版本。"
+        },
+        {
+          "id": "avatar.post",
+          "method": "POST",
+          "path": "/api/avatar",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "dataUrl": "string（data:image/…;base64,…，≤3MB；不传=dataUrl 为空则删除头像）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "avatar": "string（/avatar.png?t=…，仅上传成功时）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "不支持的图片格式"
+            },
+            {
+              "status": 400,
+              "error": "图片太大"
+            }
+          ],
+          "notes": "头像存到 <数据根>/data/characters/<id>/avatar.bin；列表里的 /avatar.png?c=<id> 按角色取。"
+        }
+      ]
+    },
+    {
+      "id": "memory",
+      "title": "记忆 / 日记",
+      "description": "记忆事实卡与日记。写操作支持 expectedRev 乐观锁（409）。",
+      "endpoints": [
+        {
+          "id": "memory.get",
+          "method": "GET",
+          "path": "/api/memory",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "stats": "memoryStats",
+            "params": "memoryParams",
+            "facts": "memoryFact[]（未归档）",
+            "archived": "memoryFact[]",
+            "diaryDates": "string[]（YYYY-MM-DD）",
+            "rev": "revisionRecord|null"
+          },
+          "errors": [],
+          "notes": "读取会触发一次衰减计算（可能写入）。rev 可作 expectedRev。"
+        },
+        {
+          "id": "memory.import.post",
+          "method": "POST",
+          "path": "/api/memory/import",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "text": "string（≤300000 字；支持纯文本/JSON/JSONL）",
+              "importance": "number（0..1，默认 0.5）",
+              "pinNew": "boolean（新事实是否置顶）",
+              "expectedRev": "integer（可选）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "total": "integer",
+            "added": "integer",
+            "merged": "integer",
+            "stats": "memoryStats",
+            "preview": "object[]（前 5 条）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "导入内容为空"
+            },
+            {
+              "status": 400,
+              "error": "没有解析出可用记忆"
+            },
+            {
+              "status": 409,
+              "error": "版本冲突（附 currentRev）"
+            }
+          ],
+          "notes": "一行一条、按句号拆分、自动去重、相似合并强化；最多取 500 条。"
+        },
+        {
+          "id": "memory.pin.post",
+          "method": "POST",
+          "path": "/api/memory/pin",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "id": "integer（事实 id）",
+              "expectedRev": "integer（可选）"
+            }
+          },
+          "response": {
+            "ok": "boolean"
+          },
+          "errors": [
+            {
+              "status": 409,
+              "error": "版本冲突（附 currentRev）"
+            }
+          ],
+          "notes": "切换 pinned；置顶时 strength 置 1。id 不存在不报错。"
+        },
+        {
+          "id": "memory.delete.post",
+          "method": "POST",
+          "path": "/api/memory/delete",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "id": "integer（事实 id）",
+              "expectedRev": "integer（可选）"
+            }
+          },
+          "response": {
+            "ok": "boolean"
+          },
+          "errors": [
+            {
+              "status": 409,
+              "error": "版本冲突（附 currentRev）"
+            }
+          ],
+          "notes": "物理删除该事实卡。"
+        },
+        {
+          "id": "memory.params.post",
+          "method": "POST",
+          "path": "/api/memory/params",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "body": {
+              "halfLifeDays": "number（0.5..365）",
+              "forgetThreshold": "number（0.01..0.9）",
+              "reinforceBoost": "number（0..1）",
+              "maxInjected": "integer（0..100）",
+              "coreStrength": "number（0.1..1）",
+              "maxPromptChars": "integer（100..5000）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "params": "memoryParams"
+          },
+          "errors": [],
+          "notes": "越界值会被 clamp；参数同时写进 config.memory。"
+        },
+        {
+          "id": "diary.get",
+          "method": "GET",
+          "path": "/api/diary",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "query": {
+              "date": "string（YYYY-MM-DD；不传则返回日期列表）"
+            }
+          },
+          "response": {
+            "dates": "string[]（不带 date 时）",
+            "date": "string（带 date 时）",
+            "text": "string（日记正文，可能为空）"
+          },
+          "errors": [],
+          "notes": "列表最多 60 篇，倒序。"
+        },
+        {
+          "id": "diary.generate.post",
+          "method": "POST",
+          "path": "/api/diary/generate",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "text": "string（生成失败为 ''，仍是 200）"
+          },
+          "errors": [],
+          "notes": "会调用模型（消耗 token）；当天已有日记时直接返回已有内容。"
+        },
+        {
+          "id": "diary.show.post",
+          "method": "POST",
+          "path": "/api/diary/show",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean"
+          },
+          "errors": [
+            {
+              "status": 200,
+              "error": "今天还没写日记（ok:false）"
+            }
+          ],
+          "notes": "把今天的日记作为一条 user 消息给她看（会进入聊天记录）。"
+        }
+      ]
+    },
+    {
+      "id": "stage-map",
+      "title": "舞台 / 地图 / 场景 / 地点",
+      "description": "2D 舞台、地图查看与基础编辑、地点内部场景、角色移动与跨图旅行。",
+      "endpoints": [
+        {
+          "id": "stage.get",
+          "method": "GET",
+          "path": "/api/stage",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "payload": "stagePayload（角色/地图/位置/天气/钱包/设置/动画提示；见 models.json）"
+          },
+          "errors": [],
+          "notes": "注意 payload.apiVersion 字段源码恒为 1（历史遗留），契约版本以 /api/version 为准。"
+        },
+        {
+          "id": "stage.stream.get",
+          "method": "GET",
+          "path": "/api/stage/stream",
+          "auth": "default",
+          "sse": true,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "sse": "text/event-stream；连接即推一帧，之后每 1000ms 推一帧；内容= /api/stage 的完整 payload；没有事件名"
+          },
+          "errors": [],
+          "notes": "每帧都是全量快照（整帧替换语义），客户端按最后一次覆盖状态即可。"
+        },
+        {
+          "id": "map.get",
+          "method": "GET",
+          "path": "/api/map",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "maps": "object[]{id,name,placeCount}",
+            "activeMapId": "string",
+            "map": "map（含 places/roads/vehicles/image/model）",
+            "transports": "object（交通方式表）",
+            "longTransports": "string[]",
+            "capabilities": "object（出行能力）",
+            "weather": "string（当前天气 kind，注意是字符串）",
+            "weathers": "object",
+            "energy": "integer",
+            "location": "currentPlace",
+            "schedules": "object[]（含 index/place）"
+          },
+          "errors": [],
+          "notes": "地图页/舞台的唯一数据源。"
+        },
+        {
+          "id": "map.post",
+          "method": "POST",
+          "path": "/api/map",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "mapId": "string（默认当前地图）",
+              "expectedRev": "integer（可选，实体 maps:<当前角色 id> 的 rev）",
+              "name": "string（≤20 字）",
+              "widthMeters": "number（200..20000）",
+              "transport": "string",
+              "theme": "town|coast|city|forest",
+              "displayMode": "2d|3d",
+              "roads": "array（[[x,y],…] 折线数组）",
+              "vehicles": "object{car?,bicycle?}",
+              "image": "object{url}|null",
+              "model": "object{url,scale,rotationY,yOffset}|null",
+              "has3d": "boolean",
+              "places": "place[]（整体替换；≤40 个，字段会 clamp/normalize）",
+              "schedules": "object[]{index,place}"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "current": "currentPlace（保存后的位置）"
+          },
+          "errors": [
+            {
+              "status": 404,
+              "error": "没有这张地图"
+            },
+            {
+              "status": 409,
+              "error": "版本冲突（附 currentRev）"
+            }
+          ],
+          "notes": "字段是「传了才改」。places 整体替换：编辑前必须先 GET /api/map 拿到完整数组，避免丢旧字段。"
+        },
+        {
+          "id": "map.create.post",
+          "method": "POST",
+          "path": "/api/map/create",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "name": "string（默认「新地图」，≤20 字）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "id": "string",
+            "maps": "object[]{id,name,placeCount}"
+          },
+          "errors": [],
+          "notes": "复制官方默认 13 个地点与 /official-map.jpg 底图；新地图不会自动激活。"
+        },
+        {
+          "id": "map.delete.post",
+          "method": "POST",
+          "path": "/api/map/delete",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "id": "string（地图 id）"
+            }
+          },
+          "response": {
+            "ok": "boolean"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "至少保留一张地图"
+            }
+          ],
+          "notes": "删的是当前地图时会自动切到列表第一张。"
+        },
+        {
+          "id": "map.activate.post",
+          "method": "POST",
+          "path": "/api/map/activate",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "id": "string（目标地图 id）",
+              "mode": "string（交通方式，可选）",
+              "instant": "boolean（瞬移，不计算长途）",
+              "confirmNight": "boolean（夜间出门确认）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "location": "currentPlace（跨图时可能先返回 intercity 行程）"
+          },
+          "errors": [
+            {
+              "status": 200,
+              "error": "ok:false + refused:true（needsConfirm/reason/location）"
+            }
+          ],
+          "notes": "跨地图是长途行程（高铁/飞机等），会扣钱扣体力；refused 时按 reason 提示。"
+        },
+        {
+          "id": "map.import.post",
+          "method": "POST",
+          "path": "/api/map/import",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "mapId": "string（默认当前地图）",
+              "content": "string（JSON 数组/对象，或每行逗号/制表符分隔：名字,图标,x,y,描述,感受）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "added": "integer",
+            "skipped": "integer",
+            "total": "integer",
+            "places": "place[]"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "JSON 解析失败"
+            }
+          ],
+          "notes": "按名字去重；x/y 缺省随机；图标缺省按名字猜。"
+        },
+        {
+          "id": "map.image.post",
+          "method": "POST",
+          "path": "/api/map/image",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "mapId": "string（默认当前地图）",
+              "dataUrl": "string（≤12MB；不传则清空 2D 底图）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "url": "string（/models/map-*；清空时为空串）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "不支持的图片格式/图片太大"
+            }
+          ],
+          "notes": "2D 底图。"
+        },
+        {
+          "id": "map.preview.get",
+          "method": "GET",
+          "path": "/api/map/preview",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "query": {
+              "mapId": "string（默认当前地图）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "map": "map（完整）",
+            "activeMapId": "string",
+            "maps": "object[]{id,name,placeCount,image}",
+            "location": "currentPlace"
+          },
+          "errors": [
+            {
+              "status": 404,
+              "error": "没有这张地图"
+            }
+          ],
+          "notes": "只读预览任意地图，不会切换/移动角色。"
+        },
+        {
+          "id": "place.image.post",
+          "method": "POST",
+          "path": "/api/place/image",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "mapId": "string（默认当前地图）",
+              "placeId": "string（必填）",
+              "dataUrl": "string（≤6MB；不传则清空）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "image": "string（/models/place-*，清空时为空串）",
+            "places": "place[]（该地图全量地点）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "不支持的图片格式/图片太大"
+            },
+            {
+              "status": 404,
+              "error": "地点不存在"
+            }
+          ],
+          "notes": "地点照片；图片路径必须以 /models/ 开头才会被 map.post 接受。"
+        },
+        {
+          "id": "scene.image.post",
+          "method": "POST",
+          "path": "/api/scene/image",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "dataUrl": "string（≤12MB）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "url": "string（/models/scene-*）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "不支持的图片格式/图片太大"
+            }
+          ],
+          "notes": "上传地点内部场景背景图，拿到 url 后再 POST /api/map 写入 place.scene.background。"
+        },
+        {
+          "id": "scene.settings.get",
+          "method": "GET",
+          "path": "/api/scene/settings",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "ai": "boolean",
+            "photoChance": "number（0..1）",
+            "minGapMinutes": "integer=5",
+            "cacheMinutes": "integer=10"
+          },
+          "errors": [],
+          "notes": "场景 AI 活动开关；minGapMinutes/cacheMinutes 是常量。"
+        },
+        {
+          "id": "scene.settings.post",
+          "method": "POST",
+          "path": "/api/scene/settings",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "ai": "boolean",
+              "photoChance": "number（0..1，会被 clamp）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "ai": "boolean",
+            "photoChance": "number"
+          },
+          "errors": [],
+          "notes": "只改传了的字段。"
+        },
+        {
+          "id": "scene.activity.get",
+          "method": "GET",
+          "path": "/api/scene/activity",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "query": {
+              "character": "string（角色 id，默认当前角色）",
+              "placeId": "string（必填）",
+              "hotspotId": "string（可选，也可传 hotspot label）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "text": "string",
+            "source": "string（ai|local）",
+            "cached": "boolean（命中缓存时）"
+          },
+          "errors": [
+            {
+              "status": 404,
+              "error": "地点不存在"
+            }
+          ],
+          "notes": "AI 低频（全局 5 分钟间隔、同角色/地点/热点缓存 10 分钟），没有模型时回退本地文案。"
+        },
+        {
+          "id": "scene.focus.post",
+          "method": "POST",
+          "path": "/api/scene/focus",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "placeId": "string（传空=清除）",
+              "hotspotId": "string（可选）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "focus": "object{mapId,placeId,placeName,hotspotId,hotspotLabel,at}|null"
+          },
+          "errors": [
+            {
+              "status": 404,
+              "error": "地点不存在"
+            }
+          ],
+          "notes": "设置当前场景焦点，聊天提示词会带上地点/热点。"
+        },
+        {
+          "id": "world.characters.get",
+          "method": "GET",
+          "path": "/api/world/characters",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "characters": "worldCharacter[]（见 models.json）",
+            "activeMapId": "string"
+          },
+          "errors": [],
+          "notes": "所有角色当前世界状态；sameMap/samePlace 相对当前激活角色。"
+        },
+        {
+          "id": "travel.options.get",
+          "method": "GET",
+          "path": "/api/travel/options",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "from": "object{id,name}",
+            "wallet": "walletMoney()",
+            "options": "object[]{id,name,km,modes[]{mode,label,icon,fare,minutes,canAfford,nextDeparture,waitMinutes,delayMinutes}}"
+          },
+          "errors": [],
+          "notes": "跨地图出行可选方式与票价/等待时间；canAfford 按当前钱包算。"
+        },
+        {
+          "id": "travel.ticket.post",
+          "method": "POST",
+          "path": "/api/travel/ticket",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "mapId": "string（目标地图）",
+              "mode": "string（coach|rail|plane）",
+              "waitMinutes": "number（0..1440）",
+              "delayMinutes": "number（0..1440）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "location": "currentPlace（成功后进入 intercity 行程）"
+          },
+          "errors": [
+            {
+              "status": 200,
+              "error": "ok:false + refused:true + reason + location"
+            }
+          ],
+          "notes": "买票出发（扣钱）。refused 时不要当成功处理。"
+        },
+        {
+          "id": "routine.get",
+          "method": "GET",
+          "path": "/api/routine",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "routine": "object{bands[],smart}",
+            "visits": "object{placeId:{count,lastAt}}",
+            "places": "object[]{id,name,icon}",
+            "character": "string"
+          },
+          "errors": [],
+          "notes": "自动作息的时段权重表。"
+        },
+        {
+          "id": "routine.post",
+          "method": "POST",
+          "path": "/api/routine",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "bands": "object[]{start,end,allowed,weights{placeId:weight}}（≤16 段，会排序/裁剪）",
+              "smart": "boolean"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "routine": "object{bands,smart}"
+          },
+          "errors": [],
+          "notes": "整体替换作息表；bad 格式会被 clamp 成空权重。"
+        },
+        {
+          "id": "location.get",
+          "method": "GET",
+          "path": "/api/location",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "location": "currentPlace（fields: mapId,mapName,placeId,name,icon,desc,feel,since,minutes,manual,reason,traveling,intercity,avatar）"
+          },
+          "errors": [],
+          "notes": "当前位置；字段名是 name 不是 placeName。"
+        },
+        {
+          "id": "location.post",
+          "method": "POST",
+          "path": "/api/location",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "placeId": "string（目标地点）",
+              "mapId": "string（可选，默认当前地图）",
+              "mode": "string（交通方式）",
+              "instant": "boolean（瞬移）",
+              "confirmNight": "boolean（夜间出门确认）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "location": "currentPlace（行程中 traveling 有值）"
+          },
+          "errors": [
+            {
+              "status": 200,
+              "error": "ok:false + refused:true（needsConfirm/reason/location）"
+            }
+          ],
+          "notes": "同地图移动；会校验体力、夜间外出、交通方式可用性（未满 18/无驾照不能开车）。"
+        }
+      ]
+    },
+    {
+      "id": "life",
+      "title": "生活 / 天气 / 日常",
+      "description": "生活模拟配置与状态、天气与天气特效、主动消息测试、屏幕注视（watch-screen）。",
+      "endpoints": [
+        {
+          "id": "life.get",
+          "method": "GET",
+          "path": "/api/life",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "life": "lifeConfig（见 models.json：enabled/proactive*/quiet*/diary*/schedules/activities…）"
+          },
+          "errors": [],
+          "notes": "生活配置（含作息表与活动池）。"
+        },
+        {
+          "id": "life.post",
+          "method": "POST",
+          "path": "/api/life",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "patch": "object（任意 life 字段，浅合并；没有字段校验）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "life": "lifeConfig（合并后的完整对象）"
+          },
+          "errors": [],
+          "notes": "注意：整段浅合并、不 clamp、不看 expectedRev；客户端只发要改的字段。"
+        },
+        {
+          "id": "life.tick.legacy.post",
+          "method": "POST",
+          "path": "/api/life-tick",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "place": "currentPlace"
+          },
+          "errors": [],
+          "notes": "旧接口：触发一次自动游荡（autoWanderMaybe）。新代码用 /api/life/tick。"
+        },
+        {
+          "id": "proactive.test.post",
+          "method": "POST",
+          "path": "/api/proactive/test",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "text": "string（生成的主动消息）"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "生成失败 / String(e.message)"
+            }
+          ],
+          "notes": "真实调模型生成一条主动消息并写入聊天（会流式推送）。"
+        },
+        {
+          "id": "life.settings.get",
+          "method": "GET",
+          "path": "/api/life/settings",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "settings": "lifeSimSettings（见 models.json）"
+          },
+          "errors": [],
+          "notes": "生活模拟（不是生活配置）的设置。"
+        },
+        {
+          "id": "life.settings.post",
+          "method": "POST",
+          "path": "/api/life/settings",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "enabled": "boolean",
+              "minEventGapMin": "number（5..720）",
+              "maxDaily": "number（0..100）",
+              "quietStart": "number（0..23）",
+              "quietEnd": "number（0..23）",
+              "photoChance": "number（0..1）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "settings": "lifeSimSettings"
+          },
+          "errors": [],
+          "notes": "数值会 clamp。"
+        },
+        {
+          "id": "life.state.get",
+          "method": "GET",
+          "path": "/api/life/state",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "query": {
+              "character": "string（角色 id，默认当前角色）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "state": "lifeState（见 models.json）"
+          },
+          "errors": [
+            {
+              "status": 404,
+              "error": "角色不在任何地点"
+            }
+          ],
+          "notes": "角色当前行为/位置/走位路径。"
+        },
+        {
+          "id": "life.states.get",
+          "method": "GET",
+          "path": "/api/life/states",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "states": "lifeState[] + {name,avatar}"
+          },
+          "errors": [],
+          "notes": "所有角色的生活状态（不在任何地点的角色会被过滤掉）。"
+        },
+        {
+          "id": "life.act.post",
+          "method": "POST",
+          "path": "/api/life/act",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "characterId": "string（可选）",
+              "placeId": "string（必填）",
+              "hotspotId": "string（可选）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "state": "lifeState"
+          },
+          "errors": [
+            {
+              "status": 404,
+              "error": "地点或热点不存在"
+            }
+          ],
+          "notes": "把角色挪到某个热点并切换行为。"
+        },
+        {
+          "id": "life.position.post",
+          "method": "POST",
+          "path": "/api/life/position",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "characterId": "string（可选）",
+              "x": "number（0..1）",
+              "y": "number（0..1）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "state": "lifeState"
+          },
+          "errors": [
+            {
+              "status": 404,
+              "error": "没有生活状态"
+            }
+          ],
+          "notes": "直接设置场景内摆位。"
+        },
+        {
+          "id": "life.tick.post",
+          "method": "POST",
+          "path": "/api/life/tick",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "query": {
+              "character": "string（角色 id，可选）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "state": "lifeState"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "立即推进一次生活模拟决策（可能调模型）。"
+        },
+        {
+          "id": "life.social.post",
+          "method": "POST",
+          "path": "/api/life/social",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "result": "object（随机社交事件结果）"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "强制触发一次社交事件。"
+        },
+        {
+          "id": "life.test.image.post",
+          "method": "POST",
+          "path": "/api/life/test-image",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "characterId": "string（可选）",
+              "imagePrompt": "string（≤800 字，默认「日常手机美食照片…」）",
+              "withIdentity": "boolean（是否带角色头像做参考）",
+              "message": "string（≤120 字配文）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "image": "string（/images/img-*）",
+            "text": "string（配文）"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "生图失败原因"
+            }
+          ],
+          "notes": "真实生图（消耗图片额度）并把图片消息写进指定角色聊天。"
+        },
+        {
+          "id": "weather.get",
+          "method": "GET",
+          "path": "/api/weather",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "mode": "real|manual",
+            "manual": "string（手动 kind）",
+            "kind": "string（sunny/cloudy/rain/snow/hot/cold/windy）",
+            "label": "string",
+            "icon": "string",
+            "temp": "number|null",
+            "city": "string|null",
+            "source": "real|manual",
+            "weathers": "object",
+            "fx": "object"
+          },
+          "errors": [],
+          "notes": "real 模式会调外部天气 API（可能慢）。"
+        },
+        {
+          "id": "weather.post",
+          "method": "POST",
+          "path": "/api/weather",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "mode": "real|manual",
+              "manual": "string（weather kind）",
+              "refresh": "boolean（真实天气强制刷新）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "mode": "string",
+            "kind": "string",
+            "temp": "number|null",
+            "city": "string|null",
+            "source": "string"
+          },
+          "errors": [],
+          "notes": "只改传了的字段。"
+        },
+        {
+          "id": "weatherfx.get",
+          "method": "GET",
+          "path": "/api/weatherfx",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "fx": "object（{kind:{type:'image'|'video',url,opacity}}）",
+            "kinds": "string[]（7 种天气）"
+          },
+          "errors": [],
+          "notes": "天气特效（舞台上叠加的图片/视频）。"
+        },
+        {
+          "id": "weatherfx.post",
+          "method": "POST",
+          "path": "/api/weatherfx",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "kind": "string（天气 kind，必填）",
+              "type": "image|video",
+              "url": "string",
+              "opacity": "number（0.05..1）",
+              "clear": "boolean（清除该天气特效）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "fx": "object（当前 fx 表）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "未知天气"
+            }
+          ],
+          "notes": "设置某天气的特效。"
+        },
+        {
+          "id": "weatherfx.upload.post",
+          "method": "POST",
+          "path": "/api/weatherfx/upload",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "kind": "string（天气 kind）",
+              "dataUrl": "string（≤20MB；png/jpeg/webp/gif）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "fx": "object（该天气的 fx 项）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "未知天气/不支持的图片格式/图片太大"
+            }
+          ],
+          "notes": "上传特效素材；视频不会自动识别（按扩展名判断 type）。"
+        },
+        {
+          "id": "watch.screen.get",
+          "method": "GET",
+          "path": "/api/watch-screen",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "watch": "object{enabled,minMinutes,maxMinutes,nextAt}"
+          },
+          "errors": [],
+          "notes": "「偶尔看看你屏幕」的主动行为配置。"
+        },
+        {
+          "id": "watch.screen.post",
+          "method": "POST",
+          "path": "/api/watch-screen",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "enabled": "boolean",
+              "minMinutes": "number（5..120）",
+              "maxMinutes": "number（10..240）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "watch": "object{enabled,minMinutes,maxMinutes,nextAt}"
+          },
+          "errors": [],
+          "notes": "maxMinutes 会自动抬到不小于 minMinutes；开启时重算 nextAt。"
+        }
+      ]
+    },
+    {
+      "id": "economy",
+      "title": "经济 / 钱包",
+      "description": "她的虚拟钱包与真实余额。注意若干接口用 HTTP 200 + ok:false 表达业务拒绝。",
+      "endpoints": [
+        {
+          "id": "economy.get",
+          "method": "GET",
+          "path": "/api/economy",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "economy": "economy（见 models.json）",
+            "realBalance": "object|null（DeepSeek 余额）",
+            "balanceAlert": "object{enabled,thresholdRmb,cooldownMin,lastAt}",
+            "wallet": "walletSummary"
+          },
+          "errors": [],
+          "notes": "后台会顺带刷新真实余额（可能返回旧值）。"
+        },
+        {
+          "id": "economy.post",
+          "method": "POST",
+          "path": "/api/economy",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "initialBalance": "number",
+              "dailyIncome": "number",
+              "wagePerHour": "number",
+              "mealCost": "number",
+              "entertainmentCost": "number",
+              "tokenBudget": "number",
+              "tokensPerYuan": "number",
+              "enabled": "boolean",
+              "moneyType": "virtual|token",
+              "tokenMode": "boolean"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "economy": "economy",
+            "wallet": "walletSummary"
+          },
+          "errors": [],
+          "notes": "数值 clamp 到 ≥0；只更新这些白名单字段。"
+        },
+        {
+          "id": "wallet.spend.post",
+          "method": "POST",
+          "path": "/api/wallet/spend",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "amount": "number（正数）",
+              "item": "string（花钱的理由）"
+            }
+          },
+          "response": {
+            "ok": "boolean（=花费是否成功）",
+            "result": "object（成功 {ok:true,left,why}；失败 {ok:false,reason,left}）",
+            "wallet": "walletSummary"
+          },
+          "errors": [],
+          "notes": "余额不足时 HTTP 仍是 200 且顶层 ok:false；不要只看 HTTP 状态。"
+        },
+        {
+          "id": "balance.alert.get",
+          "method": "GET",
+          "path": "/api/balance-alert",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "alert": "object{enabled,thresholdRmb,cooldownMin,lastAt}",
+            "balance": "object（DeepSeek 余额）"
+          },
+          "errors": [],
+          "notes": "低余额提醒配置。"
+        },
+        {
+          "id": "balance.alert.post",
+          "method": "POST",
+          "path": "/api/balance-alert",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "enabled": "boolean",
+              "thresholdRmb": "number（≥0）",
+              "cooldownMin": "number（1..10080）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "alert": "object"
+          },
+          "errors": [],
+          "notes": "保存低余额提醒配置。"
+        },
+        {
+          "id": "balance.alert.test.post",
+          "method": "POST",
+          "path": "/api/balance-alert/test",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "total": "number",
+            "threshold": "number",
+            "text": "string"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "立即按当前真实余额检查一次并可能发提醒消息。"
+        }
+      ]
+    },
+    {
+      "id": "settings",
+      "title": "设置 / 模型 / 环境 / 外观",
+      "description": "模型、上下文、环境权限、图片反馈、聊天风格、主题与背景等设置类接口。",
+      "endpoints": [
+        {
+          "id": "model.get",
+          "method": "GET",
+          "path": "/api/model",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "model": "modelConfig{name,reasoningEffort,temperature,maxTokens,maxSteps}",
+            "usage": "object|null"
+          },
+          "errors": [],
+          "notes": "最近一次模型调用用量在 usage。"
+        },
+        {
+          "id": "model.post",
+          "method": "POST",
+          "path": "/api/model",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "name": "string",
+              "reasoningEffort": "low|medium|high|max",
+              "temperature": "number（0..1.5）",
+              "maxTokens": "integer（200..8000）",
+              "maxSteps": "integer（4..60）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "model": "modelConfig"
+          },
+          "errors": [],
+          "notes": "数值会 clamp；不传的字段不变。"
+        },
+        {
+          "id": "model.key.post",
+          "method": "POST",
+          "path": "/api/model/key",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "key": "string（长度 ≥10；只写不读）"
+            }
+          },
+          "response": {
+            "ok": "boolean"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "API Key 太短"
+            },
+            {
+              "status": 500,
+              "error": "保存失败"
+            }
+          ],
+          "notes": "写到 <数据根>/api-key.txt（可选 DPAPI 加密）；读取接口只返回是否已配置。"
+        },
+        {
+          "id": "context.get",
+          "method": "GET",
+          "path": "/api/context",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "context": "contextConfig{historyMode,memoryInject}",
+            "historyKeep": "integer=10",
+            "summary": "object{text,upto}"
+          },
+          "errors": [],
+          "notes": "上下文/历史摘要。"
+        },
+        {
+          "id": "context.post",
+          "method": "POST",
+          "path": "/api/context",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "historyMode": "full|short|off|compact|minimal",
+              "memoryInject": "integer（2..20）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "context": "contextConfig"
+          },
+          "errors": [],
+          "notes": "非法枚举会被忽略。"
+        },
+        {
+          "id": "mode.get",
+          "method": "GET",
+          "path": "/api/mode",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "override": "auto|chat|full",
+            "detected": "object{screen,phone,detected}",
+            "effective": "chat|full"
+          },
+          "errors": [],
+          "notes": "探活 2222（屏幕）与 5554（手机）端口。"
+        },
+        {
+          "id": "mode.post",
+          "method": "POST",
+          "path": "/api/mode",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "override": "auto|chat|full"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "override": "string",
+            "detected": "object",
+            "effective": "string"
+          },
+          "errors": [],
+          "notes": "mode=chat 时隐藏完整版功能（原生面板可忽略或只作状态展示）。"
+        },
+        {
+          "id": "env.get",
+          "method": "GET",
+          "path": "/api/env",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "env": "envConfig{pc,space,phone,confirmDanger,selfStart}",
+            "resources": "object{space,phone,mem}"
+          },
+          "errors": [],
+          "notes": "她对本机/虚拟桌面/手机的权限配置。"
+        },
+        {
+          "id": "env.post",
+          "method": "POST",
+          "path": "/api/env",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "pc": "off|gui|code",
+              "space": "off|gui|code",
+              "phone": "off|gui|code",
+              "confirmDanger": "boolean",
+              "selfStart": "allow|deny"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "env": "envConfig"
+          },
+          "errors": [],
+          "notes": "只接受白名单枚举值。"
+        },
+        {
+          "id": "env.start.all.post",
+          "method": "POST",
+          "path": "/api/env/start-all",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "message": "string"
+          },
+          "errors": [],
+          "notes": "异步依次启动屏幕与手机；内存不足会静默跳过（没有失败提示），只能靠 /api/resources 判断。"
+        },
+        {
+          "id": "env.install.adbkeyboard.post",
+          "method": "POST",
+          "path": "/api/env/install-adbkeyboard",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "steps": "string[]（install/ime enable/ime set/show_ime 结果）"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "没找到 ADBKeyboard.apk / 手机没开机"
+            }
+          ],
+          "notes": "给安卓模拟器装中文输入法。"
+        },
+        {
+          "id": "image.config.get",
+          "method": "GET",
+          "path": "/api/image/config",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "config": "imageConfig{provider,baseURL,model,size,watermark,enabled,apiKeySet}"
+          },
+          "errors": [],
+          "notes": "apiKey 只写不读。"
+        },
+        {
+          "id": "image.config.post",
+          "method": "POST",
+          "path": "/api/image/config",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "provider": "string",
+              "baseURL": "string",
+              "model": "string",
+              "size": "string",
+              "watermark": "boolean",
+              "enabled": "boolean",
+              "apiKey": "string（只写）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "config": "imageConfig"
+          },
+          "errors": [],
+          "notes": "空字符串字段会被忽略；apiKey 写入后只显示 apiKeySet。"
+        },
+        {
+          "id": "token.saving.get",
+          "method": "GET",
+          "path": "/api/token-saving",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "saving": "object{dynamicTools,compressImage,batchActions}"
+          },
+          "errors": [],
+          "notes": "省 token 开关。"
+        },
+        {
+          "id": "token.saving.post",
+          "method": "POST",
+          "path": "/api/token-saving",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "dynamicTools": "boolean",
+              "compressImage": "boolean",
+              "batchActions": "boolean"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "saving": "object"
+          },
+          "errors": [],
+          "notes": "只接受布尔字段，缺省保持。"
+        },
+        {
+          "id": "chat.style.get",
+          "method": "GET",
+          "path": "/api/chat-style",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "style": "object{noParens}"
+          },
+          "errors": [],
+          "notes": "聊天风格（noParens=去掉括号动作描写）。"
+        },
+        {
+          "id": "chat.style.post",
+          "method": "POST",
+          "path": "/api/chat-style",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "noParens": "boolean"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "style": "object{noParens}"
+          },
+          "errors": [],
+          "notes": "保存聊天风格。"
+        },
+        {
+          "id": "ui.theme.get",
+          "method": "GET",
+          "path": "/api/ui-theme",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "current": "string",
+            "themes": "object[]{id,name,colors}"
+          },
+          "errors": [],
+          "notes": "网页版主题；原生面板用自己的 DSH 主题，这里只作为选择项展示。"
+        },
+        {
+          "id": "ui.theme.post",
+          "method": "POST",
+          "path": "/api/ui-theme",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "id": "string（themes[].id）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "current": "string",
+            "themes": "object[]"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "没有这个配色"
+            }
+          ],
+          "notes": "保存主题到 config.uiTheme。"
+        },
+        {
+          "id": "chat.bg.get",
+          "method": "GET",
+          "path": "/api/chat-bg",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "current": "string",
+            "options": "object[]{id,name,url}"
+          },
+          "errors": [],
+          "notes": "聊天背景（options[].url 可直接给 <img>）。"
+        },
+        {
+          "id": "chat.bg.post",
+          "method": "POST",
+          "path": "/api/chat-bg",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "id": "string（options[].id 或 custom）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "current": "string",
+            "options": "object[]"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "还没有自定义背景"
+            },
+            {
+              "status": 400,
+              "error": "没有这张背景"
+            }
+          ],
+          "notes": "选背景；id=custom 需要先上传自定义背景。"
+        },
+        {
+          "id": "chat.bg.upload.post",
+          "method": "POST",
+          "path": "/api/chat-bg/upload",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "image": "string（data:image/jpeg|jpg|png|webp;base64,…，≤10MB）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "current": "string",
+            "options": "object[]"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "请上传 jpg/png/webp 图片"
+            },
+            {
+              "status": 400,
+              "error": "图片太大（最大 10MB）"
+            }
+          ],
+          "notes": "上传后自动切到 custom。"
+        },
+        {
+          "id": "chat.bg.custom.get",
+          "method": "GET",
+          "path": "/api/chat-bg/custom",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "binary": "图片二进制（image/jpeg|png|webp）"
+          },
+          "errors": [
+            {
+              "status": 404,
+              "error": "no custom background（text/plain）"
+            }
+          ],
+          "notes": "自定义聊天背景图片本体；不是 JSON。"
+        },
+        {
+          "id": "preview.post",
+          "method": "POST",
+          "path": "/api/preview",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "text": "string（用户台词，默认「在吗」）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "text": "string（她的预览回复）"
+          },
+          "errors": [],
+          "notes": "真实调模型生成预览回复（消耗 token），不写入聊天记录。"
+        },
+        {
+          "id": "tutorial.get",
+          "method": "GET",
+          "path": "/api/tutorial",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "text": "string（tutorial.md 全文 Markdown）"
+          },
+          "errors": [],
+          "notes": "使用说明正文。"
+        }
+      ]
+    },
+    {
+      "id": "screen",
+      "title": "她的屏幕 / 手机 / 环境进程",
+      "description": "noVNC 地址与状态、电脑/手机截图、虚拟机与模拟器启停。截图接口返回二进制。",
+      "endpoints": [
+        {
+          "id": "screen.info.get",
+          "method": "GET",
+          "path": "/api/screen/info",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "spaceUrl": "string（noVNC 地址，交给系统浏览器打开）",
+            "pc": "boolean=true",
+            "phone": "boolean=true"
+          },
+          "errors": [],
+          "notes": "原生面板禁止内嵌 iframe；拿到 spaceUrl 后用系统浏览器打开。"
+        },
+        {
+          "id": "screen.pc.get",
+          "method": "GET",
+          "path": "/api/screen/pc",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "binary": "PNG/JPEG 截图"
+          },
+          "errors": [
+            {
+              "status": 503,
+              "error": "桌面内核没在运行，兜底截图也失败了（text/plain）"
+            }
+          ],
+          "notes": "你电脑的只读截图；失败时是 text/plain 不是 JSON。"
+        },
+        {
+          "id": "screen.phone.get",
+          "method": "GET",
+          "path": "/api/screen/phone",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "binary": "PNG 截图"
+          },
+          "errors": [
+            {
+              "status": 503,
+              "error": "手机截图失败 / 手机不可用（text/plain）"
+            }
+          ],
+          "notes": "安卓模拟器截图；同样不是 JSON。"
+        },
+        {
+          "id": "screen.space.status.get",
+          "method": "GET",
+          "path": "/api/screen/space/status",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "vm": "boolean",
+            "http": "boolean（真实链路：x11vnc+websockify+6080）",
+            "chain": "object|null",
+            "healing": "boolean",
+            "url": "string（noVNC）"
+          },
+          "errors": [],
+          "notes": "5 秒缓存；链路断了会触发后台自动修复（30 秒内只修一次）。"
+        },
+        {
+          "id": "screen.space.ensure.post",
+          "method": "POST",
+          "path": "/api/screen/space/ensure",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "vm": "boolean",
+            "http": "boolean",
+            "ensured": "string|null；VM 没开时返回 {ok:false,starting:true,vm:false,http:false,message}"
+          },
+          "errors": [],
+          "notes": "确保链路可用（可能耗时 45 秒+轮询）。"
+        },
+        {
+          "id": "space.start.post",
+          "method": "POST",
+          "path": "/api/space/start",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "starting": "boolean",
+            "message": "string；内存不足时 {ok:false,refused:true,error,freeMB,message}"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "启动她的 Linux 桌面（需约 9GB 空闲内存）。"
+        },
+        {
+          "id": "space.stop.post",
+          "method": "POST",
+          "path": "/api/space/stop",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "stopping": "boolean",
+            "message": "string"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "关闭她的屏幕，释放内存。"
+        },
+        {
+          "id": "phone.start.post",
+          "method": "POST",
+          "path": "/api/phone/start",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "starting": "boolean",
+            "message": "string；内存不足时 ok:false+refused"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "启动安卓模拟器（需约 6GB 空闲内存）。"
+        },
+        {
+          "id": "phone.stop.post",
+          "method": "POST",
+          "path": "/api/phone/stop",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "stopping": "boolean",
+            "message": "string"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "关闭模拟器（adb emu kill + taskkill）。"
+        }
+      ]
+    },
+    {
+      "id": "vm-chat",
+      "title": "VM 聊天（虚拟机里的聊天软件）",
+      "description": "设置、状态、唤醒、立即检查、发送文字/图片。",
+      "endpoints": [
+        {
+          "id": "vm.chat.settings.get",
+          "method": "GET",
+          "path": "/api/vm-chat/settings",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "settings": "vmChatSettings（enabled/checkMessages/autoStart/idleShutdown/checkIntervalMin/targetContact/unreadScan/watchdog/sendImages + 运行附加字段）"
+          },
+          "errors": [],
+          "notes": "默认值 + 已保存配置合并返回。"
+        },
+        {
+          "id": "vm.chat.settings.post",
+          "method": "POST",
+          "path": "/api/vm-chat/settings",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "enabled": "boolean",
+              "checkMessages": "boolean",
+              "autoStart": "boolean",
+              "idleShutdown": "boolean",
+              "checkIntervalMin": "number（2..1440）",
+              "targetContact": "string（≤60 字）",
+              "unreadScan": "boolean",
+              "watchdog": "boolean",
+              "sendImages": "boolean"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "settings": "vmChatSettings"
+          },
+          "errors": [],
+          "notes": "只接受上述字段；数值 clamp。"
+        },
+        {
+          "id": "vm.chat.status.get",
+          "method": "GET",
+          "path": "/api/vm-chat/status",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "status": "vmChatStatus{running,apps[],last}"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "5 秒缓存；apps 是 VM 内识别到的聊天软件。"
+        },
+        {
+          "id": "vm.chat.wake.post",
+          "method": "POST",
+          "path": "/api/vm-chat/wake",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean（是否唤醒成功）",
+            "running": "boolean"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "唤醒虚拟机里的聊天软件。"
+        },
+        {
+          "id": "vm.chat.check.post",
+          "method": "POST",
+          "path": "/api/vm-chat/check",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "result": "object（VM_CHAT.checkAndReply 结果：unread/recent/sent/requiresLogin…）"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "立即检查未读并可能回复（真的会发消息）。"
+        },
+        {
+          "id": "vm.chat.send.post",
+          "method": "POST",
+          "path": "/api/vm-chat/send",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "text": "string",
+              "imagePath": "string（可选，只允许 <数据根>/data/images 下的文件名）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "result": "object（发送结果：sentAt/verify/analysis…）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "图片路径不允许（只允许 data/images 下的文件）"
+            },
+            {
+              "status": 501,
+              "error": "当前运行时还不支持图片发送"
+            },
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "带 imagePath 时走图片发送（需要 sendImages=true）。"
+        }
+      ]
+    },
+    {
+      "id": "pet",
+      "title": "桌宠（独立 WPF 进程）",
+      "description": "桌宠开关与状态；面板只做控制，不嵌入桌宠窗口。",
+      "endpoints": [
+        {
+          "id": "pet.get",
+          "method": "GET",
+          "path": "/api/pet",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "running": "boolean",
+            "pid": "integer",
+            "pet": "petConfig"
+          },
+          "errors": [],
+          "notes": "桌宠配置 + 进程状态。"
+        },
+        {
+          "id": "pet.post",
+          "method": "POST",
+          "path": "/api/pet",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "enabled": "boolean",
+              "image": "string",
+              "size": "number",
+              "opacity": "number",
+              "statusText": "boolean",
+              "alwaysOnTop": "boolean",
+              "gestures": "object[]",
+              "buttons": "object[]",
+              "expressions": "object"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "pet": "petConfig",
+            "running": "boolean",
+            "action": "string（saved|started|start-failed|stopped）"
+          },
+          "errors": [],
+          "notes": "保存后按 enabled 自动启停；不会重复启动已在运行的进程。"
+        },
+        {
+          "id": "pet.image.post",
+          "method": "POST",
+          "path": "/api/pet/image",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "dataUrl": "string（png/jpeg/webp，≤8MB）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "image": "string（<数据根>/pet/avatar-custom.<ext> 绝对路径）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "需要 png/jpeg/webp 图片 / 图片太大（8MB 以内）"
+            },
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "换桌宠形象；运行中会重启桌宠生效。"
+        },
+        {
+          "id": "pet.start.post",
+          "method": "POST",
+          "path": "/api/pet/start",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "running": "boolean",
+            "pid": "integer",
+            "already": "boolean（可选）"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "缺少 runtime/pet/pet.ps1 / String(e.message)"
+            }
+          ],
+          "notes": "启动独立 WPF 桌宠进程；已在运行时返回 already:true。"
+        },
+        {
+          "id": "pet.stop.post",
+          "method": "POST",
+          "path": "/api/pet/stop",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "running": "boolean"
+          },
+          "errors": [],
+          "notes": "停止桌宠进程。"
+        },
+        {
+          "id": "pet.act.post",
+          "method": "POST",
+          "path": "/api/pet/act",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "action": "look|chat|gesture",
+              "gestureId": "string（greetings[].id）",
+              "prompt": "string（自定义提示词）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "action": "string",
+            "prompt": "string"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "缺少 prompt"
+            },
+            {
+              "status": 429,
+              "error": "她还在说话"
+            }
+          ],
+          "notes": "桌宠按钮动作：look 让她看屏幕；chat 只返回空 prompt（由前端打开聊天）；gesture 按手势模板发消息。"
+        },
+        {
+          "id": "pet.manifest.get",
+          "method": "GET",
+          "path": "/api/pet/manifest",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "pet": "petConfig",
+            "status": "petStatus（同 /api/pet/status）"
+          },
+          "errors": [],
+          "notes": "桌宠清单 + 状态二合一。"
+        },
+        {
+          "id": "pet.status.get",
+          "method": "GET",
+          "path": "/api/pet/status",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "payload": "petStatus（见 models.json）"
+          },
+          "errors": [],
+          "notes": "桌宠 700ms 级轮询主接口；余额刷新在后台，不阻塞。"
+        },
+        {
+          "id": "pet.avatar.get",
+          "method": "GET",
+          "path": "/api/pet/avatar",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "binary": "头像图片（png/jpeg/webp）"
+          },
+          "errors": [
+            {
+              "status": 404,
+              "error": "no avatar（text/plain）"
+            }
+          ],
+          "notes": "桌宠头像二进制；不是 JSON。"
+        }
+      ]
+    },
+    {
+      "id": "backup",
+      "title": "备份 / 恢复",
+      "description": "备份到 <数据根>/backups，恢复复用 scripts/restore.ps1。恢复有风险，UI 必须二次确认。",
+      "endpoints": [
+        {
+          "id": "backup.post",
+          "method": "POST",
+          "path": "/api/backup",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "message": "string"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "备份失败原因"
+            }
+          ],
+          "notes": "立即备份到 <数据根>/backups（可能耗时）。"
+        },
+        {
+          "id": "backup.list.get",
+          "method": "GET",
+          "path": "/api/backup/list",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "dir": "string（备份目录绝对路径）",
+            "backups": "object[]{name,size,at}（最多 30 条，倒序）"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "只列 backup-YYYYMMDD-HHMMSS.zip。"
+        },
+        {
+          "id": "backup.restore.post",
+          "method": "POST",
+          "path": "/api/backup/restore",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "name": "string（backup-YYYYMMDD-HHMMSS.zip）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "message": "string",
+            "output": "string（恢复脚本输出尾部 ≤1500 字）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "备份名不合法"
+            },
+            {
+              "status": 404,
+              "error": "找不到这个备份"
+            },
+            {
+              "status": 500,
+              "error": "安装包缺少 scripts/restore.ps1 / String(e.message)"
+            }
+          ],
+          "notes": "恢复会覆盖当前数据（危险操作，必须二次确认）。恢复后需重启 DSH 让运行时重新加载数据。"
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "groups": 13,
+    "endpoints": 128
+  }
+}

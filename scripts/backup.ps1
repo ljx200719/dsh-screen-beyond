@@ -33,8 +33,8 @@ function Copy-Block($src, $name) {
   Write-Host "captured: $name"
 }
 
-# 1) 插件本体
-foreach ($n in @('lib', 'runtime', 'scripts', 'examples')) { Copy-Block (Join-Path $PluginDir $n) (Join-Path 'plugin' $n) }
+# 1) 插件本体（src 是原生客户端的源码，docs 是契约/交接文档，一并备份）
+foreach ($n in @('lib', 'runtime', 'src', 'scripts', 'examples', 'docs')) { Copy-Block (Join-Path $PluginDir $n) (Join-Path 'plugin' $n) }
 foreach ($f in @('package.json', 'cordis.patch.yml', 'README.md', 'LICENSE')) { Copy-Block (Join-Path $PluginDir $f) (Join-Path 'plugin' $f) }
 
 # 2) 角色数据 + 用户配置 + 导入素材

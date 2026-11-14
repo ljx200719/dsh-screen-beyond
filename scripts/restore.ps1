@@ -1,4 +1,4 @@
-﻿# 从备份恢复（会覆盖当前插件与角色数据）
+# 从备份恢复（会覆盖当前插件与角色数据）
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File scripts\restore.ps1 -BackupDir "备份目录"
 param(
@@ -38,7 +38,7 @@ function Merge-Dir([string]$Src, [string]$Dst) {
 }
 $plugin = Join-Path $BackupDir 'plugin'
 if (Test-Path $plugin) {
-  foreach ($n in @('lib', 'runtime', 'scripts', 'examples')) {
+  foreach ($n in @('lib', 'runtime', 'src', 'scripts', 'examples', 'docs')) {
     Merge-Dir (Join-Path $plugin $n) (Join-Path $PluginDir $n)
   }
   foreach ($f in @('package.json', 'cordis.patch.yml', 'README.md', 'LICENSE')) {

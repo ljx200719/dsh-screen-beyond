@@ -1,6 +1,6 @@
 {
   "name": "dsh-screen-beyond",
-  "version": "0.7.23",
+  "version": "0.8.0",
   "type": "module",
   "description": "住在屏幕彼端的ta：人设卡、记忆与日记、生活作息、地图/2D/3D 舞台、聊天界面，以及她自己的虚拟屏幕和安卓手机。",
   "main": "./lib/index.js",
@@ -13,13 +13,12 @@
   "files": [
     "lib",
     "runtime",
+    "src",
     "cordis.patch.yml",
     "README.md",
     "LICENSE",
     "examples",
     "scripts",
-    "start-pure-chat.cmd",
-    "start-pure-chat.sh",
     "docs"
   ],
   "engines": {
@@ -27,9 +26,13 @@
   },
   "scripts": {
     "start": "node runtime/server.mjs",
+    "start:legacy-web": "node runtime/server.mjs --legacy-web",
+    "build:client": "node scripts/build-client.mjs",
     "check": "node --check runtime/server.mjs && node --check runtime/vm-chat.mjs && node --check runtime/sync.mjs && node --check runtime/memory.mjs && node --check runtime/data-store.mjs && node --check lib/index.js && node --check lib/client.js",
-    "lint": "eslint runtime lib scripts",
-    "smoke": "node scripts/smoke-test.mjs"
+    "lint": "eslint runtime lib src scripts",
+    "smoke": "node scripts/smoke-test.mjs && node scripts/client-smoke.mjs",
+    "smoke:server": "node scripts/smoke-test.mjs",
+    "smoke:client": "node scripts/client-smoke.mjs"
   },
   "devDependencies": {
     "eslint": "^9.39.5"

@@ -1,0 +1,946 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dsh-screen-beyond.local/schema/models.json",
+  "title": "屏幕彼端 · 数据模型（冻结契约 apiVersion=2）",
+  "description": "字段以 runtime/server.mjs、runtime/memory.mjs、runtime/sync.mjs、runtime/data-store.mjs 的实际实现为准（源码核对日 2026-11-14，运行时版本 0.7.23）。这是「简化 draft-07」：只描述字段名/类型/必填/含义，不做严格校验；服务端本身也不校验全部字段（多处是 clamp 或原样合并）。运行实例的实测/未实测状态见 docs/API-CONTRACT.md §12。",
+  "x-api-version": 2,
+  "x-runtime-version": "0.7.23",
+  "x-source": "runtime/server.mjs, runtime/memory.mjs, runtime/sync.mjs, runtime/data-store.mjs",
+  "x-frozen-at": "2026-11-14",
+  "definitions": {
+    "apiError": {
+      "title": "错误响应 {ok:false,error}",
+      "description": "所有 JSON 端点的失败响应约定。除 403 forbidden host/site/origin 与部分图片/SSE 端点是 text/plain 外，失败都用这个结构。业务性拒绝有时用 HTTP 200 + ok:false（见 docs/API-CONTRACT.md §4.3）。",
+      "type": "object",
+      "properties": {
+        "ok": { "const": false, "description": "恒为 false" },
+        "error": { "type": "string", "description": "中文或英文错误说明（不要按文本做分支，按 HTTP 状态码和 ok 判断）" },
+        "hint": { "type": "string", "description": "可选操作提示（如旧网页 410）" },
+        "entity": { "type": "string", "description": "409 版本冲突时：冲突实体名" },
+        "id": { "type": "string", "description": "409 版本冲突时：实体 id" },
+        "expectedRev": { "type": "integer", "description": "409 版本冲突时：客户端提交的版本" },
+        "currentRev": { "type": "integer", "description": "409 版本冲突时：服务端当前版本" }
+      },
+      "required": ["ok", "error"],
+      "additionalProperties": true
+    },
+    "versionPayload": {
+      "title": "GET /api/version 响应（v2 冻结入口）",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" },
+        "apiVersion": { "type": "integer", "description": "契约版本。冻结版本为 2；破坏性改动才 +1" },
+        "version": { "type": "string", "description": "运行时插件版本号（package.json version，可被 DSH_COMPANION_VERSION 覆盖）" },
+        "minClient": { "type": "string", "description": "服务端建议的最低客户端版本（源码当前写死 '0.8.0'）" },
+        "dataRoot": { "type": "string", "description": "本机数据根目录绝对路径（本地调试用；手机客户端不得依赖）" },
+        "auth": {
+          "type": "object",
+          "description": "鉴权能力协商：mode=token 时所有 /api/*（/api/token 除外）都要带 token",
+          "properties": {
+            "mode": { "type": "string", "enum": ["token", "loopback"] },
+            "tokenEndpoint": { "type": "string" },
+            "header": { "type": "string", "description": "header 名：x-companion-token" },
+            "cookie": { "type": "string", "description": "cookie 名：companion_token" },
+            "allowedOrigins": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "features": {
+          "type": "object",
+          "description": "能力开关（源码当前固定 true/false；legacyWeb 是运行时计算结果）。客户端必须按 feature 判断，不要按版本号猜能力",
+          "properties": {
+            "chat": { "type": "boolean" },
+            "stream": { "type": "boolean" },
+            "stage2d": { "type": "boolean" },
+            "stage3d": { "type": "boolean" },
+            "mapView": { "type": "boolean" },
+            "mapEdit": { "type": "boolean" },
+            "settings": { "type": "boolean" },
+            "screen": { "type": "boolean" },
+            "pet": { "type": "boolean" },
+            "vmChat": { "type": "boolean" },
+            "memory": { "type": "boolean" },
+            "diary": { "type": "boolean" },
+            "backup": { "type": "boolean" },
+            "sync": { "type": "boolean" },
+            "image": { "type": "boolean" },
+            "weatherFx": { "type": "boolean" },
+            "legacyWeb": { "type": "boolean" }
+          }
+        },
+        "schema": {
+          "type": "object",
+          "description": "契约文档的相对路径（相对于插件仓库根）",
+          "properties": {
+            "contract": { "type": "string" },
+            "apiIndex": { "type": "string" },
+            "models": { "type": "string" }
+          }
+        },
+        "endpoints": {
+          "type": "object",
+          "description": "常用端点快捷入口",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "required": ["ok", "apiVersion", "version", "features", "schema"]
+    },
+    "tokenStats": {
+      "title": "tokens（钱包/用量摘要）",
+      "description": "出现在 /api/status、/api/pet/status、/api/balance-alert 等响应里，由 tokenStats() 生成。",
+      "type": "object",
+      "properties": {
+        "remainingTokens": { "type": "integer", "description": "tokenBudget - 累计已用（不小于 0）" },
+        "usedTokens": { "type": "integer" },
+        "dailyUsed": { "type": "integer", "description": "今日已用；跨天为 0" },
+        "tokenBudget": { "type": "integer" },
+        "moneyType": { "type": "string", "enum": ["virtual", "token"] },
+        "tokenMode": { "type": "boolean" },
+        "spendable": { "type": "integer", "description": "她自己的可用零花钱（虚拟钱包余额取整）" },
+        "balance": { "type": "number" },
+        "date": { "type": "string", "description": "YYYY-MM-DD" },
+        "deepseekBalance": {
+          "type": ["object", "null"],
+          "description": "真实 DeepSeek 余额（后台刷新，可能为 null）：{ok,at,error,currency,total,todayRmb,note,granted,toppedUp,available}",
+          "additionalProperties": true
+        },
+        "realRmb": { "type": ["number", "null"], "description": "真实人民币余额（未知为 null）" },
+        "realBalanceKnown": { "type": "boolean" }
+      }
+    },
+    "currentPlace": {
+      "title": "location（当前位置，currentPlace()）",
+      "type": "object",
+      "properties": {
+        "mapId": { "type": "string" },
+        "mapName": { "type": "string" },
+        "placeId": { "type": "string" },
+        "name": { "type": "string", "description": "地点名（注意字段名是 name，不是 placeName）" },
+        "icon": { "type": "string" },
+        "desc": { "type": "string" },
+        "feel": { "type": "string" },
+        "since": { "type": "integer", "description": "到达/开始时间，ms epoch" },
+        "minutes": { "type": "integer", "description": "已停留分钟（行程中为 0）" },
+        "manual": { "type": "boolean" },
+        "reason": { "type": "string" },
+        "traveling": { "oneOf": [{ "$ref": "#/definitions/traveling" }, { "type": "null" }] },
+        "intercity": { "oneOf": [{ "$ref": "#/definitions/intercity" }, { "type": "null" }] },
+        "avatar": { "type": "string", "description": "头像地址；可能带 ?t=<mtime> 防缓存" }
+      },
+      "required": ["mapId", "placeId", "name", "since", "minutes"]
+    },
+    "traveling": {
+      "title": "traveling（同地图内移动中）",
+      "type": "object",
+      "properties": {
+        "fromId": { "type": "string" },
+        "fromName": { "type": "string" },
+        "toId": { "type": "string" },
+        "toName": { "type": "string" },
+        "mode": { "type": "string", "enum": ["walk", "bike", "bus", "metro", "car", "coach", "rail", "plane"] },
+        "modeLabel": { "type": "string" },
+        "modeIcon": { "type": "string" },
+        "distanceMeters": { "type": "integer" },
+        "durationMs": { "type": "integer" },
+        "startedAt": { "type": "integer" },
+        "progress": { "type": "number", "description": "0..1" },
+        "etaSec": { "type": "integer" },
+        "path": { "type": "array", "items": { "type": "array", "items": { "type": "number" } }, "description": "归一化坐标折线 [[x,y],…]" }
+      }
+    },
+    "intercity": {
+      "title": "intercity（跨地图长途）",
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string" },
+        "modeLabel": { "type": "string" },
+        "modeIcon": { "type": "string" },
+        "fromMapName": { "type": "string" },
+        "toMapName": { "type": "string" },
+        "distanceKm": { "type": "number" },
+        "progress": { "type": "number" },
+        "etaSec": { "type": "integer" },
+        "durationMs": { "type": "integer" },
+        "startedAt": { "type": "integer" }
+      }
+    },
+    "characterSummary": {
+      "title": "角色摘要（GET /api/characters 列表项 / 切换结果）",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "角色 id，正则 ^[A-Za-z0-9_-]{1,40}$" },
+        "name": { "type": "string" },
+        "avatar": { "type": "string", "description": "/avatar.png?c=<id>（有自定义头像）或 /default-avatar.png" }
+      },
+      "required": ["id", "name", "avatar"]
+    },
+    "characterMeta": {
+      "title": "角色元数据（meta.json / GET /api/persona.meta）",
+      "description": "META_DEFAULT 之上的任意覆盖；服务端只保证 name/traits/examples 等字段类型宽松。avatar 由 avatar.bin 决定，写入时会被删掉。",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "角色名（默认「小鲸」）" },
+        "userCall": { "type": "string", "description": "角色怎么称呼用户（默认「你」）" },
+        "relation": { "type": "string", "description": "关系设定" },
+        "avatar": { "type": "string", "description": "只读：/avatar.png?t=… 或 /default-avatar.png" },
+        "examples": { "type": "array", "items": { "type": "string" }, "description": "说话风格示例（注入提示词）" },
+        "traits": { "type": "object", "description": "性格开关：{话多:6, 主动:6, 撒娇:7, …} 数值越大越强", "additionalProperties": { "type": "number" } },
+        "model": {
+          "type": "object",
+          "description": "角色 3D/立绘模型（本次桌面版不渲染 3D，但字段保留）",
+          "properties": {
+            "type": { "type": "string" },
+            "url": { "type": "string" },
+            "scale": { "type": "number" }
+          }
+        },
+        "sprite": { "type": "string", "description": "桌宠/舞台用的立绘路径，默认 /pet-sprite/idle.png" },
+        "chibi": { "type": ["string", "null"], "description": "Q 版模型路径（可为 null）" },
+        "age": { "type": ["number", "null"], "description": "年龄；null=未知。影响出行权限（<18 夜间外出要确认、不能开车）" },
+        "license": { "type": "boolean", "description": "是否有驾照（且成年才算有效）" },
+        "travelPref": { "type": "string", "description": "默认出行方式偏好，默认 auto" }
+      },
+      "required": ["name"]
+    },
+    "personaPayload": {
+      "title": "GET/POST /api/persona 响应",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean", "description": "GET 响应没有 ok 字段；POST 有" },
+        "meta": { "$ref": "#/definitions/characterMeta" },
+        "body": { "type": "string", "description": "人设正文（persona.md 全文 Markdown）" },
+        "rev": { "oneOf": [{ "$ref": "#/definitions/revisionRecord" }, { "type": "null" }], "description": "实体 character 的版本（可能为 null）" },
+        "personaRev": { "oneOf": [{ "$ref": "#/definitions/revisionRecord" }, { "type": "null" }], "description": "实体 persona 的版本（可能为 null）" }
+      },
+      "required": ["meta", "body"]
+    },
+    "message": {
+      "title": "聊天消息（messages.json / GET /api/events）",
+      "description": "role 只有 user/her 与历史遗留 system。id 在同一角色内单调递增；跨端去重用 uid。GET /api/events 会过滤 hidden:true。",
+      "type": "object",
+      "properties": {
+        "id": { "type": "integer", "description": "角色内自增 id，也是 /api/events?since= 的游标" },
+        "uid": { "type": "string", "description": "稳定 UUID（历史数据加载时补齐），跨端去重/同步用" },
+        "role": { "type": "string", "enum": ["user", "her", "system"] },
+        "text": { "type": "string", "description": "正文；图片消息的占位文本可能是「[图片]」" },
+        "at": { "type": "integer", "description": "写入时间 ms epoch" },
+        "image": { "type": "string", "description": "可选图片地址：用户上传为 /models/…，AI 生成为 /images/…" },
+        "hidden": { "type": "boolean", "description": "可选；隐藏消息不进 /api/events（桌宠 look 等内部提示用）" }
+      },
+      "required": ["id", "uid", "role", "text", "at"]
+    },
+    "memoryFact": {
+      "title": "记忆事实卡（facts.json）",
+      "type": "object",
+      "properties": {
+        "id": { "type": "integer" },
+        "uid": { "type": "string" },
+        "text": { "type": "string", "description": "事实正文，最长 90 字（maxFactChars）" },
+        "tags": { "type": "array", "items": { "type": "string" }, "description": "最多 6 个，每个 ≤12 字" },
+        "importance": { "type": "number", "description": "0..1，导入时指定，默认 0.5" },
+        "strength": { "type": "number", "description": "0..1 记忆强度，按半衰期衰减；pinned 恒为 1" },
+        "createdAt": { "type": "integer" },
+        "lastSeenAt": { "type": "integer" },
+        "hitCount": { "type": "integer" },
+        "pinned": { "type": "boolean", "description": "核心记忆：不衰减、永远注入" },
+        "archived": { "type": "boolean", "description": "强度低于 forgetThreshold 后归档：不注入，但保留可查" }
+      },
+      "required": ["id", "uid", "text", "tags", "importance", "strength", "createdAt", "lastSeenAt", "hitCount", "pinned", "archived"]
+    },
+    "memoryParams": {
+      "title": "记忆参数（GET /api/memory.params，POST /api/memory/params）",
+      "type": "object",
+      "properties": {
+        "halfLifeDays": { "type": "number", "description": "半衰期天数，默认 5，范围 0.5..365" },
+        "forgetThreshold": { "type": "number", "description": "遗忘阈值，默认 0.12，范围 0.01..0.9" },
+        "reinforceBoost": { "type": "number", "description": "强化增量，默认 0.22，范围 0..1" },
+        "maxInjected": { "type": "integer", "description": "每次注入上限，默认 8，范围 0..100" },
+        "coreStrength": { "type": "number", "description": "核心记忆强度阈值，默认 0.85，范围 0.1..1" },
+        "maxFactChars": { "type": "integer", "description": "单条事实最大字数，默认 90" },
+        "maxPromptChars": { "type": "integer", "description": "注入提示词总字数上限，默认 900，范围 100..5000" }
+      }
+    },
+    "memoryStats": {
+      "title": "记忆统计（MEM.stats()）",
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer" },
+        "live": { "type": "integer" },
+        "archived": { "type": "integer" },
+        "core": { "type": "integer", "description": "pinned 或 strength>=coreStrength" },
+        "strongest": { "type": "array", "items": { "type": "object", "properties": { "text": { "type": "string" }, "strength": { "type": "number" } } }, "description": "最强 5 条" }
+      }
+    },
+    "memoryPayload": {
+      "title": "GET /api/memory 响应",
+      "type": "object",
+      "properties": {
+        "stats": { "$ref": "#/definitions/memoryStats" },
+        "params": { "$ref": "#/definitions/memoryParams" },
+        "facts": { "type": "array", "items": { "$ref": "#/definitions/memoryFact" }, "description": "未归档" },
+        "archived": { "type": "array", "items": { "$ref": "#/definitions/memoryFact" } },
+        "diaryDates": { "type": "array", "items": { "type": "string", "description": "YYYY-MM-DD" } },
+        "rev": { "oneOf": [{ "$ref": "#/definitions/revisionRecord" }, { "type": "null" }], "description": "实体 memory-facts:<角色 id> 的版本，可作 expectedRev" }
+      }
+    },
+    "lifeScheduleItem": {
+      "title": "作息表项（life.schedules[]）",
+      "type": "object",
+      "properties": {
+        "time": { "type": "string", "description": "如 '07:30' 或 '18:30 - 19:30'" },
+        "label": { "type": "string", "description": "如 起床/上学/午饭" },
+        "days": { "type": "array", "items": { "type": "integer" }, "description": "可选，周几生效；缺省每天" },
+        "place": { "type": "string", "description": "可选，地点 id；缺省由 label 猜" }
+      },
+      "required": ["time", "label"]
+    },
+    "lifeActivityItem": {
+      "title": "活动项（life.activities[]）",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "活动名，如 刷 B 站 / 看视频" },
+        "window": { "type": "string", "description": "生效时间段，如 '22:00-01:30'；空=全天" },
+        "weight": { "type": "number", "description": "权重" },
+        "minMin": { "type": "number" },
+        "maxMin": { "type": "number" }
+      },
+      "required": ["name"]
+    },
+    "lifeConfig": {
+      "title": "生活配置（life.json / GET /api/life）",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "生活模拟总开关" },
+        "heartbeatMin": { "type": "number", "description": "心跳间隔（分钟）" },
+        "proactive": { "type": "number", "description": "主动消息强度（旧字段）" },
+        "proactiveEnabled": { "type": "boolean", "description": "是否允许她主动发消息" },
+        "proactiveMinMin": { "type": "number", "description": "主动消息最小间隔（分钟，默认 30）" },
+        "proactiveMaxMin": { "type": "number", "description": "主动消息最大间隔（分钟，默认 90）" },
+        "quietStart": { "type": "number", "description": "免打扰开始小时（0..23）" },
+        "quietEnd": { "type": "number", "description": "免打扰结束小时（0..23）" },
+        "diaryHour": { "type": "number", "description": "自动写日记的小时（默认 22）" },
+        "diaryAuto": { "type": "boolean" },
+        "smartLife": { "type": "boolean", "description": "AI 决策生活（否则本地随机）" },
+        "schedules": { "type": "array", "items": { "$ref": "#/definitions/lifeScheduleItem" } },
+        "activities": { "type": "array", "items": { "$ref": "#/definitions/lifeActivityItem" } }
+      },
+      "required": ["enabled", "schedules", "activities"]
+    },
+    "lifeSimSettings": {
+      "title": "生活模拟设置（GET/POST /api/life/settings，lifeSimCfg()）",
+      "description": "POST 的数值会被 clamp：minEventGapMin 5..720、maxDaily 0..100、quietStart/End 0..23、photoChance 0..1。",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minEventGapMin": { "type": "number", "description": "两件事最小间隔，默认 90" },
+        "maxDaily": { "type": "number", "description": "每日事件上限，默认 8" },
+        "quietStart": { "type": "number", "description": "默认 23" },
+        "quietEnd": { "type": "number", "description": "默认 8" },
+        "photoChance": { "type": "number", "description": "主动消息附图概率，默认 0.25" }
+      }
+    },
+    "lifeState": {
+      "title": "生活状态（life-state.json / GET /api/life/state）",
+      "description": "GET /api/life/states 会在每个 state 上额外加 name、avatar。",
+      "type": "object",
+      "properties": {
+        "characterId": { "type": "string" },
+        "mapId": { "type": "string" },
+        "placeId": { "type": "string" },
+        "placeName": { "type": "string" },
+        "hotspotId": { "type": "string", "description": "热点 id（内置场景的热点只有 label，所以这里常是 label）" },
+        "hotspotLabel": { "type": "string" },
+        "behavior": { "type": "string", "enum": ["sleep", "read", "study", "eat", "coffee", "phone", "look", "idle"] },
+        "behaviorLabel": { "type": "string", "description": "睡觉/看书/写作业/吃饭/喝咖啡/看手机/看看/发呆" },
+        "position": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } }, "description": "场景内归一化坐标 0..1" },
+        "path": { "type": "array", "items": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } } }, "description": "A* 走位折线" },
+        "startedAt": { "type": "integer" },
+        "endsAt": { "type": "integer", "description": "当前行为结束时间 ms epoch" },
+        "energy": { "type": "number" },
+        "mood": { "type": "string", "description": "默认「平静」" },
+        "lastDecisionAt": { "type": "integer" },
+        "lastEventAt": { "type": "integer" },
+        "eventsDate": { "type": "string" },
+        "eventsToday": { "type": "number" }
+      },
+      "required": ["characterId", "mapId", "placeId", "behavior", "position", "startedAt", "endsAt", "energy"]
+    },
+    "charState": {
+      "title": "角色体力（state.json / loadCharState()）",
+      "type": "object",
+      "properties": {
+        "energy": { "type": "integer", "description": "0..100，按时间/活动自动增减" }
+      }
+    },
+    "economy": {
+      "title": "经济配置（config.economy / GET /api/economy.economy）",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "经济系统总开关" },
+        "initialBalance": { "type": "number", "description": "初始余额" },
+        "dailyIncome": { "type": "number", "description": "每日收入" },
+        "wagePerHour": { "type": "number", "description": "工作每小时工资" },
+        "mealCost": { "type": "number" },
+        "entertainmentCost": { "type": "number" },
+        "moneyType": { "type": "string", "enum": ["virtual", "token"], "description": "token 模式下她花的是 token 预算" },
+        "tokenMode": { "type": "boolean", "description": "旧字段：true 等价 moneyType=token" },
+        "tokenBudget": { "type": "number" },
+        "tokensPerYuan": { "type": "number" },
+        "transportBase": { "type": "object", "description": "各交通方式基础票价：{walk,bike,bus,metro,car,coach,rail,plane}", "additionalProperties": { "type": "number" } },
+        "transportPerKm": { "type": "object", "additionalProperties": { "type": "number" } }
+      }
+    },
+    "walletSummary": {
+      "title": "钱包摘要（walletMoney()）",
+      "type": "object",
+      "properties": {
+        "balance": { "type": "number", "description": "她的虚拟钱包余额" },
+        "spendable": { "type": "integer", "description": "可用余额（取整）" },
+        "tokenMode": { "type": "boolean" },
+        "remainingTokens": { "type": "integer" },
+        "usedTokens": { "type": "integer" },
+        "dailyUsed": { "type": "integer" },
+        "tokenBudget": { "type": "integer" },
+        "moneyType": { "type": "string" },
+        "realRmb": { "type": ["number", "null"], "description": "真实人民币余额（未知 null）" },
+        "realBalanceKnown": { "type": "boolean" }
+      }
+    },
+    "economyPayload": {
+      "title": "GET /api/economy 响应",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" },
+        "economy": { "$ref": "#/definitions/economy" },
+        "realBalance": { "type": ["object", "null"], "description": "DeepSeek 余额对象 {ok,at,error,currency,total,todayRmb,note,granted,toppedUp,available}" },
+        "balanceAlert": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "thresholdRmb": { "type": "number" },
+            "cooldownMin": { "type": "number" },
+            "lastAt": { "type": "integer" }
+          }
+        },
+        "wallet": {
+          "type": "object",
+          "properties": {
+            "balance": { "type": "number" },
+            "spendable": { "type": "integer" },
+            "tokenMode": { "type": "boolean" },
+            "remainingTokens": { "type": "integer" },
+            "usedTokens": { "type": "integer" },
+            "dailyUsed": { "type": "integer" },
+            "tokenBudget": { "type": "integer" },
+            "moneyType": { "type": "string" }
+          }
+        }
+      }
+    },
+    "sceneCharacter": {
+      "title": "场景内角色摆位（place.scene.characters[]）",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "角色 id" },
+        "x": { "type": "number", "description": "0.02..0.98" },
+        "y": { "type": "number", "description": "0.08..0.95" }
+      },
+      "required": ["id", "x", "y"]
+    },
+    "sceneHotspot": {
+      "title": "场景热点（place.scene.hotspots[]）",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "热点 id；内置场景可能没有 id，只能用 label 匹配" },
+        "label": { "type": "string", "description": "如 床/书桌/黑板" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "action": { "type": "string", "description": "行为提示（sleep/read/study/eat/coffee/phone/look），缺省按 label 猜" }
+      }
+    },
+    "sceneRect": {
+      "title": "归一化矩形（obstacles / walkable）",
+      "type": "object",
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "w": { "type": "number" },
+        "h": { "type": "number" }
+      },
+      "required": ["x", "y", "w", "h"]
+    },
+    "scene": {
+      "title": "地点内部场景（place.scene）",
+      "description": "背景路径必须以 /models/、/assets/ 或 /images/ 开头，否则 normalizeScene 返回 null。",
+      "type": "object",
+      "properties": {
+        "background": { "type": "string", "description": "背景图地址，如 /models/scenes/cafe.jpg" },
+        "characters": { "type": "array", "items": { "$ref": "#/definitions/sceneCharacter" } },
+        "hotspots": { "type": "array", "items": { "$ref": "#/definitions/sceneHotspot" }, "description": "最多 24 个" },
+        "photos": { "type": "array", "items": { "type": "string" }, "description": "活动照片 /models/…，最多 12" },
+        "obstacles": { "type": "array", "items": { "$ref": "#/definitions/sceneRect" }, "description": "障碍区，最多 40" },
+        "walkable": { "type": "array", "items": { "$ref": "#/definitions/sceneRect" }, "description": "可走区，最多 40" },
+        "mode": { "type": "string", "enum": ["2d", "3d"] },
+        "model3d": {
+          "type": ["object", "null"],
+          "properties": {
+            "url": { "type": "string", "description": "必须以 /models/ 开头" },
+            "scale": { "type": "number" },
+            "rotationY": { "type": "number" }
+          }
+        }
+      },
+      "required": ["background"]
+    },
+    "place": {
+      "title": "地点（map.places[]）",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "稳定 id；官方地图为 home/school/cafe…" },
+        "name": { "type": "string", "description": "最多 20 字" },
+        "icon": { "type": "string", "description": "emoji，最多 4 字" },
+        "x": { "type": "number", "description": "归一化 0.05..0.95" },
+        "y": { "type": "number", "description": "归一化 0.08..0.92" },
+        "desc": { "type": "string", "description": "最多 80 字" },
+        "feel": { "type": "string", "description": "角色感受，最多 80 字" },
+        "image": { "type": ["string", "null"], "description": "地点照片 /models/… 或 null" },
+        "scene": { "oneOf": [{ "$ref": "#/definitions/scene" }, { "type": "null" }] }
+      },
+      "required": ["id", "name", "icon", "x", "y"]
+    },
+    "mapModelRef": {
+      "title": "地图 3D 模型（map.model）",
+      "type": "object",
+      "properties": {
+        "url": { "type": "string" },
+        "scale": { "type": "number" },
+        "rotationY": { "type": "number" },
+        "yOffset": { "type": "number" }
+      }
+    },
+    "vehicleModel": {
+      "title": "载具模型（map.vehicles.car / bicycle）",
+      "type": "object",
+      "properties": {
+        "url": { "type": "string", "description": "必须以 /models/ 开头，否则被丢弃" },
+        "scale": { "type": "number", "description": "0.05..20" },
+        "rotationY": { "type": "number" },
+        "x": { "type": ["number", "null"], "description": "停放点归一化坐标，可为 null" },
+        "y": { "type": ["number", "null"] }
+      }
+    },
+    "map": {
+      "title": "地图（maps.json 单项 / GET /api/map.map）",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "places": { "type": "array", "items": { "$ref": "#/definitions/place" }, "description": "最多 40 个" },
+        "widthMeters": { "type": "number", "description": "200..20000，默认 2000；高度按 0.64 比例推算" },
+        "transport": { "type": "string", "description": "默认出行方式：auto 或 walk/bike/bus/metro/car" },
+        "theme": { "type": "string", "enum": ["town", "coast", "city", "forest"] },
+        "model": { "oneOf": [{ "$ref": "#/definitions/mapModelRef" }, { "type": "null" }] },
+        "image": { "type": ["object", "null"], "properties": { "url": { "type": "string" } }, "description": "2D 底图 {url}；/official-map.jpg 为官方图" },
+        "displayMode": { "type": "string", "enum": ["2d", "3d"] },
+        "roads": { "type": ["array", "null"], "items": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } }, "description": "道路折线：[[[x,y],…],…]" },
+        "vehicles": { "type": ["object", "null"], "properties": { "car": { "$ref": "#/definitions/vehicleModel" }, "bicycle": { "$ref": "#/definitions/vehicleModel" } } },
+        "has2d": { "type": "boolean", "description": "有 2D 底图（计算值：has2d !== false && !!image.url）" },
+        "has3d": { "type": "boolean", "description": "显式 has3d 或 !!model.url" }
+      },
+      "required": ["id", "name", "places"]
+    },
+    "mapListItem": {
+      "title": "地图列表项（GET /api/map.maps[]）",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "placeCount": { "type": "integer" }
+      },
+      "required": ["id", "name", "placeCount"]
+    },
+    "mapPayload": {
+      "title": "GET /api/map 响应",
+      "type": "object",
+      "properties": {
+        "maps": { "type": "array", "items": { "$ref": "#/definitions/mapListItem" } },
+        "activeMapId": { "type": "string" },
+        "map": { "$ref": "#/definitions/map" },
+        "transports": {
+          "type": "object",
+          "description": "交通方式表：{walk:{label,icon,speed}, bike, bus, car, metro, coach, rail, plane}",
+          "additionalProperties": { "type": "object", "properties": { "label": { "type": "string" }, "icon": { "type": "string" }, "speed": { "type": "number" } } }
+        },
+        "longTransports": { "type": "array", "items": { "type": "string" }, "description": "[\"coach\",\"rail\",\"plane\"]" },
+        "capabilities": {
+          "type": "object",
+          "description": "角色出行能力：{age, minor, adult, license, pref, name}",
+          "properties": {
+            "age": { "type": ["number", "null"] },
+            "minor": { "type": "boolean" },
+            "adult": { "type": "boolean" },
+            "license": { "type": "boolean" },
+            "pref": { "type": "string" },
+            "name": { "type": "string" }
+          }
+        },
+        "weather": { "type": "string", "description": "当前天气 kind（注意这里是字符串，不是对象）" },
+        "weathers": { "type": "object", "description": "全部天气定义" },
+        "energy": { "type": "integer" },
+        "location": { "$ref": "#/definitions/currentPlace" },
+        "schedules": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "description": "作息表，每项含 index 与 place" }
+      },
+      "required": ["maps", "activeMapId", "map", "location"]
+    },
+    "worldCharacter": {
+      "title": "世界角色（GET /api/world/characters）",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "avatar": { "type": "string" },
+        "mapId": { "type": "string" },
+        "mapName": { "type": "string" },
+        "placeId": { "type": "string" },
+        "placeName": { "type": "string" },
+        "icon": { "type": "string" },
+        "x": { "type": ["number", "null"], "description": "地图归一化坐标；跨城时可能为 null" },
+        "y": { "type": ["number", "null"] },
+        "state": { "type": "string", "enum": ["stationary", "traveling", "intercity"] },
+        "transport": { "type": "string" },
+        "etaSec": { "type": "integer" },
+        "sameMap": { "type": "boolean" },
+        "samePlace": { "type": "boolean" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "name", "state", "isActive"]
+    },
+    "stagePayload": {
+      "title": "GET /api/stage 响应（/api/stage/stream 每 1 秒推送同一结构）",
+      "description": "注意：源码当前 payload 里 apiVersion 字段恒为 1（历史遗留），契约版本以 GET /api/version 为准。",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" },
+        "apiVersion": { "type": "integer", "description": "源码当前恒为 1（不要用它判断契约版本）" },
+        "serverTime": { "type": "integer" },
+        "character": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "avatar": { "type": "string" },
+            "sprite": { "type": "string" },
+            "chibi": { "type": ["string", "null"] },
+            "model": { "type": "object" },
+            "age": { "type": ["number", "null"] },
+            "license": { "type": "boolean" }
+          }
+        },
+        "map": { "type": "object", "description": "裁剪版地图：{id,name,theme,widthMeters,places[],model,image,displayMode,roads,vehicles,has2d,has3d}" },
+        "location": {
+          "type": "object",
+          "properties": {
+            "state": { "type": "string", "enum": ["stationary", "traveling", "intercity"] },
+            "placeId": { "type": "string" },
+            "placeName": { "type": "string" },
+            "icon": { "type": "string" },
+            "since": { "type": "integer" },
+            "minutes": { "type": "integer" },
+            "traveling": { "type": ["object", "null"] },
+            "intercity": { "type": ["object", "null"] },
+            "avatar": { "type": "string" }
+          }
+        },
+        "weather": { "type": "object", "description": "{kind,label,icon,temp,city,source,fx}" },
+        "energy": { "type": "integer" },
+        "wallet": { "oneOf": [{ "$ref": "#/definitions/walletSummary" }, { "type": "null" }] },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "weatherMode": { "type": "string" },
+            "smartRoutine": { "type": "boolean" },
+            "smartLife": { "type": "boolean" },
+            "locationFree": { "type": "boolean" }
+          }
+        },
+        "animationHint": { "type": "string", "enum": ["sleeping", "idle", "walking", "riding"], "description": "给渲染器的动画提示" }
+      },
+      "required": ["ok", "character", "map", "location", "weather"]
+    },
+    "syncEvent": {
+      "title": "同步事件（sync/events.jsonl 一行）",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "UUID，去重键" },
+        "seq": { "type": "integer", "description": "单调递增游标（/api/sync/events?since= 用它）" },
+        "at": { "type": "string", "description": "ISO 时间" },
+        "deviceId": { "type": "string", "description": "来源设备 UUID；远端推送的事件为 'remote' 或原 deviceId" },
+        "type": { "type": "string", "description": "message.append / character.meta.upsert / character.switch / maps.replace / location.set / economy.set / life.set（当前运行时可能还有 balance.low）" },
+        "entity": { "type": "string" },
+        "entityId": { "type": "string" },
+        "payload": { "description": "事件内容（任意 JSON）" },
+        "receivedAt": { "type": "string", "description": "仅远端推来的事件有：本机接收时间 ISO" }
+      },
+      "required": ["id", "seq", "at", "type"]
+    },
+    "revisionRecord": {
+      "title": "实体版本记录（sync/revisions.json）",
+      "type": "object",
+      "properties": {
+        "rev": { "type": "integer", "description": "实体级递增版本；跨端冲突判断用" },
+        "updatedAt": { "type": "string", "description": "ISO 时间" },
+        "updatedBy": { "type": "string", "description": "写入设备 deviceId" },
+        "file": { "type": "string", "description": "相对数据根的路径（只用于追溯）" },
+        "hash": { "type": "string", "description": "内容 sha1 前 16 位" }
+      },
+      "required": ["rev"]
+    },
+    "revisionsPayload": {
+      "title": "GET /api/data/revisions 响应（仅回环）",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" },
+        "version": { "type": "integer" },
+        "deviceId": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "entities": {
+          "type": "object",
+          "description": "键为 `<entity>:<entityId>`，值见 revisionRecord。已知 entity：messages / memory-facts / character / persona / maps / place / road / location / economy / life / diary",
+          "additionalProperties": { "$ref": "#/definitions/revisionRecord" }
+        }
+      }
+    },
+    "syncInfo": {
+      "title": "GET /api/sync/info 响应（需同步令牌）",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" },
+        "apiVersion": { "type": "integer", "description": "同步协议版本，当前恒为 1（与主 API apiVersion 是两套）" },
+        "device": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" } } },
+        "cursor": { "type": "integer", "description": "最后一条事件的 seq" },
+        "eventCount": { "type": "integer" },
+        "eventTypes": { "type": "array", "items": { "type": "string" } },
+        "authRequired": { "type": "boolean" },
+        "merge": { "type": "string", "description": "固定 'not-implemented-yet'：只存事件，不做业务合并" }
+      }
+    },
+    "statusPayload": {
+      "title": "GET /api/status 响应",
+      "type": "object",
+      "properties": {
+        "version": { "type": "string" },
+        "typing": { "type": "boolean", "description": "她正在打字/生成" },
+        "busy": { "type": "boolean" },
+        "lastTurnAt": { "type": "integer" },
+        "usage": { "type": ["object", "null"], "description": "最近一次模型用量 {prompt_tokens,completion_tokens,total_tokens}" },
+        "count": { "type": "integer", "description": "当前角色消息总数（含 hidden/system）" },
+        "setup": { "type": "object", "properties": { "dataRoot": { "type": "string" }, "apiKeyOk": { "type": "boolean" }, "characters": { "type": "integer" } } },
+        "tokens": { "oneOf": [{ "$ref": "#/definitions/tokenStats" }, { "type": "null" }] },
+        "model": { "type": "string", "description": "模型名（= modelConfig.name）" },
+        "modelConfig": { "type": "object", "description": "{name,reasoningEffort,temperature,maxTokens,maxSteps}" },
+        "context": { "type": "object", "properties": { "historyMode": { "type": "string" }, "memoryInject": { "type": "integer" } } },
+        "mode": { "type": "string", "enum": ["chat", "full"] },
+        "place": { "$ref": "#/definitions/currentPlace" },
+        "character": { "$ref": "#/definitions/characterSummary" },
+        "memory": { "$ref": "#/definitions/memoryStats" },
+        "diaryToday": { "type": "boolean" },
+        "energy": { "type": "integer" }
+      },
+      "required": ["version", "typing", "character", "place"]
+    },
+    "modelConfig": {
+      "title": "模型配置（config.model / GET /api/model）",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "默认 deepseek-flash" },
+        "reasoningEffort": { "type": "string", "enum": ["low", "medium", "high", "max"] },
+        "temperature": { "type": "number", "description": "0..1.5" },
+        "maxTokens": { "type": "integer", "description": "200..8000" },
+        "maxSteps": { "type": "integer", "description": "4..60" }
+      },
+      "required": ["name"]
+    },
+    "contextConfig": {
+      "title": "上下文配置（config.context）",
+      "type": "object",
+      "properties": {
+        "historyMode": { "type": "string", "enum": ["full", "short", "off", "compact", "minimal"] },
+        "memoryInject": { "type": "integer", "description": "2..20" }
+      }
+    },
+    "imageConfig": {
+      "title": "图片反馈配置（GET/POST /api/image/config）",
+      "description": "apiKey 只写不读；读取时只给 apiKeySet 布尔。",
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string", "description": "seedream / openai-compat / http（源码默认 seedream）" },
+        "baseURL": { "type": "string" },
+        "model": { "type": "string" },
+        "size": { "type": "string", "description": "如 1024x1024" },
+        "watermark": { "type": "boolean" },
+        "enabled": { "type": "boolean" },
+        "apiKeySet": { "type": "boolean", "description": "只读：是否已配置 key" }
+      }
+    },
+    "envConfig": {
+      "title": "环境权限配置（GET/POST /api/env.env）",
+      "type": "object",
+      "properties": {
+        "pc": { "type": "string", "enum": ["off", "gui", "code"], "description": "对她操作本机的权限" },
+        "space": { "type": "string", "enum": ["off", "gui", "code"], "description": "对她的 Linux 桌面权限" },
+        "phone": { "type": "string", "enum": ["off", "gui", "code"], "description": "对她手机权限" },
+        "confirmDanger": { "type": "boolean", "description": "危险操作是否二次确认" },
+        "selfStart": { "type": "string", "enum": ["allow", "deny"], "description": "是否允许她主动启动这些环境" }
+      }
+    },
+    "weatherPayload": {
+      "title": "GET /api/weather 响应",
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["real", "manual"] },
+        "manual": { "type": "string", "description": "手动选择的天气 kind" },
+        "kind": { "type": "string", "enum": ["sunny", "cloudy", "rain", "snow", "hot", "cold", "windy"] },
+        "label": { "type": "string", "description": "晴天/多云/下雨/下雪/热/冷/大风" },
+        "icon": { "type": "string" },
+        "temp": { "type": ["number", "null"] },
+        "city": { "type": ["string", "null"] },
+        "source": { "type": "string", "enum": ["real", "manual"] },
+        "weathers": { "type": "object", "description": "天气定义表 {kind:{label,icon,walk,bike,note}}" },
+        "fx": { "type": "object", "description": "天气特效 {kind:{type:'image'|'video',url,opacity}}" }
+      },
+      "required": ["mode", "kind", "label"]
+    },
+    "petConfig": {
+      "title": "桌宠配置（GET /api/pet.pet、pet.json）",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": { "type": "string" },
+        "size": { "type": "number" },
+        "opacity": { "type": "number" },
+        "statusText": { "type": "boolean" },
+        "expressions": { "type": "object", "description": "{idle,pat,rub,look} 各表情图地址" },
+        "alwaysOnTop": { "type": "boolean" },
+        "gestures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "hit": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "w": { "type": "number" }, "h": { "type": "number" } } },
+              "prompt": { "type": "string" },
+              "bubble": { "type": "string" }
+            }
+          }
+        },
+        "buttons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "action": { "type": "string" },
+              "title": { "type": "string" },
+              "icon": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "petStatus": {
+      "title": "GET /api/pet/status 响应（petStatusPayload()）",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" },
+        "running": { "type": "boolean" },
+        "serverTime": { "type": "integer" },
+        "character": { "$ref": "#/definitions/characterSummary" },
+        "place": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "icon": { "type": "string" } } },
+        "state": { "type": "string", "enum": ["stationary", "traveling", "intercity"] },
+        "transport": { "type": "string" },
+        "activity": { "type": "string" },
+        "energy": { "type": "string", "description": "文字描述（精力很足…），不是数值" },
+        "tokens": { "oneOf": [{ "$ref": "#/definitions/tokenStats" }, { "type": "null" }] },
+        "weather": { "type": ["object", "null"], "properties": { "kind": { "type": "string" }, "label": { "type": "string" }, "icon": { "type": "string" } } },
+        "lastHer": {
+          "type": ["object", "null"],
+          "properties": { "id": { "type": "integer" }, "text": { "type": "string" }, "at": { "type": "integer" } },
+          "description": "她最后一条消息（没有则 null）"
+        },
+        "manifest": { "$ref": "#/definitions/petConfig" }
+      },
+      "required": ["ok", "running", "character"]
+    },
+    "vmChatSettings": {
+      "title": "VM 聊天设置（GET/POST /api/vm-chat/settings）",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "默认 false" },
+        "checkMessages": { "type": "boolean" },
+        "autoStart": { "type": "boolean" },
+        "idleShutdown": { "type": "boolean" },
+        "checkIntervalMin": { "type": "number", "description": "2..1440，默认 15" },
+        "targetContact": { "type": "string", "description": "最多 60 字" },
+        "unreadScan": { "type": "boolean" },
+        "watchdog": { "type": "boolean" },
+        "sendImages": { "type": "boolean" },
+        "lastUserText": { "type": "string", "description": "运行时附加字段（最近一次收到的文本）" },
+        "lastCheckAt": { "type": "integer", "description": "运行时附加字段：上次检查时间 ms" }
+      }
+    },
+    "vmChatStatus": {
+      "title": "GET /api/vm-chat/status 响应",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" },
+        "status": {
+          "type": "object",
+          "properties": {
+            "running": { "type": "boolean", "description": "VM 是否在运行" },
+            "apps": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "description": "VM 内可用应用探测结果（id/name/categories/exec）" },
+            "last": { "description": "最近一次检查结果（结构随 checkAndReply，可为 null）" }
+          }
+        }
+      }
+    },
+    "backupItem": {
+      "title": "备份文件（GET /api/backup/list.backups[]）",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "backup-YYYYMMDD-HHMMSS.zip" },
+        "size": { "type": "integer", "description": "字节" },
+        "at": { "type": "number", "description": "mtime ms epoch" }
+      },
+      "required": ["name", "size", "at"]
+    },
+    "screenSpaceStatus": {
+      "title": "GET /api/screen/space/status 响应（5 秒缓存）",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" },
+        "vm": { "type": "boolean", "description": "DSH-Space 虚拟机是否运行" },
+        "http": { "type": "boolean", "description": "x11vnc + websockify + 6080 链路是否通" },
+        "chain": { "type": ["object", "null"], "description": "VM 内链路探测原文 {x11vnc,websockify,listening_6080,…}" },
+        "healing": { "type": "boolean", "description": "是否正在自动修复链路" },
+        "url": { "type": "string", "description": "http://127.0.0.1:6081/vnc.html" }
+      }
+    },
+    "routinePayload": {
+      "title": "GET /api/routine 响应",
+      "type": "object",
+      "properties": {
+        "routine": {
+          "type": "object",
+          "properties": {
+            "bands": { "type": "array", "items": { "type": "object", "properties": { "start": { "type": "number" }, "end": { "type": "number" }, "allowed": { "type": "boolean" }, "weights": { "type": "object", "additionalProperties": { "type": "number" } } } } },
+            "smart": { "type": "boolean" }
+          }
+        },
+        "visits": { "type": "object", "description": "{placeId:{count,lastAt}}", "additionalProperties": { "type": "object", "properties": { "count": { "type": "integer" }, "lastAt": { "type": "integer" } } } },
+        "places": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "icon": { "type": "string" } } } },
+        "character": { "type": "string", "description": "当前角色名" }
+      }
+    }
+  }
+}

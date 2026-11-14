@@ -2,9 +2,8 @@
 
 住在屏幕彼端的ta。她有**自己的虚拟屏幕和安卓手机**、有自己的生活作息、记忆和日记，会聊天、会想找你、会花钱，也会心疼你的 token。
 
-> **三种运行形态，先分清：**
-> - **纯聊天版**：不装 DSH、不装虚拟机；Node 18+ + API Key，浏览器直接用。
-> - **完整版 · DSH 分支**：作为 DSH 插件安装，**不装虚拟机也能用**；聊天、识图、图片回复、记忆、日记、生活、地图/舞台、桌宠、设置/备份都有。
+> **两种运行形态（0.8.0 起桌面端原生化）：**
+> - **完整版 · DSH 分支**：作为 DSH 插件安装，**不装虚拟机也能用**；聊天、识图、图片回复、记忆、日记、生活、地图/舞台、桌宠、设置/备份都有。**面板是 DSH 原生 React，不再用 iframe 嵌网页。**
 > - **完整版 · 虚拟机分支**：在 DSH 分支上再装 VirtualBox 虚拟屏幕 + Android 模拟器；**只新增**她自己的 Linux 屏幕和安卓手机。
 >
 > **识别/生成图片不需要虚拟机**：识图、图片回复、聊天、记忆、地图、舞台、桌宠都不依赖虚拟屏幕或模拟器；只有屏幕/手机功能需要环境。识图是否可用取决于模型/图片 API。
@@ -12,6 +11,25 @@
 > ⚠️ 早期版本：可能还有一些奇怪的小 bug，欢迎反馈，见谅。
 
 ---
+
+## 0.8.0 更新：桌面端原生化（去 iframe）
+
+> 对应决策见 [docs/NATIVE-REWRITE-FORM.md](docs/NATIVE-REWRITE-FORM.md)，实现契约见 [docs/NATIVE-CLIENT-ARCH.md](docs/NATIVE-CLIENT-ARCH.md)。
+
+**一句话**：保留 Node 运行时和全部业务 API，只把桌面端前端从 iframe 网页改成 **DSH 原生 React 面板**。
+
+- **面板 = 原生组件，0 个 iframe**：DSH 左侧栏「屏幕彼端」打开的就是原生面板，标签：聊天 / 舞台 / 地图 / 设置 / 屏幕 / 关于。只请求本机运行时的 `/api/*`、`/models/*` 和图片，**不再请求任何 HTML 页面**。
+- **原生聊天**：历史 + 增量轮询、逐字流式、打字态、停止、图片消息与大图预览、图片上传、失败保留原文可重试、断线提示与重连；聊天右侧仍可开 2D 舞台分屏（拖动调宽/双击还原/放大/隐藏，宽度记住）。
+- **原生 2D 舞台**：底图按比例贴合、地点钉、她的位置、行程进度、天气与时间；没有 2D 底图时明确提示并引导去地图页（本次只做 2D，3D 留到后面版本）。
+- **原生地图**：看图/切图/点地点/角色位置/旅行购票 + 基础编辑（拖地点钉、改地点、内部场景背景图、热点、障碍/可走区域），保存后回读校验，409 版本冲突不覆盖。
+- **原生设置**：角色/人设、上下文、经济、生活、环境、模型（含 API Key 与图片反馈）、记忆/日记/备份恢复、VM 聊天设置与状态，全部卡片对齐；危险操作二次确认。
+- **她的屏幕走系统浏览器**：点「打开她的屏幕」/ `Alt+S` 只把 noVNC 地址交给系统浏览器，面板里不嵌网页；她的手机 / 你的电脑以截图卡显示。
+- **冻结 API 契约**：新增 `GET /api/version`（`apiVersion: 2` + 能力清单），完整契约见 [docs/API-CONTRACT.md](docs/API-CONTRACT.md)、机器可读 schema 见 `docs/schema/`，为以后手机客户端留门，见 [docs/MOBILE-GATE.md](docs/MOBILE-GATE.md)。
+- **旧网页入口下线**：`/`、`/map`、`/settings`、`/stage`、`/model`、`/screen` 默认返回 410（源码保留作开发对照）。调试旧网页用 `npm run start:legacy-web`（或环境变量 `DSH_COMPANION_LEGACY_WEB=1`）。
+- **纯聊天独立版正式废弃**（`start-pure-chat.*` 已移除）；`npm start` 只作为运行时/API 调试用途。
+- **前端源码可读**：面板源码在 `src/client/**`（多文件），`npm run build:client` 构建成 `lib/client.js`（DSH 客户端半只有一个入口，所以构建成单文件）。
+- **测试**：`npm run smoke` = 服务端隔离冒烟（45 项）+ 原生客户端产物冒烟（38 项，加载 `lib/client.js` 校验注册/六标签渲染/无 iframe/关键请求）。
+- 面板客户端半改动需要**刷新页面或重启 DSH** 后加载。
 
 ## 0.7.23 更新
 
@@ -337,59 +355,46 @@
 - **开放接口**：语音、服装、地点内部场景的契约见 [docs/INTERFACES.md](docs/INTERFACES.md)。
 - **明确不做**：每角色独立屏幕。所有角色共享同一套屏幕/手机；技术原因见 [docs/SCREEN-ISOLATION.md](docs/SCREEN-ISOLATION.md)。
 
-## 三种运行形态
+## 两种运行形态
 
 虚拟机和安卓模拟器**只是可选环境**，不是完整版的全部，也不是识图/图片回复的前置条件。
 
-| 能力 | 纯聊天版 | 完整版 · DSH 分支 | 完整版 · 虚拟机分支 |
-|---|---|---|---|
-| 聊天、人设、记忆、日记、生活 | ✅ | ✅ | ✅ |
-| 发图、识图、图片回复 | ✅（取决于模型/图片 API） | ✅（取决于模型/图片 API） | ✅（取决于模型/图片 API） |
-| 地图、2D/3D 舞台、桌宠、设置、备份 | ✅ | ✅ | ✅ |
-| DSH 侧栏 / DSH 宿主联动 | ❌ | ✅ | ✅ |
-| 她自己的 Linux 虚拟屏幕 | ❌ | ❌ | ✅（VirtualBox） |
-| 她自己的安卓手机 | ❌ | ❌ | ✅（Android 模拟器） |
+| 能力 | 完整版 · DSH 分支 | 完整版 · 虚拟机分支 |
+|---|---|---|
+| 聊天、人设、记忆、日记、生活 | ✅ | ✅ |
+| 发图、识图、图片回复 | ✅（取决于模型/图片 API） | ✅（取决于模型/图片 API） |
+| 地图、2D 舞台、桌宠、设置、备份 | ✅ | ✅ |
+| DSH 原生面板（左侧栏「屏幕彼端」） | ✅ | ✅ |
+| 她自己的 Linux 虚拟屏幕 | ❌ | ✅（VirtualBox） |
+| 她自己的安卓手机 | ❌ | ✅（Android 模拟器） |
 
-- **纯聊天版**：不装 DSH、不装环境；任何设备都能跑，不占虚拟机资源。
 - **完整版 · DSH 分支**：作为 DSH 插件安装；不装虚拟机也能聊天、识图、发图、记事、看地图/舞台、用桌宠。插件只是检测不到环境时关闭屏幕/手机工具。
 - **完整版 · 虚拟机分支**：在 DSH 分支上增加 VirtualBox 虚拟屏幕和 Android 模拟器，**只新增**她自己的屏幕和手机；识图/图片回复仍然不经过虚拟机。
 
+> 0.8.0 起「纯聊天独立版 / 浏览器访问网页」已正式废弃：桌面端只通过 DSH 原生面板使用（S08）。旧网页源码保留，仅开发调试用。
+
 ## 功能
 
+- **DSH 原生面板**：左侧栏「屏幕彼端」打开原生 React 面板（聊天/舞台/地图/设置/屏幕/关于），不用 iframe、不请求任何网页；断线有提示可重连。
 - **人设卡**：名字、称呼、关系、性格滑块、头像、Live2D/3D 模型、年龄、驾照、出行偏好；可多角色，各自独立记忆/日记/聊天记录。
 - **记忆**：自己记重要的事，带遗忘（半衰期）、强化、置顶、归档；可手动增删改、调遗忘速度。
 - **日记**：每天一篇，她能自己读给你听。
 - **生活**：自己的作息表、活动池、心跳、安静时段、智能安排（按天气/体力/记忆调整）。
-- **聊天**：文字 + 图片（她能看懂）、逐字流式、她可以主动找你；顶部显示剩余 token / 今日已用（悬浮看明细）。
+- **聊天**：文字 + 图片（她能看懂）、逐字流式、打字态/停止、她可以主动找你；顶部显示剩余 token / 今日已用。聊天右侧可分屏看 2D 舞台。
 - **无括号模式**：开启后她说话不再用括号表示动作/表情（设置 → 模型 → 聊天风格）。
-- **地图 + 舞台**：地点可拖拽/增删/导入、自绘道路、2D 底图、3D 模型（.glb/.gltf）、2D/3D 舞台切换。
+- **地图 + 2D 舞台**：地点可拖拽/增删/导入、自绘道路、2D 底图、内部场景/热点/障碍/可走区域；2D 舞台显示地点、她的位置、行程、天气。**3D 舞台本次不做**（原 3D 页面入口已下线，3D 后续版本再回来）。
 - **出行**：按年龄/驾照/体力/天气/钱自己选交通方式；未成年夜间出门要确认并报备；跨城长途。
 - **天气日夜**：手动或真实定位天气，雨/雪/风/热/冷特效，可自己上传素材替换；日夜自动切换。
-- **经济**：虚拟货币（初始余额/每日零花/时薪/饭钱/娱乐）或 **Token 实时代币**（钱 = 剩余 token，汇率可设）；余额和剩余 token 在聊天、地图、舞台、设置里都能看到。
+- **经济**：虚拟货币（初始余额/每日零花/时薪/饭钱/娱乐）或 **Token 实时代币**（钱 = 剩余 token，汇率可设）；余额和剩余 token 在面板顶部就能看到。
 - **自己的环境**：屏幕 / 手机 / 你的电脑三种工具；权限分「关闭 / 仅鼠标键盘 / 代码控制」；一键启动/关闭环境、内存占用提示、她自己能否开机的开关、危险操作确认。
-- **给开发者**：`GET /api/stage` 状态 JSON、`GET /api/stage/stream` SSE，可自己写渲染器（Live2D / 3D / 自绘地图）。
-- **手机端地基**：已有设备身份、追加式事件日志和受令牌保护的 `/api/sync/*` API；这是以后多端同步的基础，**当前还没有手机客户端和合并功能**。详见 [docs/MOBILE-SYNC.md](docs/MOBILE-SYNC.md)。
+- **给开发者**：冻结的 REST/SSE 契约见 [docs/API-CONTRACT.md](docs/API-CONTRACT.md) 与 `docs/schema/`；`GET /api/version` 给出 `apiVersion` 与能力清单；`GET /api/stage`、`GET /api/stage/stream` 可自己写渲染器。
+- **手机端地基**：已有设备身份、追加式事件日志和受令牌保护的 `/api/sync/*` API；这是以后多端同步的基础，**当前还没有手机客户端和合并功能**。详见 [docs/MOBILE-GATE.md](docs/MOBILE-GATE.md) 与 [docs/MOBILE-SYNC.md](docs/MOBILE-SYNC.md)。
 
 ## 安装
 
-当前版本：0.7.22。
+当前版本：0.8.0。
 
-> 本地开发可用：
-pm run check（语法检查）、
-pm run smoke（隔离实例冒烟，22 项）、
-pm run lint（需先安装 eslint）。
-
-
-### 纯聊天：独立运行（不需要 DSH）
-
-需要 **Node.js 18+** 和一个 **DeepSeek API Key**（也可在启动后的 设置 → 模型 里填）。
-
-1. 解压本包到任意目录
-2. Windows 双击 `start-pure-chat.cmd`；Linux/macOS 运行 `sh start-pure-chat.sh`（或命令行运行 `node runtime/server.mjs`）
-3. 浏览器打开 `http://127.0.0.1:8900/`
-
-此时聊天、人设、记忆、日记、生活、地图/舞台、发图/识图都可以用；她的虚拟屏幕和手机需要 DSH + 环境，跟识图/图片回复无关。
-纯聊天模式在聊天页顶部会显示「🧩 聊天模式」；它不依赖 DSH/虚拟机，可以独立运行。
+> 本地开发可用：`npm run check`（语法检查）、`npm run build:client`（原生面板构建）、`npm run smoke`（服务端 + 客户端产物冒烟）、`npm run lint`（需先安装 eslint）。
 
 ### 完整版 · DSH 分支：作为 DSH 插件安装（不需要虚拟机）
 
@@ -403,9 +408,18 @@ dsh plugin --profile <profile> add dsh-screen-beyond
 dsh plugin --profile <profile> add link:<插件目录>
 ```
 
-装好后重启一次 DSH，左侧栏出现「屏幕彼端」。
+装好后重启一次 DSH，左侧栏出现「屏幕彼端」；点它打开**原生面板**（不是网页）。
 
 > 安装完成后第一次打开是「完整版 · DSH 分支」，可直接用；不装虚拟机也能聊天、识图、发图。想要她自己的屏幕/手机，再看下面的「环境」。
+
+### 运行时（调试用，不需要 DSH）
+
+运行时是一个独立 Node 服务，DSH 面板自己会拉起它；也可以在插件目录手动跑：
+
+```bash
+npm start                 # 只提供 /api/* 与图片（原生面板用）
+npm run start:legacy-web  # 额外提供旧网页 /、/map、/settings…（仅开发对照调试）
+```
 
 ## 模型兼容性（请先看）
 
@@ -496,36 +510,42 @@ dsh plugin --profile <profile> add link:<插件目录>
 
 备份：设置 → 数据 → 立即备份（或 `scripts/backup.ps1`），备份落在数据目录的 `backups/` 下；恢复用 `scripts/restore.ps1 -BackupDir <备份目录>`。
 
-## 运行时页面
+## 面板与运行时
 
-运行时是一个独立 Node 服务（默认 `http://127.0.0.1:8900`）：
-
-- `/` 聊天 · `/map` 地图 · `/stage` 2D 舞台 · `/model` 3D 舞台 · `/settings` 设置 · `/screen` 看屏幕
-- 快捷键：聊天页 `Alt+S` 打开看屏幕
+- **DSH 面板**：左侧栏「屏幕彼端」→ 原生面板。标签：聊天 / 舞台 / 地图 / 设置 / 屏幕 / 关于。
+  - 快捷键：`Alt+S` 用系统浏览器打开她的屏幕（noVNC）；聊天分屏拖动分界线调宽、双击恢复 50%。
+  - 「屏幕」标签里她的屏幕只交给系统浏览器，面板里不内嵌网页；她的手机/你的电脑以截图卡显示。
+- **运行时**（独立 Node 服务，默认 `http://127.0.0.1:8900`，端口被占自动 +1）：
+  - 只提供 `/api/*`、`/models/*` 和图片；`GET /api/version` 可查 `apiVersion` 与能力清单。
+  - 旧网页入口（`/`、`/map`、`/settings`、`/stage`、`/model`、`/screen`）**默认返回 410**；要对照调试旧网页，用 `npm run start:legacy-web`（或 `DSH_COMPANION_LEGACY_WEB=1`）启动运行时。
 
 ## 给开发者
 
-- 聊天：`POST /api/chat {text, images?}`；事件轮询 `GET /api/events?since=`；逐字流 `GET /api/stream`
-- 状态：`GET /api/stage`、`GET /api/stage/stream`
-- 记忆/日记/地图/经济/环境等 REST 接口见插件内教程「给开发者」一节或运行时源码 `server.mjs`
+- **契约**：[docs/API-CONTRACT.md](docs/API-CONTRACT.md)（v2 冻结，128 个端点）+ `docs/schema/api-index.json`（机器可读索引）+ `docs/schema/models.json`（数据模型 schema）。
+- 聊天：`POST /api/chat {text, images?}`；事件轮询 `GET /api/events?since=`；逐字流 `GET /api/stream`（SSE 帧：`init`/`start`/`delta`/`done`）。
+- 状态：`GET /api/stage`、`GET /api/stage/stream`。
+- 鉴权：本机回环 + Host/Origin 白名单；可选 `DSH_COMPANION_API_TOKEN`（请求头 `x-companion-token` 或 cookie `companion_token`）。
+- 面板源码：`src/client/**`（多文件，构建成 `lib/client.js`），改完跑 `npm run build:client`。
 
 ## 测试
 
-`tests/` 是开发时用的自动化脚本（需要运行时在 8900 跑着，且会消耗少量 token）：
-
-```powershell
-python tests/full_test.py     # 页面/API/出行/经济/地图/记忆/日记/角色
-python tests/full_test2.py    # space/phone/pc 工具与屏幕接口
-python tests/her_test.py      # 让她自己测：space/phone/pc/记忆/日记/花钱/code
+```bash
+npm run check          # 语法检查（服务端 + 构建产物）
+npm run lint           # eslint（0 error 为通过）
+npm run smoke          # 服务端隔离冒烟（45 项）+ 原生客户端产物冒烟（38 项）
+npm run smoke:server   # 只跑服务端冒烟（隔离数据目录，不动真实数据）
+npm run smoke:client   # 只跑客户端产物冒烟（迷你 React 挂载 lib/client.js，假 fetch）
 ```
+
+服务端冒烟会校验：JSON 接口、CORS/Origin、token 模式、旧网页 410 与调试开关、`/api/version` 契约、DPAPI 加密等，全部在临时数据目录里跑，不影响正在运行的实例。
 
 ## 已知限制
 
-- Windows only（屏幕/手机/电脑工具）；纯聊天版跨平台。
+- Windows only（屏幕/手机/电脑工具）。
 - 手机适配：只验证过 Android 16 / API 36 的 AVD `DSH_Phone`（1080×1920）；真机/其它安卓版本未测试。
 - 手机中文输入通过 ADBKeyboard 广播实现（插件里可一键安装）；没装时只能输出英文/数字。
 - 旧版 Waydroid 的截图可能很慢，推荐用安卓模拟器。
-- 3D 舞台内置 three.js，性能取决于显卡；卡就先用 2D。
+- **3D 舞台不在 0.8.0**：本次只做 2D（见决策 D03 B），原 3D 网页入口已下线；有 3D 资源的地图目前只显示 2D + 提示，3D 后续版本再回来。
 - `reasoning_effort` 等模型参数依 DeepSeek API 可用性而定。
 - 模型兼容性：只保证 DeepSeek；其它 OpenAI 兼容模型未测试、不做适配。
 - 环境辅助脚本模板在 `runtime/env/`，但里面的虚拟机名/SDK 路径需要按本机情况修改；可以先跑「环境自检」看缺什么。

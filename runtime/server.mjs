@@ -27,6 +27,11 @@ const PREFERRED_PORT = Number(process.env.LINZHI_PORT) || 8900;
 const PORT_FILE = path.join(HOME, '.dsh-companion-port.json');
 // 可选 API 令牌（默认关）：设置后 /api/* 需要 header x-companion-token 或页面 cookie；端口文件里会带 token 供命令行用
 const API_TOKEN = String(process.env.DSH_COMPANION_API_TOKEN || '').trim();
+// 冻结的 API 契约版本（原生客户端/未来手机客户端用它做兼容判断；接口语义变化时才 +1）
+const API_VERSION = 2;
+// 旧网页入口（聊天/地图/设置/舞台/3D/屏幕）：原生化完成后默认不再对外提供。
+// 源码保留（开发调试对照用），只有 DSH_COMPANION_LEGACY_WEB=1 / --legacy-web / config.legacyWeb=true 才继续提供。
+const LEGACY_WEB = process.argv.includes('--legacy-web') || String(process.env.DSH_COMPANION_LEGACY_WEB || '').trim() === '1';
 // 可选密钥加密（默认关）：设置后本插件自己写的 key 文件用 Windows DPAPI 当前用户加密（DPAPI1: 前缀）
 const ENCRYPT_KEYS = String(process.env.DSH_COMPANION_ENCRYPT_KEYS || '') === '1';
 const DPAPI_PS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'env', 'dpapi.ps1');
@@ -2969,7 +2974,23 @@ function sendStatic(res, file, types) {
   res.end(fs.readFileSync(file));
 }
 function pageFile(name) { const b = path.join(RUNTIME_DIR, name); if (fs.existsSync(b)) return b; const a = path.join(ROOT, name); return fs.existsSync(a) ? a : null; }
+/** 旧网页是否可用：显式环境变量或本机配置开启才提供（默认关闭，S02/S06/D08）。 */
+function legacyWebEnabled() {
+  if (LEGACY_WEB) return true;
+  try { return CONFIG.legacyWeb === true; } catch { return false; }
+}
 function servePage(res, name) {
+  // 原生化之后，桌面端不再对外提供网页；文件还在，仅开发调试用。
+  if (!legacyWebEnabled()) {
+    json(res, 410, {
+      ok: false,
+      error: '网页入口已下线',
+      hint: '桌面端已改为 DSH 原生面板（无 iframe）。调试旧网页请用 DSH_COMPANION_LEGACY_WEB=1 启动运行时。',
+      apiVersion: API_VERSION,
+      legacyPage: name,
+    });
+    return;
+  }
   const f = pageFile(name);
   if (!f) { res.writeHead(404); res.end('missing ' + name); return; }
   if (API_TOKEN) { try { res.setHeader('set-cookie', 'companion_token=' + encodeURIComponent(API_TOKEN) + '; Path=/; HttpOnly; SameSite=Lax'); } catch {} }
@@ -3048,9 +3069,31 @@ const server = http.createServer(async (req, res) => {
       if (hdr !== API_TOKEN && ck !== API_TOKEN) { json(res, 401, { ok: false, error: '缺少或错误的 API token（x-companion-token）' }); return; }
     }
     if (req.method === 'GET' && url.pathname === '/api/token') { json(res, 200, { ok: true, token: API_TOKEN }); return; }
+    if (req.method === 'GET' && url.pathname === '/api/version') {
+      // 冻结契约的入口：原生客户端/未来手机客户端先读它判断能力，再决定用哪些接口。
+      json(res, 200, {
+        ok: true,
+        apiVersion: API_VERSION,
+        version: VERSION,
+        minClient: '0.8.0',
+        dataRoot: ROOT,
+        auth: { mode: API_TOKEN ? 'token' : 'loopback', tokenEndpoint: '/api/token', header: 'x-companion-token', cookie: 'companion_token', allowedOrigins: ['127.0.0.1', 'localhost', '::1', 'dsh-app://app'] },
+        features: {
+          chat: true, stream: true, stage2d: true, stage3d: false,
+          mapView: true, mapEdit: true, settings: true, screen: true,
+          pet: true, vmChat: true, memory: true, diary: true, backup: true,
+          sync: true, image: true, weatherFx: true, legacyWeb: legacyWebEnabled(),
+        },
+        schema: { contract: 'docs/API-CONTRACT.md', apiIndex: 'docs/schema/api-index.json', models: 'docs/schema/models.json' },
+        endpoints: { status: '/api/status', events: '/api/events', chat: '/api/chat', cancel: '/api/chat/cancel', stream: '/api/stream', stage: '/api/stage', map: '/api/map', screen: '/api/screen/info' },
+      });
+      return;
+    }
     if (req.method === 'OPTIONS') {
       res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
-      res.setHeader('access-control-allow-headers', 'authorization,content-type,x-sync-token');
+      // 原生面板（跨源 127.0.0.1:DSH端口）在 token 模式下要带自定义 header，预检必须放行
+      res.setHeader('access-control-allow-headers', 'authorization,content-type,x-sync-token,x-companion-token');
+      res.setHeader('access-control-max-age', '600');
       res.writeHead(204, { 'cache-control': 'no-store' });
       res.end();
       return;
