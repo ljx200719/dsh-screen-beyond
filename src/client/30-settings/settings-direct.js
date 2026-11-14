@@ -18,19 +18,6 @@ function DirectChatCard() {
     })
   }, [])
   React.useEffect(load, [load])
-  React.useEffect(() => {
-    let alive = true
-    Api.get('/api/update/settings').then((r) => {
-      if (!alive || !r.ok || !r.data) return
-      const cfg = r.data.settings || {}
-      if (cfg.autoCheck === false) return
-      const last = Number(cfg.lastCheckAt) || 0
-      if (Date.now() - last < 6 * 3600 * 1000) return
-      check(false)
-    })
-    return () => { alive = false }
-  }, [check])
-
   const patch = (k, v) => setS((prev) => Object.assign({}, prev || {}, { [k]: v }))
   const save = async () => {
     if (!s) return
@@ -121,21 +108,26 @@ function UpdateCard() {
   const [diag, setDiag] = React.useState('')
   const [err, setErr] = React.useState('')
 
-  const load = React.useCallback(() => {
-    Api.get('/api/update/settings').then((r) => {
-      if (r.ok && r.data) { setInfo(r.data); setErr('') } else setErr(r.error || '更新模块不可用')
-    })
-  }, [])
-  React.useEffect(load, [load])
-
-  const check = async (force) => {
+  const check = React.useCallback(async (force) => {
     setBusy('check'); setDiag('')
     const r = await Api.get('/api/update/check' + (force ? '?force=1' : ''))
     setBusy('')
     if (!r.ok) { setDiag('检查失败：' + (r.error || '')); return }
     setInfo((prev) => Object.assign({}, prev || {}, { update: r.data, settings: Object.assign({}, (prev && prev.settings) || {}, { lastCheckAt: r.data.checkedAt, lastResult: r.data }) }))
     setDiag(r.data.updateAvailable ? ('发现新版本 ' + r.data.latest) : ('已是最新（' + r.data.current + '）'))
-  }
+  }, [])
+
+  const load = React.useCallback(() => {
+    Api.get('/api/update/settings').then((r) => {
+      if (!r.ok || !r.data) { setInfo(null); setErr(r.error || '更新模块不可用'); return }
+      setInfo(r.data); setErr('')
+      // 自动检查更新：默认开；上次检查超过 6 小时才真的去查（也不阻塞页面）
+      const cfg = (r.data && r.data.settings) || {}
+      const last = Number(cfg.lastCheckAt) || 0
+      if (cfg.autoCheck !== false && Date.now() - last >= 6 * 3600 * 1000) check(false)
+    })
+  }, [check])
+  React.useEffect(load, [load])
   const apply = async () => {
     const ok = await confirmDialog('立即更新插件？', {
       title: '插件更新',

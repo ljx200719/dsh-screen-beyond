@@ -455,6 +455,14 @@ function Empty(props) {
 
 function ErrorBox(props) {
   const p = props || {}
+  const [retrying, setRetrying] = React.useState(false)
+  const doRetry = async () => {
+    if (!p.onRetry || retrying) return
+    setRetrying(true)
+    try { await p.onRetry() }
+    catch (e) { try { toast('重试失败：' + String((e && e.message) || e), 'error') } catch (err) {} }
+    finally { setRetrying(false) }
+  }
   return h('div', {
     style: Object.assign({
       border: '1px solid ' + T.danger, borderRadius: T.radius, background: 'rgba(239,83,80,.08)',
@@ -465,7 +473,7 @@ function ErrorBox(props) {
     h('span', { style: { flex: 1, minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } },
       (p.title ? p.title + '：' : '') + String(p.error || '出错了'),
     ),
-    p.onRetry ? h(Btn, { size: 'sm', kind: 'ghost', onClick: p.onRetry }, '重试') : null,
+    p.onRetry ? h(Btn, { size: 'sm', kind: 'ghost', onClick: doRetry, disabled: retrying }, retrying ? '重试中…' : '重试') : null,
   )
 }
 

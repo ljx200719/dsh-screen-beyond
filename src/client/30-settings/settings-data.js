@@ -1,10 +1,14 @@
-// 30-settings/settings-data.js —— 设置·数据卡片
+// 30-settings/settings-data.js —— 设置·数据卡片 + 记忆管理卡片
 //
-// 内容：记忆统计/列表（置顶/删除/文本导入/遗忘参数）、日记（生成/查看/给她看）、
-//       备份列表 + 一键备份 + 恢复（二次确认）、数据目录/版本/数据修订信息、使用说明
-// 契约：function SettingsDataTab()（外壳不传 props，需要什么自己取接口；N02 不写死角色信息）
+// 本文件提供两个组件（外壳/记忆标签按名字引用）：
+//   · function SettingsDataTab()     数据标签：日记（生成/查看/给她看）、备份列表 + 一键备份 + 恢复、
+//                                    数据目录/版本/数据修订信息、使用说明（教程 Modal）
+//   · function SettingsMemoryCard()  记忆标签用：记忆统计/核心/普通/归档列表、置顶(=核心记忆增减)/
+//                                    删除、文本导入、遗忘参数（本组件可单独嵌入任意标签）
+// 契约：外壳不传 props，需要什么自己取接口（N02 不写死角色信息）
 // 可靠性：读取失败时禁用写操作（读失败禁存）；危险操作（删除记忆/恢复备份）必须 confirmDialog；
-//         恢复备份会覆盖数据 → 二次确认；所有 POST 只发改动字段；值前端 clamp（后端同样会 clamp）
+//         恢复备份会覆盖数据 → 二次确认；所有 POST 只发改动字段；值前端 clamp（后端同样会 clamp）；
+//         /api/memory/pin|delete|import 带 expectedRev，版本冲突(409) 时自动重读
 
 // 只把「和已保存值不同」的字段挑出来，POST 时不去覆盖没动的字段
 function settingsDataChanged(cur, next, keys) {
@@ -21,7 +25,7 @@ function settingsDataChanged(cur, next, keys) {
   return out
 }
 
-// 统计小方块
+// 统计小方块（记忆卡片用）
 function settingsDataStatBox(label, value, tone) {
   return h('div', {
     style: {
@@ -34,7 +38,7 @@ function settingsDataStatBox(label, value, tone) {
   )
 }
 
-// 单条记忆
+// 单条记忆（带置顶/取消置顶、删除）
 function settingsDataFactRow(f, handlers) {
   const pct = Math.round(clampNum(f.strength, 0, 1, 0) * 100)
   const pinned = !!f.pinned
@@ -49,7 +53,7 @@ function settingsDataFactRow(f, handlers) {
   },
     h(Row, { gap: 6, align: 'flex-start', wrap: false },
       h('span', { style: { flex: 1, minWidth: 0, fontSize: 12.5, color: T.text, lineHeight: 1.6, wordBreak: 'break-word' } }, String(f.text || '')),
-      h(Btn, { size: 'sm', kind: 'ghost', disabled: disabled, onClick: () => handlers.onPin(f), title: pinned ? '取消置顶后按清晰度衰减' : '置顶后永远记得' }, pinned ? '取消置顶' : '置顶'),
+      h(Btn, { size: 'sm', kind: pinned ? 'ghost' : 'primary', disabled: disabled, onClick: () => handlers.onPin(f), title: pinned ? '取消置顶后按清晰度衰减' : '置顶后永远记得（核心记忆 +1）' }, pinned ? '取消置顶' : '置顶'),
       h(Btn, { size: 'sm', kind: 'danger', disabled: disabled, onClick: () => handlers.onDelete(f) }, '删除'),
     ),
     h(Row, { gap: 6, style: { fontSize: 10.5, color: T.text3, minWidth: 0 } },
@@ -84,18 +88,11 @@ function settingsDataTutorialBlocks(text) {
   return blocks
 }
 
-function SettingsDataTab() {
-  const status = useStatus()
-  const st = (status && status.data) || {}
-  const setup = st.setup || {}
-
+// ───────────────────────── 记忆管理卡片（记忆标签用） ─────────────────────────
+// 自带 /api/memory 数据与全部状态：统计 4 格、核心/普通/归档列表、置顶/取消置顶、删除、
+// 文本导入、遗忘参数。置顶 = 进入核心记忆（永不遗忘）；取消置顶后按清晰度衰减，核心数 -1。
+function SettingsMemoryCard() {
   const memApi = useApi('/api/memory')
-  const diaryApi = useApi('/api/diary')
-  const backupApi = useApi('/api/backup/list')
-
-  const [verInfo, setVerInfo] = React.useState(null)
-  const [revInfo, setRevInfo] = React.useState(null)
-  const [revError, setRevError] = React.useState('')
 
   const [memParams, setMemParams] = React.useState({ halfLifeDays: 5, forgetThreshold: 0.12, reinforceBoost: 0.22, maxInjected: 8 })
   const [showArchived, setShowArchived] = React.useState(false)
@@ -103,13 +100,9 @@ function SettingsDataTab() {
   const [importText, setImportText] = React.useState('')
   const [importImportance, setImportImportance] = React.useState(0.5)
   const [importPin, setImportPin] = React.useState(false)
-
-  const [diaryModal, setDiaryModal] = React.useState({ open: false, title: '', text: '', loading: false, error: '' })
-  const [tutModal, setTutModal] = React.useState({ open: false, loading: false, text: '', error: '' })
-
   const [busy, setBusy] = React.useState('')
 
-  // ── 同步记忆参数草稿 ────────────────────────────────────────────────
+  // ── 同步遗忘参数草稿 ────────────────────────────────────────────────
   const memData = memApi.data
   React.useEffect(() => {
     const p = memData && memData.params
@@ -122,33 +115,18 @@ function SettingsDataTab() {
     })
   }, [memData])
 
-  // ── 版本 / 数据修订（/api/version 是冻结契约，老运行时可能 404 → 静默降级）──
-  const loadMeta = React.useCallback(() => {
-    Api.get('/api/version').then((r) => { setVerInfo(r.ok && r.data ? r.data : null) }).catch(() => setVerInfo(null))
-    Api.get('/api/data/revisions').then((r) => {
-      if (r.ok && r.data) { setRevInfo(r.data); setRevError('') } else { setRevInfo(null); setRevError(r.error || '读取失败') }
-    }).catch((e) => { setRevInfo(null); setRevError((e && e.message) || '读取失败') })
-  }, [])
-  React.useEffect(() => { loadMeta() }, [loadMeta])
-
   const run = async (key, fn) => {
     if (busy) return
     setBusy(key)
     try { await fn() } catch (e) { toast('操作失败：' + ((e && e.message) || '网络错误'), 'error') } finally { setBusy('') }
   }
 
-  const reloadAll = () => {
-    memApi.reload()
-    diaryApi.reload()
-    backupApi.reload()
-    loadMeta()
-  }
-
-  // ── 记忆 ────────────────────────────────────────────────────────────
+  // ── 数据 ────────────────────────────────────────────────────────────
   const facts = (memApi.data && memApi.data.facts) || []
   const archived = (memApi.data && memApi.data.archived) || []
   const stats = (memApi.data && memApi.data.stats) || {}
   const params = (memApi.data && memApi.data.params) || {}
+  const diaryDates = (memApi.data && memApi.data.diaryDates) || []
   const coreStrength = Number(params.coreStrength) || 0.85
   const coreFacts = facts.filter((f) => f.pinned || Number(f.strength) >= coreStrength)
   const normalFacts = facts.filter((f) => !(f.pinned || Number(f.strength) >= coreStrength))
@@ -157,28 +135,31 @@ function SettingsDataTab() {
     return rev && rev.rev !== undefined ? rev.rev : undefined
   }
 
+  // ── 置顶 / 取消置顶（核心记忆 +1/-1）────────────────────────────────
   const togglePin = (f) => run('pin', async () => {
-    if (memApi.error) { toast('记忆读取失败，先点「刷新」再操作', 'error'); return }
+    if (memApi.error) { toast('记忆读取失败，先点「重新读取」再操作', 'error'); return }
     const r = await Api.post('/api/memory/pin', { id: f.id, expectedRev: memRev() })
     if (!r.ok) { toast(r.error || '操作失败', 'error'); if (r.status === 409) memApi.reload(); return }
-    toast(f.pinned ? '已取消置顶' : '已置顶')
+    toast(f.pinned ? '已取消置顶（核心 -1，之后按清晰度衰减）' : '已置顶（核心 +1，永远记得）')
     memApi.reload()
   })
 
+  // ── 删除（危险操作，二次确认）──────────────────────────────────────
   const deleteFact = (f) => run('deleteFact', async () => {
-    if (memApi.error) { toast('记忆读取失败，先点「刷新」再操作', 'error'); return }
+    if (memApi.error) { toast('记忆读取失败，先点「重新读取」再操作', 'error'); return }
     const ok = await confirmDialog('删掉这条记忆？', { title: '删除记忆', detail: String(f.text || ''), danger: true, okText: '删除' })
     if (!ok) return
     const r = await Api.post('/api/memory/delete', { id: f.id, expectedRev: memRev() })
     if (!r.ok) { toast(r.error || '删除失败', 'error'); if (r.status === 409) memApi.reload(); return }
-    toast('已删除这条记忆')
+    toast('已删除这条记忆（她不会再记得这件事）')
     memApi.reload()
   })
 
   const factHandlers = { disabled: !!busy || !!memApi.error, onPin: togglePin, onDelete: deleteFact }
 
+  // ── 遗忘参数 ────────────────────────────────────────────────────────
   const saveMemParams = () => run('memParams', async () => {
-    if (memApi.error) { toast('记忆配置读取失败，先点「刷新」再保存', 'error'); return }
+    if (memApi.error) { toast('记忆配置读取失败，先点「重新读取」再保存', 'error'); return }
     const next = {
       halfLifeDays: Math.round(clampNum(memParams.halfLifeDays, 0.5, 365, 5) * 10) / 10,
       forgetThreshold: Math.round(clampNum(memParams.forgetThreshold, 0.01, 0.9, 0.12) * 100) / 100,
@@ -194,8 +175,9 @@ function SettingsDataTab() {
     memApi.reload()
   })
 
+  // ── 文本导入 ────────────────────────────────────────────────────────
   const importMemory = () => run('import', async () => {
-    if (memApi.error) { toast('记忆配置读取失败，先点「刷新」再导入', 'error'); return }
+    if (memApi.error) { toast('记忆配置读取失败，先点「重新读取」再导入', 'error'); return }
     const text = String(importText || '').trim()
     if (!text) { toast('先粘贴要导入的记忆文本', 'error'); return }
     const ok = await confirmDialog('导入这些记忆？', {
@@ -216,6 +198,146 @@ function SettingsDataTab() {
     setImportText('')
     memApi.reload()
   })
+
+  // ── 渲染 ────────────────────────────────────────────────────────────
+  const statGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 8, minWidth: 0 }
+  const formGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 8, minWidth: 0 }
+  const normals = normalFacts.slice(0, factLimit)
+  const hiddenCount = Math.max(0, normalFacts.length - normals.length)
+
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 } },
+
+    // 统计 + 核心/普通/归档列表
+    h(Card, {
+      title: '记忆条目',
+      tag: '按半衰期淡忘，提到会加深；置顶 = 核心记忆（永不遗忘）',
+      actions: h(Btn, { size: 'sm', kind: 'ghost', disabled: !!busy, onClick: memApi.reload, title: '重新读取记忆列表' }, '重新读取'),
+    },
+      h(Note, {}, '「置顶」= 把这条放进核心记忆（不遗忘）；「取消置顶」= 放回普通记忆，之后按清晰度慢慢衰减。'),
+      h('div', { style: statGrid },
+        settingsDataStatBox('活着的记忆', Number(stats.live) || 0),
+        settingsDataStatBox('核心（不遗忘）', Number(stats.core) || 0, T.warn),
+        settingsDataStatBox('已模糊归档', Number(stats.archived) || 0, T.text2),
+        settingsDataStatBox('日记篇数', diaryDates.length),
+      ),
+      memApi.error ? h(ErrorBox, { title: '记忆读取失败（读失败禁写）', error: memApi.error, onRetry: memApi.reload }) : null,
+      memApi.data
+        ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 } },
+            h('div', { style: { fontSize: 12, color: T.text2, marginTop: 2 } }, '核心记忆（' + coreFacts.length + '）'),
+            coreFacts.length
+              ? coreFacts.map((f) => settingsDataFactRow(f, factHandlers))
+              : h(Note, {}, '还没有核心记忆。重要的事可以「置顶」，置顶后永远记得。'),
+            h('div', { style: { fontSize: 12, color: T.text2, marginTop: 4 } }, '普通记忆（' + normalFacts.length + '）'),
+            normalFacts.length
+              ? normals.map((f) => settingsDataFactRow(f, factHandlers))
+              : h(Note, {}, '暂无普通记忆。'),
+            hiddenCount > 0
+              ? h(Btn, { size: 'sm', kind: 'ghost', onClick: () => setFactLimit((n) => n + 50) }, '再显示 50 条（还有 ' + hiddenCount + ' 条）')
+              : null,
+            archived.length
+              ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 } },
+                  h(Btn, { size: 'sm', kind: 'ghost', onClick: () => setShowArchived((v) => !v) }, (showArchived ? '收起' : '查看') + '归档（' + archived.length + '）'),
+                  showArchived
+                    ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflow: 'auto' } },
+                        archived.map((f) => h('div', { key: String(f.id), style: { fontSize: 11.5, color: T.text3, lineHeight: 1.6, borderLeft: '2px solid ' + T.border, paddingLeft: 8 } },
+                          String(f.text || '') + '（清晰度 ' + Math.round(clampNum(f.strength, 0, 1, 0) * 100) + '%）',
+                        )),
+                      )
+                    : null,
+                )
+              : null,
+          )
+        : h(Note, {}, memApi.loading ? '记忆加载中…' : '还没有读到记忆，点「重新读取」再试。'),
+    ),
+
+    // 遗忘参数
+    h(Card, { title: '遗忘参数', tag: '影响所有普通记忆' },
+      h('div', { style: formGrid },
+        h(Field, { label: '半衰期（天）', hint: '0.5 – 365；越短忘得越快，核心记忆不受影响' },
+          h(NumInput, { value: memParams.halfLifeDays, onChange: (v) => setMemParams((p) => Object.assign({}, p, { halfLifeDays: v })), min: 0.5, max: 365, step: 0.5, width: 100, disabled: !!busy || !!memApi.error, flex: true }),
+        ),
+        h(Field, { label: '遗忘阈值', hint: '0.01 – 0.9；清晰度低于它就归档' },
+          h(NumInput, { value: memParams.forgetThreshold, onChange: (v) => setMemParams((p) => Object.assign({}, p, { forgetThreshold: v })), min: 0.01, max: 0.9, step: 0.01, width: 100, disabled: !!busy || !!memApi.error, flex: true }),
+        ),
+        h(Field, { label: '提到时强化', hint: '0 – 1；对话里再次提到时加多少清晰度' },
+          h(NumInput, { value: memParams.reinforceBoost, onChange: (v) => setMemParams((p) => Object.assign({}, p, { reinforceBoost: v })), min: 0, max: 1, step: 0.05, width: 100, disabled: !!busy || !!memApi.error, flex: true }),
+        ),
+        h(Field, { label: '每轮最多注入（条）', hint: '0 – 100；还受「模型 → 上下文档位」里的每轮注入条数限制' },
+          h(NumInput, { value: memParams.maxInjected, onChange: (v) => setMemParams((p) => Object.assign({}, p, { maxInjected: v })), min: 0, max: 100, step: 1, width: 100, disabled: !!busy || !!memApi.error, flex: true }),
+        ),
+      ),
+      h(Row, { gap: 8 },
+        h(Btn, { kind: 'primary', size: 'sm', disabled: !!busy || !!memApi.error, onClick: saveMemParams }, busy === 'memParams' ? '保存中…' : '保存参数'),
+        h(Note, {}, '改完立刻生效，不用重启。'),
+      ),
+      memApi.error ? h(ErrorBox, { title: '参数读取失败（读失败禁存）', error: memApi.error, onRetry: memApi.reload }) : null,
+    ),
+
+    // 导入记忆
+    h(Card, { title: '导入记忆', tag: 'txt / md / json / jsonl 纯文本' },
+      h(TextArea, {
+        value: importText,
+        onChange: setImportText,
+        rows: 4,
+        placeholder: '每行一条；也可以直接粘贴 JSON（会被拆句去重）。例如：\n用户喜欢猫，讨厌狗\n用户最近在写作业',
+        disabled: !!busy,
+      }),
+      h('div', { style: formGrid },
+        h(Field, { label: '重要度', hint: '0 – 1；≥0.95 会自动置顶' },
+          h(NumInput, { value: importImportance, onChange: setImportImportance, min: 0, max: 1, step: 0.05, width: 100, disabled: !!busy, flex: true }),
+        ),
+        h(Field, { label: '导入后置顶', hint: '新导入的记忆立刻变成核心记忆' },
+          h(Toggle, { checked: !!importPin, disabled: !!busy, onChange: setImportPin, label: importPin ? '会置顶' : '不置顶' }),
+        ),
+      ),
+      h(Row, { gap: 8 },
+        h(Btn, { kind: 'primary', size: 'sm', disabled: !!busy || !!memApi.error, onClick: importMemory }, busy === 'import' ? '导入中…' : '导入这些记忆'),
+        h(Btn, { size: 'sm', kind: 'ghost', disabled: !!busy || !String(importText || '').trim(), onClick: () => { setImportText(''); setImportPin(false); setImportImportance(0.5) } }, '清空'),
+      ),
+      h(Note, {}, '导入会合并相似记忆、去重；不会删除或覆盖已有记忆。'),
+    ),
+  )
+}
+
+// ───────────────────────── 数据标签 ─────────────────────────
+// 记忆管理已移到「记忆」标签（SettingsMemoryCard），这里只留日记/备份/数据目录/版本/教程。
+function SettingsDataTab() {
+  const status = useStatus()
+  const st = (status && status.data) || {}
+  const setup = st.setup || {}
+
+  const diaryApi = useApi('/api/diary')
+  const backupApi = useApi('/api/backup/list')
+
+  const [verInfo, setVerInfo] = React.useState(null)
+  const [revInfo, setRevInfo] = React.useState(null)
+  const [revError, setRevError] = React.useState('')
+
+  const [diaryModal, setDiaryModal] = React.useState({ open: false, title: '', text: '', loading: false, error: '' })
+  const [tutModal, setTutModal] = React.useState({ open: false, loading: false, text: '', error: '' })
+
+  const [busy, setBusy] = React.useState('')
+
+  // ── 版本 / 数据修订（/api/version 是冻结契约，老运行时可能 404 → 静默降级）──
+  const loadMeta = React.useCallback(() => {
+    Api.get('/api/version').then((r) => { setVerInfo(r.ok && r.data ? r.data : null) }).catch(() => setVerInfo(null))
+    Api.get('/api/data/revisions').then((r) => {
+      if (r.ok && r.data) { setRevInfo(r.data); setRevError('') } else { setRevInfo(null); setRevError(r.error || '读取失败') }
+    }).catch((e) => { setRevInfo(null); setRevError((e && e.message) || '读取失败') })
+  }, [])
+  React.useEffect(() => { loadMeta() }, [loadMeta])
+
+  const run = async (key, fn) => {
+    if (busy) return
+    setBusy(key)
+    try { await fn() } catch (e) { toast('操作失败：' + ((e && e.message) || '网络错误'), 'error') } finally { setBusy('') }
+  }
+
+  const reloadAll = () => {
+    diaryApi.reload()
+    backupApi.reload()
+    loadMeta()
+  }
 
   // ── 日记 ────────────────────────────────────────────────────────────
   const diaryDates = (diaryApi.data && diaryApi.data.dates) || []
@@ -329,10 +451,6 @@ function SettingsDataTab() {
   }
 
   // ── 渲染 ────────────────────────────────────────────────────────────
-  const statGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 8, minWidth: 0 }
-  const formGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 8, minWidth: 0 }
-  const normals = normalFacts.slice(0, factLimit)
-  const hiddenCount = Math.max(0, normalFacts.length - normals.length)
   const revEntityCount = revInfo && revInfo.entities ? Object.keys(revInfo.entities).length : 0
   const revAt = revInfo && revInfo.updatedAt ? Date.parse(revInfo.updatedAt) : 0
   const deviceShort = revInfo && revInfo.deviceId ? String(revInfo.deviceId).slice(0, 8) : ''
@@ -341,98 +459,12 @@ function SettingsDataTab() {
 
     // 顶部：刷新
     h(Row, { gap: 8, justify: 'space-between' },
-      h(Note, {}, '记忆/日记/备份都直接读写本机运行时数据目录；危险操作都会二次确认。'),
-      h(Btn, { size: 'sm', kind: 'ghost', onClick: reloadAll, disabled: !!busy, title: '重新读取记忆 / 日记 / 备份 / 版本' }, '刷新'),
+      h(Note, {}, '日记/备份都直接读写本机运行时数据目录；危险操作都会二次确认。'),
+      h(Btn, { size: 'sm', kind: 'ghost', onClick: reloadAll, disabled: !!busy, title: '重新读取日记 / 备份 / 版本' }, '刷新'),
     ),
 
-    // 记忆统计 + 列表
-    h(Card, {
-      title: '记忆',
-      tag: '按半衰期淡忘，提到会加深；置顶=永远记得',
-      actions: h(Btn, { size: 'sm', kind: 'ghost', disabled: !!busy || !!memApi.error, onClick: memApi.reload }, '重新读取'),
-    },
-      h('div', { style: statGrid },
-        settingsDataStatBox('活着的记忆', Number(stats.live) || 0),
-        settingsDataStatBox('核心（不遗忘）', Number(stats.core) || 0, T.warn),
-        settingsDataStatBox('已模糊归档', Number(stats.archived) || 0, T.text2),
-        settingsDataStatBox('日记篇数', diaryDates.length),
-      ),
-      memApi.error ? h(ErrorBox, { title: '记忆读取失败（读失败禁写）', error: memApi.error, onRetry: memApi.reload }) : null,
-      memApi.data
-        ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 } },
-            h('div', { style: { fontSize: 12, color: T.text2, marginTop: 2 } }, '核心记忆（' + coreFacts.length + '）'),
-            coreFacts.length
-              ? coreFacts.map((f) => settingsDataFactRow(f, factHandlers))
-              : h(Note, {}, '还没有核心记忆。重要的事可以「置顶」，置顶后永远记得。'),
-            h('div', { style: { fontSize: 12, color: T.text2, marginTop: 4 } }, '普通记忆（' + normalFacts.length + '）'),
-            normalFacts.length
-              ? normals.map((f) => settingsDataFactRow(f, factHandlers))
-              : h(Note, {}, '暂无普通记忆。'),
-            hiddenCount > 0
-              ? h(Btn, { size: 'sm', kind: 'ghost', onClick: () => setFactLimit((n) => n + 50) }, '再显示 50 条（还有 ' + hiddenCount + ' 条）')
-              : null,
-            archived.length
-              ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 } },
-                  h(Btn, { size: 'sm', kind: 'ghost', onClick: () => setShowArchived((v) => !v) }, (showArchived ? '收起' : '查看') + '归档（' + archived.length + '）'),
-                  showArchived
-                    ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflow: 'auto' } },
-                        archived.map((f) => h('div', { key: String(f.id), style: { fontSize: 11.5, color: T.text3, lineHeight: 1.6, borderLeft: '2px solid ' + T.border, paddingLeft: 8 } },
-                          String(f.text || '') + '（清晰度 ' + Math.round(clampNum(f.strength, 0, 1, 0) * 100) + '%）',
-                        )),
-                      )
-                    : null,
-                )
-              : null,
-          )
-        : h(Note, {}, memApi.loading ? '记忆加载中…' : '还没有读到记忆，点「重新读取」再试。'),
-    ),
-
-    // 遗忘参数
-    h(Card, { title: '遗忘参数', tag: '影响所有普通记忆' },
-      h('div', { style: formGrid },
-        h(Field, { label: '半衰期（天）', hint: '0.5 – 365；越短忘得越快，核心记忆不受影响' },
-          h(NumInput, { value: memParams.halfLifeDays, onChange: (v) => setMemParams((p) => Object.assign({}, p, { halfLifeDays: v })), min: 0.5, max: 365, step: 0.5, width: 100, disabled: !!busy || !!memApi.error, flex: true }),
-        ),
-        h(Field, { label: '遗忘阈值', hint: '0.01 – 0.9；清晰度低于它就归档' },
-          h(NumInput, { value: memParams.forgetThreshold, onChange: (v) => setMemParams((p) => Object.assign({}, p, { forgetThreshold: v })), min: 0.01, max: 0.9, step: 0.01, width: 100, disabled: !!busy || !!memApi.error, flex: true }),
-        ),
-        h(Field, { label: '提到时强化', hint: '0 – 1；对话里再次提到时加多少清晰度' },
-          h(NumInput, { value: memParams.reinforceBoost, onChange: (v) => setMemParams((p) => Object.assign({}, p, { reinforceBoost: v })), min: 0, max: 1, step: 0.05, width: 100, disabled: !!busy || !!memApi.error, flex: true }),
-        ),
-        h(Field, { label: '每轮最多注入（条）', hint: '0 – 100；还受「模型 → 上下文档位」里的每轮注入条数限制' },
-          h(NumInput, { value: memParams.maxInjected, onChange: (v) => setMemParams((p) => Object.assign({}, p, { maxInjected: v })), min: 0, max: 100, step: 1, width: 100, disabled: !!busy || !!memApi.error, flex: true }),
-        ),
-      ),
-      h(Row, { gap: 8 },
-        h(Btn, { kind: 'primary', size: 'sm', disabled: !!busy || !!memApi.error, onClick: saveMemParams }, busy === 'memParams' ? '保存中…' : '保存参数'),
-        h(Note, {}, '改完立刻生效，不用重启。'),
-      ),
-      memApi.error ? h(ErrorBox, { title: '参数读取失败（读失败禁存）', error: memApi.error, onRetry: memApi.reload }) : null,
-    ),
-
-    // 导入记忆
-    h(Card, { title: '导入记忆', tag: 'txt / md / json / jsonl 纯文本' },
-      h(TextArea, {
-        value: importText,
-        onChange: setImportText,
-        rows: 4,
-        placeholder: '每行一条；也可以直接粘贴 JSON（会被拆句去重）。例如：\n用户喜欢猫，讨厌狗\n用户最近在写作业',
-        disabled: !!busy,
-      }),
-      h('div', { style: formGrid },
-        h(Field, { label: '重要度', hint: '0 – 1；≥0.95 会自动置顶' },
-          h(NumInput, { value: importImportance, onChange: setImportImportance, min: 0, max: 1, step: 0.05, width: 100, disabled: !!busy, flex: true }),
-        ),
-        h(Field, { label: '导入后置顶', hint: '新导入的记忆立刻变成核心记忆' },
-          h(Toggle, { checked: !!importPin, disabled: !!busy, onChange: setImportPin, label: importPin ? '会置顶' : '不置顶' }),
-        ),
-      ),
-      h(Row, { gap: 8 },
-        h(Btn, { kind: 'primary', size: 'sm', disabled: !!busy || !!memApi.error, onClick: importMemory }, busy === 'import' ? '导入中…' : '导入这些记忆'),
-        h(Btn, { size: 'sm', kind: 'ghost', disabled: !!busy || !String(importText || '').trim(), onClick: () => { setImportText(''); setImportPin(false); setImportImportance(0.5) } }, '清空'),
-      ),
-      h(Note, {}, '导入会合并相似记忆、去重；不会删除或覆盖已有记忆。'),
-    ),
+    // 记忆管理已移到「记忆」标签
+    h(Note, {}, '记忆条目的查看/置顶/删除/导入、遗忘参数在「记忆」标签里管理；这里是日记、备份、数据目录、版本与教程。'),
 
     // 日记
     h(Card, { title: '日记', tag: '她每天写一篇' },

@@ -89,6 +89,17 @@ npm run smoke:client  # 38/38（把 lib/client.js 在 Node 里挂载：迷你 Re
 
 **0.7.24 新增端点 13 个**（向后兼容，`apiVersion` 仍 2）：`/api/balance/refresh`、`/api/vm-chat/open`、`/api/direct-chat/{settings,status,friends,send,test,event}`、`/api/update/{check,apply,settings}`。契约见 `API-CONTRACT.md` §13 + `schema/api-index.json`（141 端点 / 14 组）。
 
+**0.7.24 二次追加验证（2026-11-15 凌晨）**
+
+| 项 | 方式 | 结果 |
+|---|---|---|
+| 旧记忆迁移 | 真实数据：`data/memory/facts.json`（10 条）→ 当前角色 memory/，旧文件改名 `.migrated`；旧日记 2026-11-10 一并迁入 | ✅ 面板「记忆」显示 10 条，统计 live=10 / archived=0 / 日记 4 篇 |
+| 记忆衰减 bug | 代码修复（decayedAt 幂等）+ 真实数据修复后重启核对 | ✅ API stats live=10，不再每次调用掉到 0 |
+| 置顶/取消置顶 | 真实数据 API 往返（fact id=1，带 expectedRev） | ✅ core 0→1→0 |
+| 记忆管理 UI | 真实 DSH 面板截图：记忆标签有核心/普通/归档列表与每条置顶/删除按钮 | ✅ 渲染正常（UI 点击在本机受桌面宠物窗口遮挡/焦点影响，没做成一次机器点击） |
+| 设置页崩溃修复 | 真实面板：修复前「设置渲染失败：check is not defined」；修复 + 热重载后设置页正常渲染 | ✅ |
+| 内嵌虚拟屏幕 | 真实 DSH 面板屏幕标签：noVNC iframe 直接显示她的虚拟机桌面（QQ 窗口可见），无需外部浏览器 | ✅ |
+
 **真实 VM 通道测试记录**（2026-11-14 23:11，用户授权「所有测试的都可以发给aedo」）：
 - `targetContact=aedo` → `POST /api/vm-chat/open {contact:"aedo", row:{x:266,y:265}}` → QQ 会话切到 aedo（截图确认）
 - `POST /api/vm-chat/send {text:"（测试消息）…", composer:{x:500,y:750}, skipVerify:true}` → 消息出现在右侧气泡

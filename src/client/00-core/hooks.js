@@ -87,10 +87,16 @@ let statusFails = 0
 let statusVisibleBound = false
 const statusSubs = new Set()
 
+let statusFetchingAt = 0
 async function pollStatusOnce() {
-  if (statusFetching) return
+  if (statusFetching) {
+    // 卡住超过 20 秒就当没在请求，否则一次挂起的请求会让以后所有轮询都 return（表现为「重试没反应」）
+    if (Date.now() - statusFetchingAt > 20000) statusFetching = false
+    else return
+  }
   try { if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return } catch (e) {}
   statusFetching = true
+  statusFetchingAt = Date.now()
   try {
     const r = await Api.get('/api/status')
     if (!r.ok) throw new Error(r.error || 'HTTP ' + r.status)

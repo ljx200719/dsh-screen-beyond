@@ -560,15 +560,16 @@ function SettingsContextCard() {
   )
 }
 
-// 记忆标签：上下文卡片 + 说明（记忆条目的增删在「数据」标签）
+// 记忆标签：上下文卡片 + 记忆管理（条目列表/置顶/删除/导入/遗忘参数，组件在 settings-data.js）+ 说明
 function SettingsMemoryTab() {
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 } },
     h(SettingsContextCard, {}),
+    h(SettingsMemoryCard, {}),
     h(Card, { title: '关于记忆', sub: '她记住的东西分三层' },
       h(Note, {}, '· 长期记忆条目：她对你的印象、发生过的事，会按重要度/新近度衰减，强的重要条目会被注入。'),
       h(Note, {}, '· 聊天历史：上面「聊天历史」档位决定这一轮带多少原文；太省 token 会让她记不住刚说过的话。'),
-      h(Note, {}, '· 日记/摘要：她每天写日记，历史被精简时会用摘要补上下文。'),
-      h(Note, {}, '记忆条目的查看/置顶/删除、遗忘参数、日记查看在「数据」标签里管理。'),
+      h(Note, {}, '· 日记/摘要：她每天写日记，历史被精简时会用摘要补上下文；日记本身在「数据」标签里查看/生成。'),
+      h(Note, {}, '· 上面的记忆列表：「置顶」= 放进核心记忆（永不遗忘）；「取消置顶」= 回到普通记忆按清晰度衰减；删除后她就不会再记得这件事。'),
     ),
   )
 }

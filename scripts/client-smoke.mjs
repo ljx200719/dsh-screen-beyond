@@ -278,7 +278,8 @@ if (captured) {
   }
 }
 // 不含 iframe / 不请求 HTML 页面（静态）
-check('产物不含 iframe（N01）', !/<iframe/i.test(clientCode) && !/createElement\(\s*['"]iframe['"]\s*\)/i.test(clientCode), '');
+// 用户要求屏幕标签内嵌 noVNC（虚拟机自带画面服务，不是旧版插件网页）：允许 iframe，但只允许这个用途
+check('产物只用 iframe 内嵌 noVNC（不嵌业务网页）', /vnc\.html/.test(clientCode) && !/<iframe[^>]+(?:chat|map|settings|stage|model|screen)\.html/i.test(clientCode), '');
 check('产物不请求旧 HTML 页面', !/['"]\/(?:map|settings|stage|model|screen|chat)\.html['"]/.test(clientCode), '');
 
 // ───────────────────────── 渲染树工具 ─────────────────────────
@@ -382,6 +383,13 @@ function collectTags(node, out) {
   if (node.tree) { collectTags(node.tree, out); return }
   if (node.tag) out.push(node.tag);
   if (node.children) node.children.forEach((c) => collectTags(c, out));
+}
+function collectFrames(node, out) {
+  if (!node) return;
+  if (Array.isArray(node)) { node.forEach((n) => collectFrames(n, out)); return }
+  if (node.tree) { collectFrames(node.tree, out); return }
+  if (node.tag === 'iframe') out.push(String((node.props && node.props.src) || ''));
+  if (node.children) node.children.forEach((c) => collectFrames(c, out));
 }
 function collectButtons(node, out) {
   if (!node) return;
@@ -525,9 +533,10 @@ async function run() {
     tree = step.tree;
     const screenText = allText(tree);
     check('屏幕标签有「打开她的屏幕」且无内嵌网页', screenText.indexOf('打开她的屏幕') >= 0, '');
-    const screenTags = [];
-    collectTags(tree, screenTags);
-    check('屏幕渲染树无 iframe（她的屏幕走外部浏览器）', screenTags.indexOf('iframe') < 0, '');
+    const frames = [];
+    collectFrames(tree, frames);
+    check('屏幕标签内嵌虚拟屏幕（noVNC iframe）', frames.length > 0 && frames.every((u) => /vnc|6081|8900\/screen/i.test(u)), frames.join(','));
+    check('内嵌画面不是旧版插件网页', !frames.some((u) => /\/(?:chat|map|settings|stage|model|screen)\.html/.test(u)), frames.join(','));
     const openStep = await pressButton(AppShell, {}, tree, (b) => /打开她的屏幕/.test(b.label));
     tree = openStep.ok ? openStep.tree : tree;
     const vnc = openedWindows.filter((u) => u.indexOf('vnc.html') >= 0);

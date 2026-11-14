@@ -34,7 +34,11 @@ export class MemoryStore {
     let a = [];
     try { const raw = JSON.parse(fs.readFileSync(this.file, 'utf8')); a = Array.isArray(raw) ? raw : []; } catch { a = []; }
     let changed = false;
-    for (const f of a) { if (f && !f.uid) { f.uid = randomUUID(); changed = true; } }
+    for (const f of a) {
+      if (!f) continue;
+      if (!f.uid) { f.uid = randomUUID(); changed = true; }
+      if (!f.decayedAt) { f.decayedAt = Number(f.lastSeenAt) || Number(f.createdAt) || Date.now(); changed = true; }
+    }
     this.facts = a;
     if (changed) { try { this.save(); } catch {} }
     return a;
@@ -59,17 +63,21 @@ export class MemoryStore {
   nextId() { return this.facts.reduce((m, f) => Math.max(m, f.id || 0), 0) + 1; }
 
   // 时间衰减：strength 按半衰期指数衰减；pinned 不衰减
+  // 幂等衰减：强度只按「上次衰减之后」流逝的时间再乘一次系数（记 decayedAt）。
+  // 旧实现每次都从 lastSeenAt 重新算，调用几次就把记忆衰减到 0（老 bug）。
   decay(now = Date.now()) {
     let changed = false;
     for (const f of this.facts) {
-      if (f.pinned) { f.strength = 1; continue; }
-      const last = f.lastSeenAt || f.createdAt || now;
-      const days = (now - last) / 86400000;
-      if (days <= 0) continue;
+      if (f.pinned) { if (f.strength !== 1) { f.strength = 1; changed = true; } continue; }
+      const refAt = Number(f.decayedAt) || Number(f.lastSeenAt) || Number(f.createdAt) || now;
+      const days = (now - refAt) / 86400000;
+      if (days <= 0) { if (!f.decayedAt) { f.decayedAt = refAt; changed = true; } continue; }
       const factor = Math.pow(0.5, days / this.cfg.halfLifeDays);
       const next = Math.max(0, (f.strength ?? 0.5) * factor);
-      if (Math.abs(next - (f.strength ?? 0)) > 0.001) { f.strength = Number(next.toFixed(4)); changed = true; }
-      if (f.strength < this.cfg.forgetThreshold && !f.archived) { f.archived = true; changed = true; }
+      f.decayedAt = now; changed = true;
+      if (Number(next.toFixed(4)) !== Number(f.strength ?? 0)) f.strength = Number(next.toFixed(4));
+      if (f.strength < this.cfg.forgetThreshold && !f.archived) f.archived = true;
+      if (f.strength >= this.cfg.forgetThreshold && f.archived && f.lastSeenAt && f.lastSeenAt > (now - 30 * 86400000)) f.archived = false;
     }
     if (changed) this.save();
   }
@@ -87,6 +95,7 @@ export class MemoryStore {
       if (existing) {
         existing.hitCount = (existing.hitCount || 1) + 1;
         existing.lastSeenAt = now;
+        existing.decayedAt = now;
         existing.strength = Math.min(1, (existing.strength ?? 0.3) + this.cfg.reinforceBoost * (0.6 + importance * 0.8));
         existing.importance = Math.max(existing.importance ?? 0, importance);
         existing.archived = existing.strength >= this.cfg.forgetThreshold ? false : existing.archived;
@@ -97,7 +106,7 @@ export class MemoryStore {
           id: this.nextId(), uid: randomUUID(), text, tags,
           importance,
           strength: Math.min(1, 0.35 + importance * 0.5),
-          createdAt: now, lastSeenAt: now, hitCount: 1,
+          createdAt: now, lastSeenAt: now, decayedAt: now, hitCount: 1,
           pinned: importance >= 0.95,
           archived: false,
         };
@@ -115,6 +124,7 @@ export class MemoryStore {
     if (!f) return;
     f.hitCount = (f.hitCount || 1) + 1;
     f.lastSeenAt = now;
+    f.decayedAt = now;
     f.strength = Math.min(1, (f.strength ?? 0.3) + this.cfg.reinforceBoost * 0.5);
     if (f.archived && f.strength >= this.cfg.forgetThreshold) f.archived = false;
     this.save();

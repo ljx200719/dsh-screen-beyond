@@ -359,6 +359,61 @@ function addMessage(role, text, image, opts) {
 }
 
 let MEM = null;
+// 旧版本把记忆/日记放在 data/memory、data/diary（全局，不分角色）。
+// 分角色改造时没有迁移，导致老用户的真实记忆在面板里「消失」。这里做一次性迁移：
+//   当前角色 memory/facts.json 为空 + 旧全局 facts.json 有内容 → 复制进来并把旧文件改名 .migrated；
+//   旧全局日记目录里缺的日期 → 补到当前角色 diary/（不覆盖已有文件）。
+function migrateLegacyMemory() {
+  try {
+    const legacyFacts = path.join(ROOT, 'data', 'memory', 'facts.json');
+    const legacyDiary = path.join(ROOT, 'data', 'diary');
+    const charFacts = path.join(charDir(), 'memory', 'facts.json');
+    let have = 0;
+    try { const a = JSON.parse(fs.readFileSync(charFacts, 'utf8')); have = Array.isArray(a) ? a.length : 0 } catch {}
+    if (have === 0 && fs.existsSync(legacyFacts)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(legacyFacts, 'utf8'));
+        const list = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.facts) ? raw.facts : []);
+        const merged = list.filter((f) => f && f.text).map((f) => Object.assign({}, f));
+        if (merged.length) {
+          let next = 1;
+          const nowMs = Date.now();
+          const halfLife = Math.max(0.5, Number((CONFIG.memory || {}).halfLifeDays) || 5);
+          const forgetAt = Math.max(0.01, Number((CONFIG.memory || {}).forgetThreshold) || 0.12);
+          for (const f of merged) {
+            f.uid = f.uid || randomUUID();
+            f.id = next++;
+            if (!Number.isFinite(Number(f.strength))) f.strength = 0.6;
+            if (!Number.isFinite(Number(f.importance))) f.importance = 0.5;
+            const last = Number(f.lastSeenAt) || Number(f.createdAt) || nowMs;
+            const days = Math.max(0, (nowMs - last) / 86400000);
+            f.strength = Number(Math.max(0, Number(f.strength) * Math.pow(0.5, days / halfLife)).toFixed(4));
+            f.decayedAt = nowMs;
+            f.archived = !!f.pinned ? false : (f.strength < forgetAt || !!f.archived);
+          }
+          MEM.facts = merged;
+          MEM.save();
+          try { fs.renameSync(legacyFacts, legacyFacts + '.migrated'); } catch {}
+          console.log('[companion] 已迁移旧版全局记忆 ' + merged.length + ' 条到 ' + charDir());
+        }
+      } catch (e) { console.warn('[companion] 旧记忆迁移失败（不影响启动）：' + String((e && e.message) || e)); }
+    }
+    try {
+      if (fs.existsSync(legacyDiary)) {
+        const diaryDir = path.join(charDir(), 'diary');
+        fs.mkdirSync(diaryDir, { recursive: true });
+        for (const name of fs.readdirSync(legacyDiary)) {
+          if (!/\.md$/i.test(name)) continue;
+          const to = path.join(diaryDir, name);
+          if (!fs.existsSync(to)) {
+            fs.copyFileSync(path.join(legacyDiary, name), to);
+            console.log('[companion] 已迁移旧版日记 ' + name);
+          }
+        }
+      }
+    } catch (e) { console.warn('[companion] 旧日记迁移失败（不影响启动）：' + String((e && e.message) || e)); }
+  } catch (e) { try { console.warn('[companion] migrateLegacyMemory: ' + String((e && e.message) || e)); } catch {} }
+}
 function initMemory() {
   MEM = new MemoryStore({
     path: path.join(charDir(), 'memory'), diaryPath: path.join(charDir(), 'diary'),
@@ -374,6 +429,7 @@ function initMemory() {
       } catch {}
     },
   });
+  migrateLegacyMemory();
 }
 function snapshotCharacterWorld() {
   if (!ACTIVE_CHAR) return;

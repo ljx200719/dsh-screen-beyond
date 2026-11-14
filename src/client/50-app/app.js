@@ -206,8 +206,22 @@ function AppShell() {
     setReconnecting(true)
     try {
       Runtime.reset()
-      await Runtime.discover(true)
-      await pollStatusOnce()
+      let ok = false
+      let lastErr = ''
+      for (let i = 0; i < 10; i++) {
+        try {
+          await Runtime.discover(true)
+          await pollStatusOnce()
+          const snap = StatusStore.get()
+          if (snap && snap.data && snap.data.version && !snap.error) { ok = true; break }
+          lastErr = (snap && snap.error) || ''
+        } catch (e) {
+          lastErr = String((e && e.message) || e)
+        }
+        await new Promise((r) => setTimeout(r, 1500))
+      }
+      if (ok) toast('已连上运行时')
+      else toast('还连不上运行时' + (lastErr ? '：' + lastErr : '（等几秒再点一次）'), 'error')
     } finally {
       setReconnecting(false)
     }

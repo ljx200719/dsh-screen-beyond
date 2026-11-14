@@ -1,9 +1,12 @@
-// 40-screen/screen.js —— 屏幕：她的屏幕用系统浏览器打开（D06 A），面板里只放只读截图和开关
+// 40-screen/screen.js —— 屏幕：她的虚拟屏幕（noVNC）默认内嵌在面板里 + 系统浏览器兜底；手机/电脑是只读截图
 //
 // 为什么这么写：
-//   · 她的 Linux 桌面是 noVNC（127.0.0.1:6081/vnc.html）。面板里**不内嵌网页、不加载任何 HTML 页面**：
-//     点「打开她的屏幕」只是把地址交给系统浏览器（顶栏「看屏幕」和 Alt+S 都走 openHerScreen）；
-//   · 面板里能看的是只读截图：她的手机（/api/screen/phone，3 秒刷新）、你的电脑（/api/screen/pc，2.5 秒刷新）；
+//   · 2026-11-15 用户要求「手机截图都嵌入了，虚拟屏幕也嵌进面板」：新增「内嵌虚拟屏幕」卡片，
+//     默认用 iframe 显示 noVNC（127.0.0.1:6081/vnc.html；这是虚拟机自带的实时画面服务，没有 X-Frame-Options）；
+//   · 外部浏览器没删：「打开她的屏幕」按钮 / 顶栏「看屏幕」/ Alt+S 仍然走 openHerScreen，
+//     作为窗口太小、或 DSH 面板 CSP 不允许内嵌时的兜底；
+//   · 除这一个 noVNC 画面外，面板里没有其它 iframe，也不请求旧版插件的任何 HTML 页面；
+//   · 面板里另外能看的是只读截图：她的手机（/api/screen/phone，3 秒刷新）、你的电脑（/api/screen/pc，2.5 秒刷新）；
 //   · 虚拟机/模拟器都很吃内存，启动/关闭一律先 confirmDialog；后端内存不足会 refused，这里显示它的 message；
 //   · 所有失败都给中文说明（M06 验收：失败有错误说明），不静默失败。
 
@@ -11,8 +14,12 @@ const SCREEN_SPACE_POLL_MS = 6000
 const SCREEN_PHONE_SHOT_MS = 3000
 const SCREEN_PC_SHOT_MS = 2500
 const SCREEN_ENSURE_TIMEOUT_SEC = 90
-// noVNC 的自动连接参数：不告诉它连哪台/自动重连的话，浏览器里还要手动点一次连接
+// 外部浏览器用的 noVNC 参数：不告诉它自动连接/自动重连的话，浏览器里还要手动点一次连接
 const SCREEN_VNC_QUERY = 'autoconnect=1&reconnect=1&reconnect_delay=2000&resize=scale'
+// 内嵌 iframe 用的 noVNC 参数（按需求：自动连接 / 随容器缩放 / 自动重连 / 显示连接状态点 / 裁剪视口）
+const SCREEN_EMBED_PARAMS = 'autoconnect=true&resize=scale&reconnect=true&show_dot=true&view_clip=true'
+// onLoad 之前最多等这么久；超时按「内嵌失败」处理（CSP 拦截/服务没起来都会命中）
+const SCREEN_EMBED_LOAD_TIMEOUT_MS = 8000
 
 // 她的屏幕状态 → 中文（后端 /api/screen/space/status 只有 vm/http/healing 三个布尔量）
 function screenSpaceText(st) {
@@ -36,6 +43,17 @@ function screenVncSrc(spaceUrl) {
   if (!base) return ''
   const sep = base.indexOf('?') >= 0 ? '&' : '?'
   return base + sep + SCREEN_VNC_QUERY
+}
+
+// 内嵌 iframe 的 noVNC 地址：spaceUrl 可能已经带 query 或 #hash，两种都要容错
+function screenEmbedSrc(spaceUrl) {
+  const raw = String(spaceUrl || '').trim()
+  if (!raw) return ''
+  const hashIdx = raw.indexOf('#')
+  const head = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw
+  const hash = hashIdx >= 0 ? raw.slice(hashIdx) : ''
+  const sep = head.indexOf('?') >= 0 ? '&' : '?'
+  return head + sep + SCREEN_EMBED_PARAMS + hash
 }
 
 // /api/resources 的 mem 形如 "VBoxHeadless:6123"（进程名:占用的 MB）
@@ -88,8 +106,184 @@ async function openHerScreen() {
   }
 }
 
+// ── 内嵌虚拟屏幕（noVNC iframe）──────────────────────────────────────────
+// 用户明确要求把她的虚拟机桌面直接嵌进面板（不再只跳外部浏览器）。
+// noVNC（127.0.0.1:6081/vnc.html）是虚拟机自带的画面服务、没有 X-Frame-Options，可以直接 iframe 内嵌；
+// 它不属于旧版插件网页。万一被 DSH 面板的 CSP 拦掉：onError / 8 秒超时会给「重试内嵌 + 外部浏览器」兜底。
+function ScreenEmbedCard(props) {
+  const p = props || {}
+  const spaceUrl = String(p.spaceUrl || '')
+  const st = p.spaceStatus || null
+  const [embed, setEmbed] = useLocal('companionScreenEmbed', true)
+  const [frameKey, setFrameKey] = React.useState(0)
+  const [frameLoaded, setFrameLoaded] = React.useState(false)
+  const [frameError, setFrameError] = React.useState('')
+  const prevHttp = React.useRef(null)
+
+  const src = screenEmbedSrc(spaceUrl)
+  const httpOk = !!(st && st.http)
+  const statusKnown = !!st
+  const waiting = !!embed && !!src && !frameLoaded && !frameError
+
+  // 重建 iframe（换 key → 卸载旧的、重新加载）
+  const reloadFrame = () => {
+    setFrameLoaded(false)
+    setFrameError('')
+    setFrameKey((k) => k + 1)
+  }
+
+  // 地址变了（第一次拿到地址 / 运行时换端口）→ 重置 iframe 状态
+  React.useEffect(() => {
+    setFrameLoaded(false)
+    setFrameError('')
+  }, [src])
+
+  // 折叠时立刻卸掉加载态；再展开会重新连接（折叠期间 iframe 不渲染，省内存/CPU）
+  React.useEffect(() => {
+    if (!embed) {
+      setFrameLoaded(false)
+      setFrameError('')
+    }
+  }, [embed])
+
+  // onLoad 之前最多等 8 秒：CSP 拦截 / noVNC 没起来 / 链路断都会命中这个兜底
+  React.useEffect(() => {
+    if (!embed || !src || frameLoaded || frameError) return undefined
+    const timer = setTimeout(() => {
+      setFrameError('内嵌画面等了 8 秒还没加载出来：可能是 noVNC 服务没启动、画面链路断了，或浏览器策略不允许内嵌本机页面。')
+    }, SCREEN_EMBED_LOAD_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [embed, src, frameLoaded, frameError, frameKey])
+
+  // 画面链路从断到通：自动重建 iframe，用户不用手动点重试
+  React.useEffect(() => {
+    const was = prevHttp.current
+    prevHttp.current = httpOk
+    if (was === false && httpOk) reloadFrame()
+  }, [httpOk])
+
+  // 如果 DSH 面板自己设了 CSP frame-src，iframe 会被拦成空白；监听安全策略违规，给准确提示
+  React.useEffect(() => {
+    if (!embed || !src) return undefined
+    if (typeof document === 'undefined' || !document || typeof document.addEventListener !== 'function') return undefined
+    const onViolation = (e) => {
+      try {
+        const directive = String((e && (e.effectiveDirective || e.violatedDirective)) || '')
+        if (!/frame/i.test(directive)) return
+        setFrameLoaded(false)
+        setFrameError('DSH 面板的内容安全策略（CSP）不允许内嵌 noVNC 画面：请用「外部浏览器打开」，或让开发者在面板 CSP 的 frame-src 里放行本机 noVNC 地址。')
+      } catch (err) {}
+    }
+    document.addEventListener('securitypolicyviolation', onViolation)
+    return () => document.removeEventListener('securitypolicyviolation', onViolation)
+  }, [embed, src])
+
+  const openExternalBtn = h(Btn, {
+    size: 'sm',
+    kind: 'primary',
+    onClick: () => { if (p.onOpenExternal) p.onOpenExternal() },
+    title: '用系统浏览器打开同一台虚拟机的画面（内嵌失败时的兜底）',
+  }, '用系统浏览器打开')
+
+  let body
+  if (!embed) {
+    body = h(Empty, { icon: '🖥️' }, '内嵌画面已折叠（折叠时不会加载 iframe，省内存和 CPU）。点「展开」继续看她的桌面，或直接用外部浏览器打开。')
+  } else if (!src) {
+    const errText = String(p.infoError || '')
+    if (errText) {
+      body = h(ErrorBox, { title: '拿不到虚拟屏幕地址', error: errText, onRetry: p.onReloadInfo })
+    } else {
+      body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+        p.infoLoading
+          ? h(Loading, { text: '正在读取她的屏幕地址…' })
+          : h(Empty, { icon: '🖥️' }, '运行时还没给出 noVNC 地址（spaceUrl 为空）：可以先点下面「她自己的屏幕」里的「启动/修复」，或直接用外部浏览器打开。'),
+        h(Row, { gap: 8 }, openExternalBtn),
+      )
+    }
+  } else {
+    const frame = h('div', {
+      style: {
+        position: 'relative', width: '100%',
+        height: 'clamp(480px, calc(100vh - 320px), 820px)',
+        background: T.bg, border: '1px solid ' + T.border, borderRadius: T.radius, overflow: 'hidden',
+      },
+    },
+      h('iframe', {
+        key: 'screen-embed-' + frameKey,
+        src: src,
+        title: '她的虚拟屏幕（noVNC）',
+        referrerPolicy: 'no-referrer',
+        allow: 'clipboard-read; clipboard-write',
+        onLoad: () => { setFrameLoaded(true); setFrameError('') },
+        onError: () => setFrameError('内嵌虚拟屏幕加载失败：noVNC 页面打不开（服务没起来，或浏览器策略不允许内嵌）。'),
+        style: { width: '100%', height: '100%', border: '0', display: 'block', background: T.bg },
+      }),
+      waiting
+        ? h('div', {
+            style: {
+              position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 8, padding: 20,
+              background: T.bg, textAlign: 'center',
+            },
+          },
+            h(Loading, { text: '虚拟屏幕连接中…（第一次约 3~10 秒）' }),
+            h(Note, {}, '连上后可以直接在面板里点鼠标、敲键盘；画面会随窗口自动缩放。'),
+          )
+        : null,
+      frameError
+        ? h('div', {
+            style: {
+              position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 10, padding: 20,
+              background: T.bg, textAlign: 'center',
+            },
+          },
+            h('div', { style: { fontSize: 13, fontWeight: 600, color: T.text } }, '内嵌虚拟屏幕没加载出来'),
+            h('div', { style: { fontSize: 12, color: T.text2, lineHeight: 1.7, maxWidth: 560 } }, frameError),
+            h(Row, { gap: 8 },
+              h(Btn, { kind: 'primary', size: 'sm', onClick: reloadFrame }, '重试内嵌'),
+              openExternalBtn,
+            ),
+            h(Note, {}, '一直失败就不要等内嵌了：外部浏览器一定能打开，画面是同一台虚拟机。'),
+          )
+        : null,
+    )
+    body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+      statusKnown && !httpOk
+        ? h('div', { style: { fontSize: 11.5, color: T.warn, lineHeight: 1.6 } },
+            '她的屏幕现在还没连上（虚拟机没开或画面链路断了）：先在下面「她自己的屏幕」卡片里点「启动/修复」，连上后这里会自动重新连接。')
+        : null,
+      frame,
+      h(Note, {}, '内嵌的是她虚拟机的桌面实时画面（noVNC）：可以直接在面板里点鼠标、敲键盘，窗口会自动缩放。'),
+      h(Note, {}, '第一次连接约 3~10 秒；切到别的标签再回来会重新连。画面太小就点「折叠」，再用「外部浏览器打开」。'),
+      h(Note, {}, '如果画面一直空白/黑屏：多半是浏览器策略不允许内嵌本机页面，点上面的「外部浏览器打开」即可（同一台虚拟机）。'),
+    )
+  }
+
+  return h(Card, {
+    title: '内嵌虚拟屏幕',
+    sub: 'noVNC 实时画面 · 在面板里直接看和操作',
+    tag: embed ? '实时' : '已折叠',
+    actions: h(Row, { gap: 6, wrap: false },
+      h(Btn, {
+        size: 'sm',
+        kind: embed ? 'soft' : 'ghost',
+        onClick: () => setEmbed((v) => !v),
+        title: embed ? '折叠后不加载 iframe，省内存/CPU' : '展开内嵌画面（会重新连接）',
+      }, embed ? '折叠' : '展开'),
+      h(Btn, { size: 'sm', disabled: !embed || !src, onClick: reloadFrame, title: '重建 iframe 重新连接' }, '重新连接'),
+      h(Btn, {
+        size: 'sm',
+        kind: 'primary',
+        onClick: () => { if (p.onOpenExternal) p.onOpenExternal() },
+        title: '用系统浏览器打开（画面太小/嵌不进去时的兜底）',
+      }, '外部浏览器'),
+    ),
+  }, body)
+}
+
 function ScreenView(props) {
-  // 地址 / 屏幕状态 / 环境状态：都走只读 JSON 接口，不请求任何 HTML 页面
+  // 地址 / 屏幕状态 / 环境状态：只走 /api/* JSON 接口（noVNC 画面是 iframe，独立于这些请求）
   const info = useApi('/api/screen/info', { refreshMs: 30000 })
   const space = useApi('/api/screen/space/status', { refreshMs: SCREEN_SPACE_POLL_MS })
   const res = useApi('/api/resources', { refreshMs: 8000 })
@@ -110,6 +304,16 @@ function ScreenView(props) {
   const screenRunning = resources ? !!resources.space : null
   const phoneRunning = resources ? !!resources.phone : null
   const ensureOn = !!ensureAt
+  // 内嵌虚拟屏幕的地址：优先 /api/screen/info 的 spaceUrl，其次 space/status 里的 url
+  const spaceUrl = (info.data && info.data.spaceUrl) || (st && st.url) || ''
+  const embedCard = h(ScreenEmbedCard, {
+    spaceUrl,
+    spaceStatus: st,
+    infoLoading: info.loading,
+    infoError: info.error,
+    onReloadInfo: info.reload,
+    onOpenExternal: () => { void openHerScreen() },
+  })
 
   // 截图自动刷新（N04：用 useInterval，页面不可见时它自己会暂停）
   // 她的手机：3 秒一张；手机没开时不空转（否则每张都要等截图超时）
@@ -125,7 +329,7 @@ function ScreenView(props) {
       setEnsureAt(0)
       setEnsureSec(0)
       setEnsureNote('')
-      toast('她的屏幕连上了，可以在浏览器里操作了', 'ok')
+      toast('她的屏幕连上了，可以在内嵌画面里操作了', 'ok')
       space.reload()
       return
     }
@@ -146,12 +350,12 @@ function ScreenView(props) {
     if (spaceBusy) return
     const cur = space.data || {}
     if (cur.http) {
-      toast('她的屏幕已经连上了，直接点「打开她的屏幕」就行', 'info')
+      toast('她的屏幕已经连上了，上面的内嵌画面可以直接操作', 'info')
       return
     }
     if (cur.vm === false) {
       const ok = await confirmDialog('启动她的屏幕？', {
-        detail: '会启动她的 Linux 虚拟机（约 1 分钟，占用 2~6 GB 内存），好了之后在系统浏览器里操作她的屏幕。',
+        detail: '会启动她的 Linux 虚拟机（约 1 分钟，占用 2~6 GB 内存），好了之后在上面的内嵌画面里操作她的屏幕。',
         okText: '启动',
       })
       if (!ok) return
@@ -168,7 +372,7 @@ function ScreenView(props) {
         return
       }
       if (d.ok) {
-        toast('她的屏幕链路正常，可以打开了', 'ok')
+        toast('她的屏幕链路正常，内嵌画面会自动连上', 'ok')
         setEnsureAt(0)
         setEnsureSec(0)
         setEnsureNote('')
@@ -240,11 +444,11 @@ function ScreenView(props) {
       ]
     : []
 
-  // ── 她自己的屏幕（只给状态 + 外部浏览器按钮，面板里不内嵌画面） ──────────
+  // ── 她自己的屏幕（状态/链路/开关；实时画面在内嵌卡片里，外部浏览器作兜底） ──
   const spaceCard = h(Card, {
     title: '她自己的屏幕',
-    sub: '用系统窗口打开 · 面板里不内嵌网页',
-    tag: 'D06 A',
+    sub: '状态 / 链路 / 开关 · 画面在上面的内嵌卡片',
+    tag: 'noVNC',
     actions: h(Row, { gap: 6, wrap: false },
       h(Btn, { kind: 'primary', size: 'sm', onClick: () => { void openHerScreen() }, title: '用系统浏览器打开 noVNC（Alt+S 同效）' }, '打开她的屏幕'),
       h(Btn, { size: 'sm', disabled: spaceBusy || ensureOn, onClick: () => { void doEnsure() }, title: '虚拟机没开就启动，画面链路断了就修' }, spaceBusy ? '处理中…' : '启动/修复'),
@@ -278,8 +482,8 @@ function ScreenView(props) {
       ? h(Loading, { text: '正在启动/修复：已等 ' + ensureSec + ' 秒' + (st && st.vm ? '（虚拟机已启动，等待桌面画面）' : '（等待虚拟机启动）') })
       : null,
     ensureNote ? h('div', { style: { fontSize: 11.5, color: T.warn, lineHeight: 1.6, whiteSpace: 'pre-wrap' } }, ensureNote) : null,
-    h(Note, {}, '她的屏幕是独立的 Linux 虚拟机，画面在系统浏览器的新窗口里；面板只显示状态和只读截图，不把网页嵌进来。'),
-    h(Note, {}, '要在她的屏幕上点鼠标/敲键盘，就直接在浏览器窗口里操作；手机截图只是用来看的。屏幕上约占 2~6 GB 内存，不用时点「关闭」释放。'),
+    h(Note, {}, '她的屏幕是独立的 Linux 虚拟机：实时画面默认嵌在上面的「内嵌虚拟屏幕」卡片里，可以直接在面板里点鼠标、敲键盘。'),
+    h(Note, {}, '窗口太小或内嵌被浏览器策略拦住时，用「打开她的屏幕」交给系统浏览器（两种方式看的是同一台虚拟机）。屏幕约占 2~6 GB 内存，不用时点「关闭」释放。'),
     h(Note, {}, '快捷键 Alt+S：随时用系统浏览器打开她的屏幕。'),
   )
 
@@ -401,5 +605,5 @@ function ScreenView(props) {
   return h('div', {
     className: 'sbc-scroll',
     style: { flex: 1, minHeight: 0, overflow: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 },
-  }, spaceCard, phoneCard, pcCard, envCard, petSection)
+  }, embedCard, spaceCard, phoneCard, pcCard, envCard, petSection)
 }
