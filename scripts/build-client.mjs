@@ -31,6 +31,7 @@ export const FILES = [
   '30-settings/settings-life.js',
   '30-settings/settings-model.js',
   '30-settings/settings-data.js',
+  '30-settings/settings-direct.js',
   '30-settings/settings-vm.js',
   '30-settings/settings.js',
   '40-screen/screen.js',

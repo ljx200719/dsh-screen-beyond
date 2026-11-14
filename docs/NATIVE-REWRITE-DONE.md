@@ -1,8 +1,8 @@
-# 桌面原生化 · 验收记录（0.8.0 / 0.9.0）
+# 桌面原生化 · 验收记录（0.7.24）
 
 > 需求与决策：[`NATIVE-REWRITE-FORM.md`](NATIVE-REWRITE-FORM.md)（D01–D12 / M01–M28 / S01–S08；2026-11-14 追加：3D 加进本版本）
 > 实现契约：[`NATIVE-CLIENT-ARCH.md`](NATIVE-CLIENT-ARCH.md)
-> 发布说明：[`../RELEASE-0.8.0.md`](../RELEASE-0.8.0.md)、[`../RELEASE-0.9.0.md`](../RELEASE-0.9.0.md)
+> 发布说明：[`../RELEASE-0.7.24.md`](../RELEASE-0.7.24.md)、[`../RELEASE-0.7.24.md`](../RELEASE-0.7.24.md)
 > 任务状态：[`NATIVE-REWRITE-TASKS.csv`](NATIVE-REWRITE-TASKS.csv)
 
 这份记录回答三件事：**做了什么、怎么验证的、哪些没验证**。不要把它当成「全部通过」的盖章。
@@ -40,7 +40,7 @@ npm run smoke:client  # 38/38（把 lib/client.js 在 Node 里挂载：迷你 Re
 `smoke:server`：`/api/version` 契约、旧网页默认 410、`LEGACY_WEB=1` 恢复旧网页、CORS 预检放行 `x-companion-token`、token 模式 401、恶意 Origin 403、DSH origin 放行、DPAPI 加密、备份列表、经济不阻塞。
 `smoke:client`：产物加载与 `apply()` 三处注册、AppShell 六标签渲染、无 iframe、不请求 HTML、聊天历史渲染与发送请求 body、舞台地点渲染、地图名/地点、屏幕 window.open noVNC、关于页版本信息。
 
-### 2.2 真实数据写操作验收（0.9.0，真实运行时 `D:\linzhi`）
+### 2.2 真实数据写操作验收（0.7.24，真实运行时 `D:\linzhi`）
 
 方式：每项「写 → 读回 → 还原 → 再读回」，还原后与基线比对；测试前已跑 `scripts/backup.ps1`。
 结果：**73/73 通过**。
@@ -76,6 +76,24 @@ npm run smoke:client  # 38/38（把 lib/client.js 在 Node 里挂载：迷你 Re
 | 单个标签渲染异常整页白屏 | 没有错误边界 | `SbcViewBoundary`：每个标签单独兜底 + 重试 |
 | 备份恢复点了没反应/恢复后仍是旧记录 | `-Zip` 参数不存在；脚本 UTF-8 无 BOM 被 PowerShell 5.1 按 ANSI 解析；复制期间宿主已重启运行时 | `-Zip` 支持 + BOM + 复制完再停一次运行时 |
 | 关屏后立刻点启动一直「启动中」 | `savestate` 未落盘时 `startvm` 失败 | `start_screen.ps1` 等 `saving/restoring` 结束再重试 `startvm` |
+
+### 2.5 0.7.24 新增能力验收（3D / 直连 / 自动更新 / 余额刷新 / VM 通道）
+
+| 能力 | 验证方式 | 结果 |
+|---|---|---|
+| 3D 舞台 | 真实 DSH 面板点「3D」→ 低模小岛 WebGL 渲染；点「车站」→ `/api/location` 真移动；浏览器里拖动旋转/滚轮缩放 | ✅ |
+| 聊天直连（OneBot 11） | 适配器 45 项假 OneBot 服务自测；线上端点实测：`/api/direct-chat/settings` 200（19ms，状态 5s 缓存）、未启动桥时返回中文原因；本机没有 OneBot 实现，**没有真桥端到端** | ✅ 代码/接口层，⚠️ 真桥未验 |
+| 插件自动更新 | 模块 123 条断言 + 真实 git e2e（%TEMP% 临时 origin）；线上 `/api/update/settings`、`/api/update/check` 实测 200（latest=0.7.23、current=0.7.24、gitRepo=true、gitDirty=true） | ✅（真实仓库 apply 被 dirty 安全拒绝，符合设计） |
+| 余额刷新 | `POST /api/balance/refresh` 实测 200/109ms 返回真实余额；状态接口 + 面板「刷新」按钮接入 | ✅ |
+| 虚拟机通道补强 | `/api/vm-chat/open` 手动坐标切到 aedo 会话；`/api/vm-chat/send` 手动 composer 坐标真发测试消息，aedo 回「收到」；视觉通道加超时（本机 DeepSeek 文本模型不支持图片 → 明确中文错误，不再挂 6 分钟） | ✅ 手动坐标路径；⚠️ 视觉识别在本机不可用（需要多模态模型） |
+
+**0.7.24 新增端点 13 个**（向后兼容，`apiVersion` 仍 2）：`/api/balance/refresh`、`/api/vm-chat/open`、`/api/direct-chat/{settings,status,friends,send,test,event}`、`/api/update/{check,apply,settings}`。契约见 `API-CONTRACT.md` §13 + `schema/api-index.json`（141 端点 / 14 组）。
+
+**真实 VM 通道测试记录**（2026-11-14 23:11，用户授权「所有测试的都可以发给aedo」）：
+- `targetContact=aedo` → `POST /api/vm-chat/open {contact:"aedo", row:{x:266,y:265}}` → QQ 会话切到 aedo（截图确认）
+- `POST /api/vm-chat/send {text:"（测试消息）…", composer:{x:500,y:750}, skipVerify:true}` → 消息出现在右侧气泡
+- aedo 回复「收到」；随后把 `targetContact`、`unreadScan` 还原为空/false
+- 发现并修掉：视觉请求没有超时（DeepSeek 文本模型不支持图片时会挂 6 分钟）→ 45s/30s 超时 + 明确中文错误；并加了手动坐标快通道（`row` / `composer` / `skipVerify`）
 
 ---
 

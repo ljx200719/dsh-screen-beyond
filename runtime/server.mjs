@@ -1166,17 +1166,8 @@ async function lifeTick(id, opts = {}) {
       if (text) {
         let deliveredVm = false;
         try {
-          if (id === ACTIVE_CHAR && CONFIG.vmChat && CONFIG.vmChat.enabled) {
-            if (CONFIG.vmChat.checkMessages !== false) {
-              try {
-                const cr = await VM_CHAT.checkAndReply();
-                if (cr && cr.ok) recordVmCheckFor(id, cr);
-              } catch {}
-            }
-            const vr = await VM_CHAT.sendText(text);
-            deliveredVm = !!(vr && vr.ok);
-            if (deliveredVm && CONFIG.vmChat.idleShutdown !== false) { try { await VM_CHAT.stop(); } catch {} }
-          }
+          // 直连优先；直连没开/失败按设置回退虚拟机看屏幕通道（逻辑在 deliverExternalText 里）
+          deliveredVm = await deliverExternalText(text, image, id);
         } catch {}
         addMessageFor(id, 'her', text, image || undefined);
         st.lastEventAt = now; st.eventsToday = Number(st.eventsToday || 0) + 1;
@@ -1639,9 +1630,18 @@ function recordUsageTokens(usage) {
   addTokenUsage(total);
 }
 let REAL_BALANCE = { ok: false, at: 0, error: '还没查', currency: 'CNY', total: null, granted: null, toppedUp: null, available: null, todayRmb: null, note: '' };
-async function refreshRealBalance() {
+let BALANCE_FORCE_AT = 0;
+/** 强制刷新真实余额（4 秒内合并请求）。聊天一轮结束/面板点刷新时用，避免整天等定时器。 */
+async function forceBalanceRefresh() {
   const now = Date.now();
-  if (REAL_BALANCE.at && now - REAL_BALANCE.at < 60000) return REAL_BALANCE;
+  if (now - BALANCE_FORCE_AT < 4000) return REAL_BALANCE;
+  BALANCE_FORCE_AT = now;
+  return refreshRealBalance(true);
+}
+async function refreshRealBalance(force) {
+  const now = Date.now();
+  if (!force && REAL_BALANCE.at && now - REAL_BALANCE.at < 60000) return REAL_BALANCE;
+  if (force && REAL_BALANCE.at && now - REAL_BALANCE.at < 2000) return REAL_BALANCE;
   try {
     const res = await fetch('https://api.deepseek.com/user/balance', {
       headers: { authorization: 'Bearer ' + apiKey() },
@@ -2885,6 +2885,8 @@ async function generateReply(userText) {
   } finally {
     typing = false; busy = false; typingStartedAt = 0;
     if (currentTurn === turn) currentTurn = null;
+    // 这一轮消耗完 token 后立刻刷一次真实余额，别等 1~5 分钟的定时刷新（用户反馈「余额延迟大」）
+    forceBalanceRefresh().catch(() => {});
   }
 }
 async function maybeSummarize() {
@@ -2965,6 +2967,162 @@ function tutorialText() {
   return '# 同伴 · 说明\n\n打开地图页 /map、舞台 /stage、3D 舞台 /model、设置 /settings。';
 }
 
+// ---------- 直连（OneBot 11）/ 自动更新 ----------
+// 两个模块都是懒加载：文件缺失/写坏时只是对应功能不可用，不会拖死运行时。
+let DIRECT_CHAT = null;
+let DIRECT_CHAT_DEAD = false;
+let UPDATER = null;
+let UPDATER_DEAD = false;
+async function getDirectChat() {
+  if (DIRECT_CHAT) return DIRECT_CHAT;
+  if (DIRECT_CHAT_DEAD) return null;
+  try {
+    const m = await import('./direct-chat.mjs');
+    DIRECT_CHAT = m.createDirectChat({ getConfig: () => CONFIG, saveConfig, log: (s) => { try { console.log('[direct-chat] ' + String(s)) } catch {} } });
+    console.log('[companion] 直连适配器已加载');
+  } catch (e) {
+    DIRECT_CHAT_DEAD = true;
+    console.warn('[companion] 直连模块不可用：' + String((e && e.message) || e));
+  }
+  return DIRECT_CHAT;
+}
+async function getUpdater() {
+  if (UPDATER) return UPDATER;
+  if (UPDATER_DEAD) return null;
+  try {
+    const m = await import('./updater.mjs');
+    UPDATER = m.createUpdater({ pluginRoot: path.resolve(RUNTIME_DIR, '..'), version: VERSION, settings: CONFIG.updater || {}, log: (s) => { try { console.log('[updater] ' + String(s)) } catch {} } });
+    UPDATER.setSettings(CONFIG.updater || {});
+    console.log('[companion] 更新检查模块已加载');
+  } catch (e) {
+    UPDATER_DEAD = true;
+    console.warn('[companion] 更新模块不可用：' + String((e && e.message) || e));
+  }
+  return UPDATER;
+}
+/** 把 /models/xxx.jpg 这种运行时地址换成磁盘绝对路径；dataUrl 原样返回（适配器支持）。 */
+function localImagePathForSend(u) {
+  const s = String(u || "");
+  if (/^data:image\//i.test(s)) return s;
+  if (/^\//.test(s)) {
+    const p = path.join(ROOT, s.replace(/^\//, ''));
+    try { if (fs.existsSync(p)) return p; } catch {}
+  }
+  return '';
+}
+/** 主动消息/回复走外部聊天软件：优先直连（OneBot），按设置回退虚拟机看屏幕。 */
+async function deliverExternalText(text, image, charId) {
+  if (!text) return false;
+  if (charId && charId !== ACTIVE_CHAR) return false;
+  let d = null;
+  try { d = await getDirectChat(); } catch {}
+  if (d) {
+    const dc = d.cfg();
+    if (dc.enabled && dc.userId) {
+      try {
+        const imgPath = image ? localImagePathForSend(image) : "";
+        const r = (imgPath && dc.sendImages) ? await d.sendImage(imgPath, text) : await d.sendText(text);
+        if (r && r.ok) return true;
+        if (!dc.fallbackVm) return false;
+      } catch (e) {
+        console.warn('[companion] 直连发送失败，按设置回退：' + String((e && e.message) || e));
+      }
+    }
+  }
+  try {
+    if (CONFIG.vmChat && CONFIG.vmChat.enabled) {
+      if (CONFIG.vmChat.checkMessages !== false) {
+        try { const cr = await VM_CHAT.checkAndReply(); if (cr && cr.ok) recordVmCheckFor(charId, cr); } catch {}
+      }
+      const vr = await VM_CHAT.sendText(text);
+      const ok = !!(vr && vr.ok);
+      if (ok && CONFIG.vmChat.idleShutdown !== false) { try { await VM_CHAT.stop(); } catch {} }
+      return ok;
+    }
+  } catch {}
+  return false;
+}
+// 直连入站消息去重（OneBot 重投/桥重试时避免她重复回）
+const DIRECT_SEEN = new Set();
+async function processDirectMessage(ev, dc, d) {
+  const text = String(ev.text || "").trim();
+  if (!text) return { ok: true, ignored: "empty" };
+  const fromName = String(ev.nickname || ev.userId || "");
+  addMessage("user", text);
+  try { broadcast({ type: "message" }); } catch {}
+  if (!dc.autoReply || !dc.userId) return { ok: true, stored: true, replied: false, from: fromName, note: dc.userId ? '' : '还没填对方 QQ 号' };
+  if (typing) return { ok: true, stored: true, replied: false, error: "她正在说话", from: fromName };
+  const startAt = Date.now();
+  let herText = "";
+  try {
+    await generateReply(text);
+    const latest = messages.filter((m) => m.role === "her" && Number(m.at) >= startAt).slice(-1)[0];
+    herText = latest ? String(latest.text || "") : "";
+  } catch (e) {
+    console.warn("[companion] 直连入站处理失败：" + String((e && e.message) || e));
+  }
+  if (!herText) return { ok: true, stored: true, replied: false, from: fromName };
+  const out = (dc.replyPrefix ? String(dc.replyPrefix) : "") + herText;
+  let r = null;
+  try { r = await d.sendText(out); } catch {}
+  return { ok: true, stored: true, replied: !!(r && r.ok), error: r && r.error, from: fromName };
+}
+async function handleDirectEvent(body) {
+  const d = await getDirectChat();
+  if (!d) return { ok: false, error: "直连模块不可用" };
+  const dc = d.cfg();
+  if (!dc.enabled) return { ok: true, ignored: "disabled" };
+  const ev = d.parseEvent(body);
+  if (!ev) return { ok: true, ignored: "event" };
+  if (dc.userId && String(ev.userId) !== String(dc.userId)) return { ok: true, ignored: "not-target-user" };
+  const mid = String(ev.messageId || "");
+  if (mid && DIRECT_SEEN.has(mid)) return { ok: true, ignored: "duplicate" };
+  if (mid) {
+    DIRECT_SEEN.add(mid);
+    if (DIRECT_SEEN.size > 400) { const it = DIRECT_SEEN.values(); for (let i = 0; i < 120; i++) { const v = it.next(); if (v.done) break; DIRECT_SEEN.delete(v.value); } }
+  }
+  return processDirectMessage(ev, dc, d);
+}
+/** 直连状态缓存：桥没启动时避免每次打开设置页都等满 timeout。 */
+let DIRECT_STATUS_CACHE = { at: 0, val: null };
+async function directStatusCached(force) {
+  const now = Date.now();
+  if (!force && DIRECT_STATUS_CACHE.val && now - DIRECT_STATUS_CACHE.at < 5000) return DIRECT_STATUS_CACHE.val;
+  const d = await getDirectChat();
+  if (!d) return null;
+  try { const v = await d.status(); DIRECT_STATUS_CACHE = { at: Date.now(), val: v }; return v; } catch { return DIRECT_STATUS_CACHE.val; }
+}
+/** 历史轮询兜底：桥没有配 HTTP 上报时，用 get_friend_msg_history 拉新私聊。 */
+let DIRECT_HISTORY_AT = 0;
+async function directHistoryPoll() {
+  if (Date.now() - DIRECT_HISTORY_AT < 20000) return;
+  DIRECT_HISTORY_AT = Date.now();
+  const d = await getDirectChat();
+  if (!d) return;
+  const dc = d.cfg();
+  if (!dc.enabled || !dc.autoReply || !dc.userId || typing) return;
+  if (typeof d.probeHistory !== "function") return;
+  const r = await d.probeHistory("");
+  if (!r || !r.ok || !Array.isArray(r.messages)) return;
+  const fresh = r.messages.filter((m) => m && m.kind === "private_message" && String(m.userId) === String(dc.userId)).slice(-3);
+  for (const m of fresh) {
+    const mid = String(m.messageId || "");
+    if (mid && DIRECT_SEEN.has(mid)) continue;
+    if (mid) DIRECT_SEEN.add(mid);
+    try { await processDirectMessage(m, dc, d); } catch (e) { console.warn("[companion] 直连历史轮询失败：" + String((e && e.message) || e)); }
+  }
+  if (DIRECT_SEEN.size > 400) { const it = DIRECT_SEEN.values(); for (let i = 0; i < 120; i++) { const v = it.next(); if (v.done) break; DIRECT_SEEN.delete(v.value); } }
+}
+
+// 手动坐标快通道：视觉模型不可用时，前端/脚本可以直接给 composer 坐标跳过看图
+function vmSendHint(b) {
+  const hint = {};
+  const c = (b && b.composer) || null;
+  if (c && Number.isFinite(Number(c.x)) && Number.isFinite(Number(c.y))) hint.composer = { x: Number(c.x), y: Number(c.y) };
+  if (b && b.conversation) hint.conversation = String(b.conversation);
+  if (b && b.skipVerify) hint.skipVerify = true;
+  return Object.keys(hint).length ? hint : undefined;
+}
 // ---------- HTTP helpers ----------
 function sendStatic(res, file, types) {
   if (!fs.existsSync(file)) { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }); res.end('not found'); return; }
@@ -3075,7 +3233,7 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         apiVersion: API_VERSION,
         version: VERSION,
-        minClient: '0.8.0',
+        minClient: VERSION,
         dataRoot: ROOT,
         auth: { mode: API_TOKEN ? 'token' : 'loopback', tokenEndpoint: '/api/token', header: 'x-companion-token', cookie: 'companion_token', allowedOrigins: ['127.0.0.1', 'localhost', '::1', 'dsh-app://app'] },
         features: {
@@ -3154,6 +3312,115 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/balance-alert/test') {
       try { const r = await maybeLowBalanceAlert(true); json(res, 200, r); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/balance/refresh') {
+      try {
+        const rb = await forceBalanceRefresh();
+        json(res, 200, { ok: !!(rb && rb.ok), balance: rb, realRmb: rb && rb.ok ? rb.total : null, at: rb && rb.at });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message || e) }); }
+      return;
+    }
+    // ---------- 聊天软件直连（OneBot 11）----------
+    if (url.pathname === '/api/direct-chat/settings' && req.method === 'GET') {
+      const d = await getDirectChat();
+      if (!d) { json(res, 503, { ok: false, error: '直连模块不可用' }); return; }
+      const force = String(url.searchParams.get('status') || '') === '1';
+      json(res, 200, { ok: true, settings: d.cfg(), status: await directStatusCached(force) });
+      return;
+    }
+    if (url.pathname === '/api/direct-chat/settings' && req.method === 'POST') {
+      const d = await getDirectChat();
+      if (!d) { json(res, 503, { ok: false, error: '直连模块不可用' }); return; }
+      const b = (req._json || {});
+      const settings = d.setSettings(b);
+      CONFIG.directChat = settings;
+      json(res, 200, { ok: true, settings });
+      return;
+    }
+    if (url.pathname === '/api/direct-chat/status' && req.method === 'GET') {
+      const d = await getDirectChat();
+      if (!d) { json(res, 503, { ok: false, error: '直连模块不可用' }); return; }
+      const force = String(url.searchParams.get('force') || '') === '1';
+      json(res, 200, { ok: true, status: await directStatusCached(force) });
+      return;
+    }
+    if (url.pathname === '/api/direct-chat/friends' && req.method === 'GET') {
+      const d = await getDirectChat();
+      if (!d) { json(res, 503, { ok: false, error: '直连模块不可用' }); return; }
+      json(res, 200, await d.listFriends());
+      return;
+    }
+    if (url.pathname === '/api/direct-chat/send' && req.method === 'POST') {
+      const d = await getDirectChat();
+      if (!d) { json(res, 503, { ok: false, error: '直连模块不可用' }); return; }
+      const b = (req._json || {});
+      const text = String(b.text || "");
+      const imagePath = String(b.imagePath || "");
+      let result;
+      if (imagePath) {
+        const p = localImagePathForSend(imagePath);
+        result = p ? await d.sendImage(p, text) : { ok: false, error: '图片路径不存在或不支持' };
+      } else {
+        result = await d.sendText(text);
+      }
+      json(res, 200, { ok: !!(result && result.ok), result });
+      return;
+    }
+    if (url.pathname === '/api/direct-chat/test' && req.method === 'POST') {
+      const d = await getDirectChat();
+      if (!d) { json(res, 503, { ok: false, error: '直连模块不可用' }); return; }
+      const st = await directStatusCached(true);
+      const b = (req._json || {});
+      let send = null;
+      if (b.sendTest) {
+        const text = String(b.text || ("（测试消息）来自屏幕彼端的直连测试，收到不用回～"));
+        try { send = await d.sendText(text); } catch (e) { send = { ok: false, error: String((e && e.message) || e) }; }
+      }
+      json(res, 200, { ok: !!(st && st.ok), status: st, send });
+      return;
+    }
+    if (url.pathname === '/api/direct-chat/event' && req.method === 'POST') {
+      try { json(res, 200, await handleDirectEvent(req._json || {})); }
+      catch (e) { json(res, 500, { ok: false, error: String((e && e.message) || e) }); }
+      return;
+    }
+    // ---------- 插件自动更新 ----------
+    if (url.pathname === '/api/update/check' && req.method === 'GET') {
+      const u = await getUpdater();
+      if (!u) { json(res, 503, { ok: false, error: '更新模块不可用' }); return; }
+      const force = String(url.searchParams.get('force') || '') === '1';
+      const r = await u.check(force);
+      CONFIG.updater = { ...(CONFIG.updater || {}), lastCheckAt: r.checkedAt, lastResult: r };
+      saveConfig();
+      json(res, 200, r);
+      return;
+    }
+    if (url.pathname === '/api/update/apply' && req.method === 'POST') {
+      const u = await getUpdater();
+      if (!u) { json(res, 503, { ok: false, error: '更新模块不可用' }); return; }
+      const r = await u.apply();
+      json(res, 200, r);
+      if (r && r.ok && r.needRestart) {
+        console.log('[companion] 已更新，2 秒后退出等待宿主用新代码重启');
+        setTimeout(() => { try { process.exit(0) } catch {} }, 2000);
+      }
+      return;
+    }
+    if (url.pathname === '/api/update/settings' && req.method === 'GET') {
+      const u = await getUpdater();
+      if (!u) { json(res, 503, { ok: false, error: '更新模块不可用' }); return; }
+      json(res, 200, { ok: true, settings: u.cfg(), version: VERSION });
+      return;
+    }
+    if (url.pathname === '/api/update/settings' && req.method === 'POST') {
+      const u = await getUpdater();
+      if (!u) { json(res, 503, { ok: false, error: '更新模块不可用' }); return; }
+      const b = (req._json || {});
+      const settings = u.setSettings(b);
+      CONFIG.updater = settings;
+      saveConfig();
+      json(res, 200, { ok: true, settings });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/backup/list') {
@@ -4021,6 +4288,13 @@ function importMemoryItems(raw) {
       } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
       return;
     }
+    if (req.method === 'POST' && url.pathname === '/api/vm-chat/open') {
+      const b = (req._json || {});
+      const row = (b.row && Number.isFinite(Number(b.row.x)) && Number.isFinite(Number(b.row.y))) ? { x: Number(b.row.x), y: Number(b.row.y) } : null;
+      try { json(res, 200, { ok: true, result: await VM_CHAT.openContact(String(b.contact || b.name || ''), row ? { row } : {}) }); }
+      catch (e) { json(res, 500, { ok: false, error: String(e.message || e) }); }
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/api/vm-chat/wake') {
       try { json(res, 200, { ok: await VM_CHAT.wake(), running: await VM_CHAT.isRunning() }); } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
       return;
@@ -4044,7 +4318,7 @@ function importMemoryItems(raw) {
           json(res, 200, { ok: true, result: await VM_CHAT.sendImageToUser(p, String(b.text || '')) });
           return;
         }
-        json(res, 200, { ok: true, result: await VM_CHAT.sendText(String(b.text || '')) });
+        json(res, 200, { ok: true, result: await VM_CHAT.sendText(String(b.text || ''), vmSendHint(b)) });
       } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
       return;
     }
@@ -4485,7 +4759,8 @@ function boot() {
   activateCharacter(ACTIVE_CHAR);
   loadMessages();
   refreshRealBalance().catch(() => {});
-  setInterval(() => refreshRealBalance().catch(() => {}), 5 * 60 * 1000).unref?.();
+  setInterval(() => refreshRealBalance().catch(() => {}), 60 * 1000).unref?.();
+  setInterval(() => { directHistoryPoll().catch(() => {}); }, 15 * 1000).unref?.();
   setInterval(() => { maybeLowBalanceAlert().catch(() => {}); }, 10 * 60 * 1000).unref?.();
   setTimeout(() => { maybeLowBalanceAlert().catch(() => {}); }, 20000);
   // 后台心跳

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "apiVersion": 2,
-  "runtimeVersion": "0.7.23",
-  "generatedAt": "2026-11-14",
+  "runtimeVersion": "0.7.24",
+  "generatedAt": "2026-11-14T15:14:21.678Z",
   "baseUrl": "http://127.0.0.1:8900",
   "source": {
     "file": "runtime/server.mjs",
@@ -92,7 +92,7 @@
             "ok": "boolean",
             "apiVersion": "integer=2（冻结契约版本）",
             "version": "string（运行时插件版本）",
-            "minClient": "string（建议最低客户端版本，源码当前 0.8.0）",
+            "minClient": "string（建议最低客户端版本，源码当前 0.7.24）",
             "dataRoot": "string（本机数据目录；手机端不得依赖）",
             "auth": "object{mode,tokenEndpoint,header,cookie,allowedOrigins}",
             "features": "object（chat/stream/stage2d/stage3d/mapView/mapEdit/settings/screen/pet/vmChat/memory/diary/backup/sync/image/weatherFx/legacyWeb）",
@@ -2944,10 +2944,279 @@
           "notes": "恢复会覆盖当前数据（危险操作，必须二次确认）。恢复后需重启 DSH 让运行时重新加载数据。"
         }
       ]
+    },
+    {
+      "id": "direct-chat-update",
+      "title": "聊天直连（OneBot 11）/ 插件更新 / 余额刷新（0.7.24 新增）",
+      "description": "向后兼容的新增能力：OneBot 直连收发、自动更新检查与 git 拉取、真实余额强制刷新、虚拟机会话切换。",
+      "endpoints": [
+        {
+          "id": "vmchat.open.post",
+          "method": "POST",
+          "path": "/api/vm-chat/open",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "contact": "string",
+            "row": "point?（{x,y} 0-1000 归一化；给了就点这一行，跳过视觉识别）"
+          },
+          "response": {
+            "ok": "boolean",
+            "result": "object（ok/conversation/switched/manual/error）"
+          },
+          "errors": [
+            "500 失败"
+          ],
+          "notes": "只点左侧会话行切换会话，不发送消息；视觉模型不可用时可以用 row 手动坐标。"
+        },
+        {
+          "id": "balance.refresh.post",
+          "method": "POST",
+          "path": "/api/balance/refresh",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "balance": "object（真实余额：total/todayRmb/available 等）",
+            "realRmb": "number|null",
+            "at": "number"
+          },
+          "errors": [
+            "500 读取失败"
+          ],
+          "notes": "强制刷新 DeepSeek 真实余额（4 秒内合并重复请求）。"
+        },
+        {
+          "id": "directchat.settings.get",
+          "method": "GET",
+          "path": "/api/direct-chat/settings",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "settings": "object（enabled/apiBase/token/userId/selfId/autoReply/sendImages/fallbackVm/replyPrefix/timeoutMs）",
+            "status": "object（同 /api/direct-chat/status）"
+          },
+          "errors": [
+            "503 直连模块不可用"
+          ],
+          "notes": "状态有 5 秒缓存；?status=1 强制探活。"
+        },
+        {
+          "id": "directchat.settings.post",
+          "method": "POST",
+          "path": "/api/direct-chat/settings",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "enabled": "boolean?",
+            "apiBase": "string?",
+            "token": "string?",
+            "userId": "string?",
+            "selfId": "string?",
+            "autoReply": "boolean?",
+            "sendImages": "boolean?",
+            "fallbackVm": "boolean?",
+            "replyPrefix": "string?",
+            "timeoutMs": "number?"
+          },
+          "response": {
+            "ok": "boolean",
+            "settings": "object"
+          },
+          "errors": [
+            "503"
+          ],
+          "notes": "非法字段忽略不报错；保存后立即生效。"
+        },
+        {
+          "id": "directchat.status.get",
+          "method": "GET",
+          "path": "/api/direct-chat/status",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "status": "object（ok/latencyMs/login/error）"
+          },
+          "errors": [
+            "503"
+          ],
+          "notes": "?force=1 跳过 5 秒缓存。"
+        },
+        {
+          "id": "directchat.friends.get",
+          "method": "GET",
+          "path": "/api/direct-chat/friends",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "friends": "object[]{userId,remark,nickname}"
+          },
+          "errors": [
+            "503"
+          ],
+          "notes": "桥不支持 get_friend_list 时 ok:false，不致命。"
+        },
+        {
+          "id": "directchat.send.post",
+          "method": "POST",
+          "path": "/api/direct-chat/send",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "text": "string",
+            "imagePath": "string?（/models 或绝对路径，dataUrl 也支持）"
+          },
+          "response": {
+            "ok": "boolean",
+            "result": "object（ok/messageId/latencyMs/error）"
+          },
+          "errors": [
+            "503"
+          ],
+          "notes": "发到 settings.userId 的 QQ 私聊（OneBot 11 send_private_msg）。"
+        },
+        {
+          "id": "directchat.test.post",
+          "method": "POST",
+          "path": "/api/direct-chat/test",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "sendTest": "boolean?",
+            "text": "string?"
+          },
+          "response": {
+            "ok": "boolean",
+            "status": "object",
+            "send": "object?"
+          },
+          "errors": [
+            "503"
+          ],
+          "notes": "探活；sendTest=true 时顺带真发一条测试消息。"
+        },
+        {
+          "id": "directchat.event.post",
+          "method": "POST",
+          "path": "/api/direct-chat/event",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": "OneBot 11 事件 JSON（post_type=message&message_type=private）",
+          "response": {
+            "ok": "boolean",
+            "ignored": "string?",
+            "stored": "boolean?",
+            "replied": "boolean?"
+          },
+          "errors": [
+            "500"
+          ],
+          "notes": "给桥的 HTTP 上报地址用；只处理私聊、按 messageId 去重、只接受配置的对方 QQ 号。"
+        },
+        {
+          "id": "update.check.get",
+          "method": "GET",
+          "path": "/api/update/check",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "current": "string",
+            "latest": "string|null",
+            "updateAvailable": "boolean",
+            "source": "string|null",
+            "installKind": "link|npm|unknown",
+            "gitRepo": "boolean",
+            "gitDirty": "boolean|null",
+            "error": "string?",
+            "checkedAt": "number"
+          },
+          "errors": [
+            "503 更新模块不可用"
+          ],
+          "notes": "15 分钟缓存；?force=1 跳缓存。"
+        },
+        {
+          "id": "update.apply.post",
+          "method": "POST",
+          "path": "/api/update/apply",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "method": "git-pull|manual",
+            "message": "string",
+            "changed": "boolean",
+            "needRestart": "boolean",
+            "error": "string?"
+          },
+          "errors": [
+            "503"
+          ],
+          "notes": "只对 git 检出执行 git pull --ff-only；成功后运行时 2 秒后自行退出等宿主重启。npm/DSH 安装返回 manual 提示。"
+        },
+        {
+          "id": "update.settings.get",
+          "method": "GET",
+          "path": "/api/update/settings",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "settings": "object（autoCheck/autoApply/allowPrerelease/lastCheckAt/lastResult/update）",
+            "version": "string"
+          },
+          "errors": [
+            "503"
+          ]
+        },
+        {
+          "id": "update.settings.post",
+          "method": "POST",
+          "path": "/api/update/settings",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "autoCheck": "boolean?",
+            "autoApply": "boolean?",
+            "allowPrerelease": "boolean?"
+          },
+          "response": {
+            "ok": "boolean",
+            "settings": "object"
+          },
+          "errors": [
+            "503"
+          ]
+        }
+      ]
     }
   ],
   "totals": {
-    "groups": 13,
-    "endpoints": 128
+    "groups": 14,
+    "endpoints": 141
   }
 }

@@ -376,6 +376,9 @@ function SettingsVmTab() {
       h(Note, {}, '保存只提交改动过的字段；间隔等数值前端也会夹到合法范围内。'),
     ),
 
+    // 直连（OneBot 11）：设置 + 测试连接/发测试消息按钮
+    typeof DirectChatCard === 'function' ? h(DirectChatCard, {}) : null,
+
     // 说明
     h(Card, { title: '说明' },
       h(Note, {}, '· 虚拟机聊天不是聊天/识图的前置条件：不装虚拟机也能正常聊天，只是没有「在 QQ 里和你聊」这一层。'),

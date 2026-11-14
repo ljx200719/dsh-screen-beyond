@@ -107,6 +107,8 @@ function AboutView() {
         h(KV, { k: '3D 舞台引擎', v: threeState }),
       ),
     ),
+    // 插件更新（检查/一键更新）
+    typeof UpdateCard === 'function' ? h(UpdateCard, {}) : null,
     h(Card, { title: '接口契约', sub: '给未来手机客户端用的冻结契约（不做手机 UI）' },
       h(Note, {}, '后端业务 API 保持不变；契约文档在插件目录 docs/API-CONTRACT.md，机器可读版本在 docs/schema/。'),
       h(Row, { gap: 8 },
@@ -166,12 +168,26 @@ function AppShell() {
     try { window.__sbcOpenTab = openTab } catch (e) {}
   }, [setTab])
 
-  // 钱包（零花/真实余额）不是 /api/status 的字段，单独拉一次 + 低频刷新
+  // 钱包（零花/真实余额）不是 /api/status 的字段，单独拉 + 高频刷新（用户反馈余额延迟大）
   const loadWallet = React.useCallback(() => {
     Api.get('/api/economy').then((r) => { if (r.ok && r.data) setWallet(r.data.wallet || null) })
   }, [])
+  // 让运行时立刻去 DeepSeek 查一次真实余额（它自己会合并 4 秒内的重复请求），然后拉状态 + 钱包
+  const refreshBalanceNow = React.useCallback(async () => {
+    await Api.post('/api/balance/refresh', {})
+    await pollStatusOnce()
+    loadWallet()
+  }, [loadWallet])
   React.useEffect(() => { loadWallet() }, [loadWallet, base])
-  useInterval(loadWallet, 30000)
+  useInterval(loadWallet, 10000)
+
+  // 她这一轮说完话（typing true→false）立刻刷一次余额：token 刚花掉，别等定时器
+  const wasTyping = React.useRef(!!(st.typing))
+  React.useEffect(() => {
+    const nowTyping = !!st.typing
+    if (wasTyping.current && !nowTyping) refreshBalanceNow()
+    wasTyping.current = nowTyping
+  }, [st.typing, refreshBalanceNow])
 
   // Alt+S：她的屏幕交给系统浏览器（D06 A：面板里不嵌 noVNC）
   React.useEffect(() => {
@@ -337,7 +353,7 @@ function AppShell() {
       ),
       h('span', { style: { flex: 1 } }),
       StatusChips({ status: { error: statusErr, ...st }, wallet }),
-      h(Btn, { size: 'sm', kind: 'ghost', title: '刷新运行时状态', onClick: () => { pollStatusOnce(); loadWallet() } }, '刷新'),
+      h(Btn, { size: 'sm', kind: 'ghost', title: '立刻刷新状态和 DeepSeek 真实余额', onClick: () => { refreshBalanceNow() } }, '刷新'),
       h(Btn, { size: 'sm', kind: 'ghost', title: '用系统浏览器打开她的屏幕（noVNC）', disabled: screenBusy, onClick: async () => {
         setScreenBusy(true)
         try { if (typeof openHerScreen === 'function') await openHerScreen(); else Api.openExternal('/screen') }

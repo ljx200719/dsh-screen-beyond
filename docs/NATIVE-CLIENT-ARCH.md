@@ -16,7 +16,7 @@
 | 允许的请求 | 只有 `/api/*` JSON、`/models/*` 与图片、`/api/stream`（fetch 流式 SSE）。**不请求任何 HTML 页面** |
 | 屏幕 | 调 `/api/screen/info` 拿 noVNC 地址，`window.open` 交给系统浏览器；面板内只用截图（`/api/screen/pc`、`/api/screen/phone`） |
 | 旧网页 | 源码保留（调试用），运行时默认不再对外提供页面（`DSH_COMPANION_LEGACY_WEB=1` 才开）；详见 §7 |
-| 3D | 0.9.0 起支持（D03 追加改为 A）：three 从运行时 `/vendor` 动态加载；GLTFLoader/BufferGeometryUtils 用「fetch 源码→改裸导入→blob import」；WebGL/加载失败自动回退 2D |
+| 3D | 0.7.24 起支持（D03 追加改为 A）：three 从运行时 `/vendor` 动态加载；GLTFLoader/BufferGeometryUtils 用「fetch 源码→改裸导入→blob import」；WebGL/加载失败自动回退 2D |
 
 ## 2. 文件边界
 

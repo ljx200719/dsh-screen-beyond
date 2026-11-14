@@ -1,6 +1,6 @@
 # 屏幕彼端 · API / SSE 契约（冻结版 v2）
 
-> **状态：冻结（2026-11-14）** · `apiVersion = 2` · 运行时版本 `0.7.23` · 覆盖 **128 个 `/api/*` 端点 / 13 组**
+> **状态：冻结（2026-11-14）** · `apiVersion = 2` · 运行时版本 `0.7.23` · 覆盖 **128 个冻结 `/api/*` 端点 / 13 组**（0.7.24 另加 13 个向后兼容端点，见 §13）
 >
 > 这份文档是「屏幕彼端」插件运行时的 **REST + SSE 对外契约**，供两类客户端使用：
 > 1. DSH 桌面原生面板（本机 `127.0.0.1:8900` 直连，见 §10）；
@@ -63,7 +63,7 @@ curl -s -X POST http://127.0.0.1:8900/api/chat \
   "ok": true,
   "apiVersion": 2,
   "version": "0.7.23",
-  "minClient": "0.8.0",
+  "minClient": "0.7.24",
   "dataRoot": "D:\\linzhi",
   "auth": {
     "mode": "loopback",
@@ -97,7 +97,7 @@ curl -s -X POST http://127.0.0.1:8900/api/chat \
 |---|---|---|
 | `apiVersion` | integer | **契约版本**。当前 `2`（第一次为原生面板 + 手机门冻结）。删字段/改语义/改错误约定才 +1 |
 | `version` | string | 运行时插件版本（`package.json.version`，可被 `DSH_COMPANION_VERSION` 覆盖） |
-| `minClient` | string | 服务端建议的最低客户端版本（源码当前固定 `"0.8.0"`，未做运行时校验） |
+| `minClient` | string | 服务端建议的最低客户端版本（源码当前固定 `"0.7.24"`，未做运行时校验） |
 | `dataRoot` | string | 本机数据目录绝对路径。**仅本机调试用；手机/第三方客户端不得依赖** |
 | `auth.mode` | `loopback` \| `token` | `token` 表示运行实例开了 API token（见 §3.3）；`loopback` 表示只跑当前的本机鉴权 |
 | `features` | object | 能力开关。**新增能力只加 key，不 +apiVersion**；值为 `false` 时客户端必须降级而不是报错 |
@@ -269,7 +269,7 @@ x-sync-token: <token>
 
 | 方法 | 路径 | 鉴权 | 入参 | 出参要点 | 主要错误 |
 |---|---|---|---|---|---|
-| GET | `/api/version` | api | — | `ok`: boolean<br>`apiVersion`: integer=2（冻结契约版本）<br>`version`: string（运行时插件版本）<br>`minClient`: string（建议最低客户端版本，源码当前 0.8.0）<br>`dataRoot`: string（本机数据目录；手机端不得依赖）<br>`auth`: object{mode,tokenEndpoint,header,cookie,allowedOrigins}<br>`features`: object（chat/stream/stage2d/stage3d/mapView/mapEdit/settings/screen/pet/vmChat/memory/diary/backup/sync/image/weatherFx/legacyWeb）<br>`schema`: object{contract,apiIndex,models}<br>`endpoints`: object（常用端点快捷路径） | — |
+| GET | `/api/version` | api | — | `ok`: boolean<br>`apiVersion`: integer=2（冻结契约版本）<br>`version`: string（运行时插件版本）<br>`minClient`: string（建议最低客户端版本，源码当前 0.7.24）<br>`dataRoot`: string（本机数据目录；手机端不得依赖）<br>`auth`: object{mode,tokenEndpoint,header,cookie,allowedOrigins}<br>`features`: object（chat/stream/stage2d/stage3d/mapView/mapEdit/settings/screen/pet/vmChat/memory/diary/backup/sync/image/weatherFx/legacyWeb）<br>`schema`: object{contract,apiIndex,models}<br>`endpoints`: object（常用端点快捷路径） | — |
 | GET | `/api/token` | api·免token | — | `ok`: boolean<br>`token`: string（空字符串=未启用 token 模式） | — |
 | GET | `/api/status` | api | — | `version`: string<br>`typing`: boolean（她正在生成）<br>`busy`: boolean<br>`lastTurnAt`: integer<br>`usage`: object&#124;null（最近一次模型用量）<br>`count`: integer（消息总数，含 hidden/system）<br>`setup`: object{dataRoot,apiKeyOk,characters}<br>`tokens`: tokenStats（见 models.json）<br>`model`: string<br>`modelConfig`: object{name,reasoningEffort,temperature,maxTokens,maxSteps}<br>`context`: object{historyMode,memoryInject}<br>`mode`: string（chat&#124;full）<br>`place`: currentPlace（见 models.json）<br>`character`: object{id,name,avatar}<br>`memory`: memoryStats<br>`diaryToday`: boolean<br>`energy`: integer | — |
 | GET | `/api/resources` | api | — | `space`: boolean（虚拟机运行中）<br>`phone`: boolean（安卓模拟器已连接）<br>`mem`: string[]（VBoxHeadless/emulator 进程内存 '进程名:MB'） | — |
@@ -833,8 +833,8 @@ PY
 
 ### 12.3 本次核对结论
 
-- 源码路由 128 个，`api-index.json` / 本文端点表 128 个，**一一对应**（脚本核对，见 §11）。
-- `GET /api/version` 在重启运行时后实测 `200`：`apiVersion=2`、`version=0.7.23`、`minClient=0.8.0`、`features` 17 项（`legacyWeb=false`）、`schema`/`auth`/`endpoints` 与 §2 一致；带白名单 Origin 回显 ACAO，恶意 Origin 实测 403。
+- 源码路由 128 个，`api-index.json` / 本文端点表 128 个（0.7.24 新增 13 个见 §13），**一一对应**（脚本核对，见 §11）。
+- `GET /api/version` 在重启运行时后实测 `200`：`apiVersion=2`、`version=0.7.23`、`minClient=0.7.24`、`features` 17 项（`legacyWeb=false`）、`schema`/`auth`/`endpoints` 与 §2 一致；带白名单 Origin 回显 ACAO，恶意 Origin 实测 403。
 - 旧网页入口 `/`、`/map` 实测 `410` JSON：`{ok:false,error:"网页入口已下线",hint,apiVersion:2,legacyPage}`（新源码默认关闭，D08/S02）。
 - 所有**返回 JSON 的 GET 端点**已在 `127.0.0.1:8900` 只读实测，包括 `/api/status`、`/api/events`、`/api/map`、`/api/stage`、`/api/economy`、`/api/pet/status`、`/api/env/check`、`/api/data/revisions`、`/api/sync/local` 等；例外：`/api/sync/events`、`/api/sync/info` 未带令牌（实测 401）。
 - 二进制接口：`/api/pet/avatar` 实测 `200 image/png`，`/api/screen/pc` 实测 `200 image/jpeg`，`/api/chat-bg/custom` 实测 `404`（`no custom background`，非 JSON）；`/api/screen/phone` 未实测（模拟器未启动）。
@@ -850,3 +850,29 @@ PY
 - [`MOBILE-SYNC.md`](./MOBILE-SYNC.md)：手机同步地基（设备身份/事件日志/revisions/expectedRev），本文 §3.4、§4.7、§8.8 是它的契约化版本。
 - [`NATIVE-CLIENT-ARCH.md`](./NATIVE-CLIENT-ARCH.md)：原生面板的实现契约（文件边界/构建方式/共享 API），本文是它引用的服务端契约。
 - [`MOBILE-GATE.md`](./MOBILE-GATE.md)：手机门（D09 A）的当前状态与最小能力集。
+
+---
+
+## 13. 0.7.24 新增端点（向后兼容）
+
+> 这些是 0.7.24 新增的能力，`apiVersion` 仍为 2（只加不改）。端点表以本节 + `schema/api-index.json` 为准（api-index 增加了 `direct-chat-update` 组）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/balance/refresh` | 强制刷新 DeepSeek 真实余额（4 秒内合并重复请求），返回 `{ok,balance,realRmb,at}` |
+| POST | `/api/direct-chat/settings` / GET | OneBot 直连设置读写（`enabled/apiBase/token/userId/selfId/autoReply/sendImages/fallbackVm/replyPrefix/timeoutMs`） |
+| GET | `/api/direct-chat/status`（`?force=1`） | 探活 OneBot（`get_login_info`），返回延迟/登录账号；5 秒缓存 |
+| GET | `/api/direct-chat/friends` | `get_friend_list`（桥不支持时 `ok:false`） |
+| POST | `/api/direct-chat/send` | 真发私聊（`send_private_msg`；`text` / `imagePath`） |
+| POST | `/api/direct-chat/test` | 探活；`sendTest:true` 时顺带发一条测试消息 |
+| POST | `/api/direct-chat/event` | OneBot 11 HTTP 上报入口（只处理私聊、messageId 去重、只收配置的对方 QQ 号） |
+| GET | `/api/update/check`（`?force=1`） | 检查 npm registry 新版本（15 分钟缓存；同时报 git 仓库/安装方式/工作区是否干净） |
+| POST | `/api/update/apply` | git 检出且工作区干净时 `git pull --ff-only`；成功后运行时自动退出等宿主重启。npm/DSH 安装返回 `manual` 提示 |
+| GET/POST | `/api/update/settings` | 自动更新设置（`autoCheck/autoApply/allowPrerelease`） |
+| POST | `/api/vm-chat/open` | 只切换虚拟机聊天会话（`contact` + 可选 `row` 手动坐标；不发消息） |
+
+**语义边界**
+- 直连只处理**私聊**；群聊不做（避免她在群里乱说话）。
+- 直连入站需要填「对方 QQ 号」（`userId`）才会自动回复，避免给陌生人生成回复浪费 token。
+- 自动更新不触碰用户的 DSH profile：npm/DSH 管理的安装只提示，不执行 `npm i`。
+- `POST /api/update/apply` 成功且 `needRestart=true` 时，运行时会 2 秒后 `process.exit(0)`，由宿主拉起新代码；客户端应预期连接短暂断开。

@@ -163,7 +163,7 @@ PY`;
     return null;
   }
 
-  async function visionOnce(prompt, img, maxTokens) {
+  async function visionOnce(prompt, img, maxTokens, timeoutMs) {
     const resp = await chatCompletion({
       messages: [{
         role: 'user',
@@ -173,7 +173,7 @@ PY`;
         ],
       }],
       max_tokens: maxTokens, temperature: 0.4,
-    });
+    }, timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {});
     const msg = resp && resp.choices && resp.choices[0] && resp.choices[0].message;
     return { content: String((msg && msg.content) || ''), reasoning: String((msg && msg.reasoning_content) || '') };
   }
@@ -181,12 +181,15 @@ PY`;
   async function vision(prompt, imagePath) {
     const img = imagePath ? dataUrl(imagePath) : '';
     if (!img) return null;
-    const first = await visionOnce(prompt, img, 3600);
+    let first;
+    try { first = await visionOnce(prompt, img, 3600, 45000); } catch (e) { log('[vm-chat] 视觉请求失败/超时：' + String((e && e.message) || e)); return null; }
+    if (!first) return null;
     let parsed = parseObj(first.content) || parseObj(first.reasoning);
     if (parsed) return parsed;
     // 长提示词有时会被推理吃掉；用短提示再要一次纯 JSON
     const shortPrompt = '看这张 Linux 虚拟机截图。右侧气泡是自己发的，左侧是对方发的。只输出一行 JSON，不要 markdown、不要解释：{"appName":"当前聊天软件","conversation":"当前会话","conversationRow":{"x":0,"y":0},"recent":[{"from":"自己|对方","text":""}],"lastFrom":"自己|对方","unread":[{"from":"","text":"","conversation":"","row":{"x":0,"y":0}}],"needReply":false,"reply":"要回就写一句自然回复","composer":{"x":0,"y":0},"note":"简述"}；composer 是输入框中心，坐标按屏幕 0-1000 归一化。';
-    const second = await visionOnce(shortPrompt, img, 3000);
+    let second;
+    try { second = await visionOnce(shortPrompt, img, 3000, 30000); } catch (e) { log('[vm-chat] 视觉短提示失败/超时：' + String((e && e.message) || e)); return null; }
     return parseObj(second.content) || parseObj(second.reasoning);
   }
 
@@ -284,6 +287,55 @@ PY`;
     return true;
   }
 
+  /**
+   * 打开指定名字的会话（只点左侧会话行，不发送任何消息）。
+   * 用于「把这条消息发到 aedo」这类需要先切会话的操作；找不到/切错了都返回 ok:false。
+   */
+  async function openContact(contact, opts) {
+    const want = String(contact || '').trim();
+    const rowHint = opts && opts.row;
+    if (validPoint(rowHint)) {
+      if (!(await wake())) return { ok: false, error: '虚拟机没启动' };
+      await clickPoint(rowHint);
+      await new Promise((r) => setTimeout(r, 900));
+      last = { at: Date.now(), action: 'open', ok: true, conversation: want, manual: true };
+      return { ok: true, conversation: want, switched: true, manual: true };
+    }
+    if (!want) return { ok: false, error: '没填要打开的联系人' };
+    if (busy) return { ok: false, error: 'vm-chat busy' };
+    busy = true;
+    try {
+      const a = await analyze('只读：请在左侧会话列表里找名字包含「' + want.slice(0, 30) + '」的会话行，把它放进 sessions 里；不要点输入框，不要发送任何消息。');
+      if (!a.ok) return a;
+      const an = a.analysis || {};
+      if (a.requiresLogin) return { ok: false, error: '虚拟机聊天停在登录/扫码页', requiresLogin: true, analysis: an };
+      const cur = String(an.conversation || '');
+      if (cur && cur.includes(want)) return { ok: true, conversation: cur, switched: false, analysis: an };
+      const rows = Array.isArray(an.sessions) ? an.sessions : [];
+      const hit = rows.find((x) => x && x.row && String(x.name || '').includes(want));
+      const row = (hit && hit.row) || ((an.conversationRow && (!cur || !cur.includes(want))) ? an.conversationRow : null);
+      if (!validPoint(row)) return { ok: false, error: '会话列表里没找到「' + want + '」', analysis: an, screen: a.screen };
+      await clickPoint(row);
+      await new Promise((r) => setTimeout(r, 900));
+      const b = await analyze('已经点开一个会话，只读：当前会话名是什么？不要发送任何消息。');
+      const bn = (b && b.analysis) || {};
+      const nowCur = String(bn.conversation || '');
+      const ok = nowCur ? nowCur.includes(want) : true; // 视觉读不到名字时不硬判失败
+      last = { at: Date.now(), action: 'open', ok, conversation: nowCur || cur, want };
+      return {
+        ok,
+        conversation: nowCur || cur,
+        switched: true,
+        analysis: bn,
+        error: ok ? '' : ('点开后会话是「' + nowCur + '」，不是「' + want + '」'),
+      };
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) };
+    } finally {
+      busy = false;
+    }
+  }
+
   async function analyze(extra = '') {
     if (!(await wake())) return { ok: false, error: '虚拟机没启动' };
     const apps = await detectApps();
@@ -302,9 +354,11 @@ ${apps.map((a) => a.id + ' / ' + a.name + ' / ' + a.categories).join('\n') || '�
 坐标用 0-1000 的屏幕归一化坐标。
 未读会话除了 from/text，还要给出 conversation（会话名）和 row（该会话在侧栏的行中心坐标，用来点开）；没有把握就把 row 留空。
 只输出 JSON：
-{"appId":"哪个应用","appName":"","conversation":"当前会话名","conversationRow":{"x":0,"y":0},"recent":[{"from":"自己|对方","text":"","time":""}],"lastFrom":"自己|对方","unread":[{"from":"","text":"","conversation":"","row":{"x":0,"y":0}}],"composer":{"x":0,"y":0},"send":{"x":0,"y":0},"needReply":false,"reply":"如果要回，写一句自然回复","note":"你看到了什么"}
+{"appId":"哪个应用","appName":"","conversation":"当前会话名","conversationRow":{"x":0,"y":0},"sessions":[{"name":"会话名","row":{"x":0,"y":0},"unread":false}],"recent":[{"from":"自己|对方","text":"","time":""}],"lastFrom":"自己|对方","unread":[{"from":"","text":"","conversation":"","row":{"x":0,"y":0}}],"composer":{"x":0,"y":0},"send":{"x":0,"y":0},"needReply":false,"reply":"如果要回，写一句自然回复","note":"你看到了什么"}
+（sessions 是左侧会话列表的每一行，最多 30 行，用来按名字切换会话；没有把握就少给。）
 ${extra}`;
     const v = await vision(prompt, shot);
+    if (!v) return { ok: false, error: '看屏幕失败：当前模型可能不支持图片（VM 通道需要多模态模型），或视觉请求超时', apps, windows: wins, screen: shot, visionUnavailable: true };
     const note = String((v && v.note) || '');
     const hasConv = !!(v && (String(v.conversation || '').trim() || (Array.isArray(v.recent) && v.recent.length)));
     // 「没识别到会话」不等于登录页：只有明确出现登录/扫码文案才拦截发送。
@@ -407,7 +461,7 @@ ${extra}`;
         return { ok: false, error: '当前会话不是目标联系人', conversation: an.conversation || '', analysis: an };
       }
       const pos = await typeAt(text, composer);
-      const verify = await verifySent(text);
+      const verify = (hint && hint.skipVerify) ? { ok: true, skipped: true } : await verifySent(text);
       last = { at: Date.now(), action: 'send', ok: true, text, verify };
       if (!verify.ok) log('[vm-chat] 发送校验失败：未在屏幕上确认到刚发出的消息「' + String(text).slice(0, 20) + '」' + (verify.lastText ? '（识别到「' + String(verify.lastText).slice(0, 30) + '」）' : ''));
       return { ok: true, sentAt: pos, analysis: an, verify, screen: null };
@@ -617,7 +671,7 @@ ${extra}`;
 
   return {
     cfg, isRunning, wake, stop, detectApps, windows, screenshot, analyze, sendText, checkAndReply,
-    scanUnread, ensureAppAlive, sendImageToUser,
+    scanUnread, ensureAppAlive, sendImageToUser, openContact,
     status: async () => ({ running: await isRunning(), apps: await (probeTcp(2222) ? detectApps() : []), last }),
   };
 }
