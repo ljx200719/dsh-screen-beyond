@@ -3131,6 +3131,9 @@ async function handleDirectEvent(body) {
   const ev = d.parseEvent(body);
   if (!ev) return { ok: true, ignored: "event" };
   if (dc.userId && String(ev.userId) !== String(dc.userId)) return { ok: true, ignored: "not-target-user" };
+  // 桥重连/首次上报时可能把离线历史消息回放过来：太久以前的不要当新消息回复（否则会突然连回好几条）
+  const evTime = Number((ev.raw && ev.raw.time) || 0);
+  if (evTime > 0 && Date.now() - evTime * 1000 > 15 * 60 * 1000) return { ok: true, ignored: "stale", time: evTime };
   const mid = String(ev.messageId || "");
   if (mid && DIRECT_SEEN.has(mid)) return { ok: true, ignored: "duplicate" };
   if (mid) {
