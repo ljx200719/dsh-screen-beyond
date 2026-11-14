@@ -5,6 +5,20 @@
 > 填法：在“决策/备注”列填选项字母、✔ 或文字；未填项按“建议默认”执行。  
 > 不在本工程范围：手机端 UI、后端引擎重写、新生活玩法、移动端同步实现。
 
+## 文件位置
+
+| 文件 | 路径 |
+|---|---|
+| 本表单 | `F:\屏幕彼端\插件最新版\dsh-screen-beyond\docs\NATIVE-REWRITE-FORM.md` |
+| 任务清单 | `F:\屏幕彼端\插件最新版\dsh-screen-beyond\docs\NATIVE-REWRITE-TASKS.csv` |
+| 插件源码 | `F:\屏幕彼端\插件最新版\dsh-screen-beyond` |
+| 发布产物 | `F:\屏幕彼端\发布产物` |
+| 数据根 | `D:\linzhi` |
+| 备份 | `D:\dsh-companion\backups` |
+| Git 远端 | `https://github.com/ljx200719/dsh-screen-beyond` |
+| 当前表单提交 | `fc56525` |
+
+
 ---
 
 ## 0. 一句话目标
