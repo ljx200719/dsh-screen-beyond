@@ -204,6 +204,7 @@ $script:bubbleTimer = $null
   }
   if (-not $script:petCacheCleaned) { $script:petCacheCleaned = $true; Clean-PetCache }
   if (-not $script:pet.expressions) { try { $script:pet.expressions = [pscustomobject]@{ idle='/pet-sprite/idle.png'; pat='/pet-sprite/pat.png'; rub='/pet-sprite/rub.png'; look='/pet-sprite/look.png' } } catch {} }
+  try { Start-PetFrames } catch {}
 }
 function Clean-PetCache() {
   try {
@@ -277,12 +278,13 @@ function Make-Bitmap([string]$path) {
     return $bmp
   } catch { Log ('bitmap err: ' + $_.Exception.Message); return $null }
 }
-function Update-Image([string]$expression = 'idle') {
+function Update-Image([string]$expression = 'idle', [string]$specOverride = '') {
   $sw = [Diagnostics.Stopwatch]::StartNew()
   $spec = [string]$script:pet.image
-  try {
+  if ($specOverride) { $spec = $specOverride }
+  else { try {
     if ($expression -and $script:pet.expressions -and $script:pet.expressions.$expression) { $spec = [string]$script:pet.expressions.$expression }
-  } catch {}
+  } catch {} }
   $path = Resolve-ImagePath $spec
   if (-not $path) { return }
   $ticks = 0; try { $ticks = (Get-Item $path).LastWriteTimeUtc.Ticks } catch {}
@@ -308,6 +310,40 @@ $script:img.ToolTip = $null
   $sw.Stop(); Log ('image ' + [IO.Path]::GetFileName($path) + ' ' + $sw.ElapsedMilliseconds + 'ms')
 }
 
+# ── 桌宠待机/走路动画：manifest 里给 frames（idle/walk 数组）就自动循环播放 ──
+$script:frameTimer = $null
+$script:frameIndex = 0
+function Start-PetFrames() {
+  try {
+    if ($script:frameTimer) { $script:frameTimer.Stop(); $script:frameTimer = $null }
+    $frames = $null
+    try { $frames = $script:pet.frames } catch {}
+    if (-not $frames) { return }
+    $interval = 460
+    try { if ($script:pet.frameMs) { $interval = [int]$script:pet.frameMs } } catch {}
+    $script:frameIndex = 0
+    $t = New-Object System.Windows.Threading.DispatcherTimer
+    $t.Interval = [TimeSpan]::FromMilliseconds([math]::Max(120, [math]::Min(2000, $interval)))
+    $t.Add_Tick({
+      try {
+        if ($script:reactionUntil -gt (Get-Date)) { return }
+        $walk = $false
+        try { if ($script:status -and ($script:status.state -eq 'traveling' -or $script:status.state -eq 'intercity')) { $walk = $true } } catch {}
+        $list = $null
+        try { $list = if ($walk) { $script:pet.frames.walk } else { $script:pet.frames.idle } } catch {}
+        if (-not $list) { return }
+        $arr = @($list)
+        if ($arr.Count -le 1) { return }
+        $script:frameIndex = ($script:frameIndex + 1) % $arr.Count
+        $spec = [string]$arr[$script:frameIndex]
+        if ($spec) { Update-Image '' $spec }
+      } catch {}
+    })
+    $script:frameTimer = $t
+    $t.Start()
+    Log 'pet frames started'
+  } catch { Log ('frames err ' + $_.Exception.Message) }
+}
 $script:expressionTimer = $null
 function Set-PetExpression([string]$name = 'idle', [int]$holdMs = 2600) {
   Log ('expr ' + $name)

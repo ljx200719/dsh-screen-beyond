@@ -436,6 +436,7 @@ function SettingsRoleTab() {
         h(Field, { label: '模型类型', hint: '舞台用她的形象；本版只有 2D 舞台' }, h(Select, { value: draft.modelType, onChange: (v) => patch({ modelType: v }), options: STG_ROLE_MODEL_TYPES })),
         h(Field, { label: '模型地址', hint: '可留空' }, h(TextInput, { value: draft.modelUrl, onChange: (v) => patch({ modelUrl: v }), placeholder: '模型文件 URL（可留空）', mono: true })),
         h(Field, { label: '模型缩放' }, h(NumInput, { value: draft.modelScale, min: 0.1, max: 3, step: 0.1, onChange: (v) => patch({ modelScale: v }) })),
+        h(Field, { label: '2D 表现', hint: '地图和 2D 舞台上的她用什么画' }, h(SkeletonSwitch, {})),
       ),
     ),
 
@@ -726,3 +727,15 @@ function SettingsBalanceAlertCard() {
     lastAt ? h(Note, {}, '上次提醒：' + fmtDateTime(lastAt)) : null,
   )
 }
+
+// 2D 表现开关：骨骼角色（会动） / 静态头像图。存 localStorage，地图/舞台立即跟着变。
+function SkeletonSwitch() {
+  const [on, setOn] = React.useState(skeletonEnabled())
+  return h(Toggle, {
+    checked: on,
+    onChange: (v) => { setOn(v); setSkeletonEnabled(v) },
+    label: on ? '骨骼角色（会动）' : '静态头像图（省内存）',
+  })
+}
+
+// (anchor fallback)

@@ -164,6 +164,8 @@ function saveTokenSaving(x) { CONFIG.tokenSaving = loadTokenSaving(); for (const
 const PET_DEFAULT = {
   enabled: false,
   image: '/pet-sprite/idle.png',
+  frameMs: 460,
+  frames: null,
   size: 180,
   opacity: 1,
   statusText: true,
@@ -179,6 +181,18 @@ const PET_DEFAULT = {
     { id: 'look', label: '', action: 'look', title: '看看我的屏幕', icon: 'eye-line' },
   ],
 };
+function petFramesFor(charId) {
+  try {
+    const dir = path.join(RUNTIME_DIR, 'assets', 'pet', String(charId || 'default'))
+    const has = (n) => fs.existsSync(path.join(dir, n))
+    const idle = ['/pet-sprite/idle.png'].filter(() => has('idle.png'))
+    for (const n of ['idle2.png', 'idle3.png']) if (has(n)) idle.push('/pet-sprite/' + n)
+    const walk = []
+    for (const n of ['walk0.png', 'walk1.png']) if (has(n)) walk.push('/pet-sprite/' + n)
+    if (idle.length <= 1 && walk.length === 0) return null
+    return { idle, walk }
+  } catch (e) { return null }
+}
 function loadPetCfg() {
   const f = readJson(path.join(ROOT, 'pet.json'), null);
   const c = CONFIG.pet || {};
@@ -187,6 +201,8 @@ function loadPetCfg() {
   m.gestures = Array.isArray(f && f.gestures) ? f.gestures : (Array.isArray(c.gestures) ? c.gestures : PET_DEFAULT.gestures);
   m.buttons = Array.isArray(f && f.buttons) ? f.buttons : (Array.isArray(c.buttons) ? c.buttons : PET_DEFAULT.buttons);
   m.expressions = (f && f.expressions) || c.expressions || PET_DEFAULT.expressions;
+  // 动画帧：用户自定义优先，否则按角色实际资源自动生成（没有就退回单图）
+  if (!m.frames) m.frames = petFramesFor(ACTIVE_CHAR);
   // 迁移旧版默认按钮（👀）到新的线框眼睛
   if (!(f && Array.isArray(f.buttons)) && Array.isArray(m.buttons) && m.buttons.some((b) => b && ((b.id === 'look' && b.label === '👀') || (b.id === 'chat' && b.label === '💬')))) {
     m.buttons = PET_DEFAULT.buttons;
@@ -3754,9 +3770,18 @@ const server = http.createServer(async (req, res) => {
     // 2D 骨骼角色的贴图与 rig.json（可自定义：优先数据目录 skeleton-assets，其次插件自带）
     if (req.method === 'GET' && url.pathname.startsWith('/skeleton-assets/')) {
       const rel = decodeURIComponent(url.pathname.replace(/^\/skeleton-assets\//, '')).replace(/\\/g, '/').replace(/\.\./g, '')
-      const roots = [path.join(ROOT, 'skeleton-assets'), path.join(RUNTIME_DIR, '..', 'examples', '2d-skeleton-demo', 'assets')]
+      // 支持两种目录布局：先按原路径找（数据目录/自带 assets 直接放文件），再按去掉首段（/skeleton-assets/<角色>/xxx → assets/xxx）找
+      const relAlt = rel.replace(/^[^/]+\//, '')
+      const roots = [path.join(ROOT, 'skeleton-assets'), path.join(RUNTIME_DIR, '..', 'examples', '2d-skeleton-demo', 'assets'), path.join(RUNTIME_DIR, 'skeleton-assets')]
       let file = null
-      for (const r of roots) { const fp = path.join(r, rel); if (fs.existsSync(fp) && fs.statSync(fp).isFile()) { file = fp; break } }
+      for (const r of roots) {
+        for (const candidate of [rel, relAlt]) {
+          if (!candidate) continue
+          const fp = path.join(r, candidate)
+          if (fs.existsSync(fp) && fs.statSync(fp).isFile()) { file = fp; break }
+        }
+        if (file) break
+      }
       if (!file) { res.writeHead(404); res.end('not found'); return }
       const ext = path.extname(file).toLowerCase()
       const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.json': 'application/json; charset=utf-8' }[ext] || 'application/octet-stream'

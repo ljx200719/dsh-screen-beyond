@@ -255,6 +255,16 @@ const SKELETON_RIG_BUILTIN = {
 let skeletonRigPromise = null
 let skeletonBaseCache = ''
 
+// 骨骼角色开关（设置 → 角色 → 2D 表现）；关掉就回退静态头像
+const SKELETON_SWITCH_KEY = 'sbc-2d-skeleton'
+function skeletonEnabled() {
+  try { return localStorage.getItem(SKELETON_SWITCH_KEY) !== '0' } catch (e) { return true }
+}
+function setSkeletonEnabled(on) {
+  try { localStorage.setItem(SKELETON_SWITCH_KEY, on ? '1' : '0') } catch (e) {}
+  try { if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event('sbc-skeleton-changed')) } catch (e) {}
+}
+
 function skeletonBaseSync() {
   try {
     if (Runtime && Runtime.cachedBase) skeletonBaseCache = String(Runtime.cachedBase)
@@ -324,7 +334,8 @@ function SkeletonAvatar(props) {
   const p = props || {}
   const height = Math.max(20, Number(p.size) || 76)
   const [rig, setRig] = React.useState(null)
-  const [failed, setFailed] = React.useState(false)
+  const [imgUrls, setImgUrls] = React.useState({})
+  const [enabled, setEnabled] = React.useState(skeletonEnabled())
   const wrapRef = React.useRef(null)
   const nodesRef = React.useRef({})
   const animRef = React.useRef({ t: Math.random() * 10, phase: Math.random() * 6, movingUntil: 0, dir: 1, lastX: null })
@@ -334,6 +345,34 @@ function SkeletonAvatar(props) {
     skeletonRig().then((r) => { if (alive) setRig(r) })
     return () => { alive = false }
   }, [])
+
+  // 设置里的「2D 骨骼角色」开关变化时立刻重渲染
+  React.useEffect(() => {
+    const onChange = () => setEnabled(skeletonEnabled())
+    try { window.addEventListener('sbc-skeleton-changed', onChange) } catch (e) {}
+    return () => { try { window.removeEventListener('sbc-skeleton-changed', onChange) } catch (e) {} }
+  }, [])
+
+  // 贴图走 Api.imgUrl（blob）：token 模式下 <img> 不能带 header，直接写 http 地址还可能被 CSP 拦
+  React.useEffect(() => {
+    if (!rig) return
+    let alive = true
+    const names = Object.keys(rig.parts || {})
+    Promise.all(names.map((name) => {
+      const info = rig.parts[name] || {}
+      const file = String(info.file || '').replace(/^assets\//, '')
+      if (!file) return null
+      return Api.imgUrl(SKELETON_ASSET_PREFIX + file)
+        .then((u) => { if (u) return [name, u] })
+        .catch(() => null)
+    })).then((pairs) => {
+      if (!alive) return
+      const next = {}
+      for (const pair of pairs) if (pair && pair[1]) next[pair[0]] = pair[1]
+      setImgUrls(next)
+    })
+    return () => { alive = false }
+  }, [rig])
 
   // 移动检测：父组件给 moving 就直接用；否则看 x 的变化（地图轮询）
   React.useEffect(() => {
@@ -355,6 +394,10 @@ function SkeletonAvatar(props) {
 
   React.useEffect(() => {
     if (!rig) return
+    // 无浏览器动画环境（客户端冒烟测试的 DOM stub、SSR）直接跳过
+    const rafFn = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : null
+    if (!rafFn) return
+    const cancelFn = typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : function () {}
     // 骨骼拓扑顺序（父在前）
     const order = []
     const visit = (name) => {
@@ -407,13 +450,14 @@ function SkeletonAvatar(props) {
         if (!w) continue
         el.style.transform = 'translate3d(' + (w.x * k).toFixed(2) + 'px,' + (w.y * k).toFixed(2) + 'px,0) rotate(' + w.ang.toFixed(2) + 'deg)'
       }
-      raf = requestAnimationFrame(frame)
+      raf = rafFn(frame)
     }
-    raf = requestAnimationFrame(frame)
-    return () => cancelAnimationFrame(raf)
+    raf = rafFn(frame)
+    return () => cancelFn(raf)
   }, [rig, k])
 
-  if (!rig || failed) return h(Avatar, { path: p.path, name: p.name, size: p.fallbackSize || 30 })
+  const hasParts = Object.keys(imgUrls).length > 0
+  if (!rig || !enabled || !hasParts) return h(Avatar, { path: p.path, name: p.name, size: p.fallbackSize || 30 })
 
   const partList = Object.keys(rig.parts)
     .filter((name) => SKELETON_PART_BONE[name] && rig.bones[SKELETON_PART_BONE[name]])
@@ -451,10 +495,9 @@ function SkeletonAvatar(props) {
         },
       },
         h('img', {
-          src: skeletonAssetUrl(info.file),
+          src: imgUrls[name] || '',
           alt: '',
           draggable: false,
-          onError: () => setFailed(true),
           style: {
             position: 'absolute',
             left: (-pivot[0] * k).toFixed(2) + 'px',
