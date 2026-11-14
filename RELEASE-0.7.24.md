@@ -71,6 +71,11 @@
 - **下载尝试记录**：Lagrange.OneBot（sign server 404）、go-cqhttp v2（sign 服务要求授权头）、LuckyLillia（需要付费 auth token）都无法直接跑；NapCat（免费方案）本网络下载不到（GitHub API 无 releases、镜像 403/404）。因此这次验证用了本机已有的 SnowLuma 作测试桥——插件本身仍只认 OneBot 11，不绑定任何具体实现。
 - 测试后已把直连设置改回「关闭」，SnowLuma 配置恢复、进程停掉（不改变你原来的使用环境）。
 
+## 7.4 追加（2026-11-15 凌晨，第四批）
+
+- **直连 UI/文档标注「QQ 桥目前在研究」**：NapCat 下架、Lagrange 签名服务停、LLOneBot 收费之后，现成的 OneBot 桥越来越少；我在自写「官方 QQ 客户端注入 + OneBot 11」桥（预研中）。直连卡片已加提示，说明在其可用前仍需自备 OneBot 11 实现。
+- **VM 自动读屏已实测可用**：DeepSeek `deepseek-flash` 官方已支持图片输入，真实 VM 截图识别成功（约 54s 返回会话/消息/输入框坐标）。之前「模型不支持图片」的结论已过时。
+
 ## 8. 升级与注意
 
 - 版本变化后宿主会自动重启运行时；DSH 面板需刷新页面/重启 DSH 才加载新的 `lib/client.js`。
