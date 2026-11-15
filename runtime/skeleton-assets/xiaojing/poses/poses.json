@@ -8,78 +8,78 @@
   "idle": {
    "file": "poses/idle.png",
    "size": [
-    750,
-    1500
+    375,
+    750
    ],
    "offset": [
-    225,
-    200
+    112,
+    100
    ]
   },
   "walkA": {
    "file": "poses/walkA.png",
    "size": [
-    878,
-    1504
+    439,
+    752
    ],
    "offset": [
-    161,
-    196
+    80,
+    98
    ]
   },
   "walkB": {
    "file": "poses/walkB.png",
    "size": [
-    845,
-    1539
+    422,
+    769
    ],
    "offset": [
-    178,
-    161
+    89,
+    80
    ]
   },
   "wave": {
    "file": "poses/wave.png",
    "size": [
-    829,
-    1495
+    414,
+    747
    ],
    "offset": [
-    186,
-    205
+    93,
+    102
    ]
   },
   "stretch": {
    "file": "poses/stretch.png",
    "size": [
-    878,
-    1485
+    439,
+    742
    ],
    "offset": [
-    161,
-    215
+    80,
+    107
    ]
   },
   "sleepy": {
    "file": "poses/sleepy.png",
    "size": [
-    796,
-    1490
+    398,
+    745
    ],
    "offset": [
-    202,
-    210
+    101,
+    105
    ]
   },
   "happy": {
    "file": "poses/happy.png",
    "size": [
-    849,
-    1505
+    424,
+    752
    ],
    "offset": [
-    176,
-    195
+    88,
+    97
    ]
   }
  }
