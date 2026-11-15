@@ -42,9 +42,11 @@ function skeletonCharId() {
   return Promise.resolve()
     .then(() => Api.get('/api/status'))
     .then((r) => {
-      const j = r && r.json
+      // Api.get 返回 { ok, status, data }（早期版本有 json 字段，这里两种都兼容）
+      const j = (r && (r.data || r.json)) || null
       const id = j && j.character && j.character.id ? String(j.character.id) : ''
-      skeletonCharIdCache = { id, at: Date.now() }
+      // 没拿到就别缓存 20 秒，5 秒后重试，避免面板刚起来时 API 还没就绪导致一直显示立绘
+      skeletonCharIdCache = { id, at: id ? Date.now() : Date.now() - 15000 }
       return id
     })
     .catch(() => skeletonCharIdCache.id || '')

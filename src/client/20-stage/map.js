@@ -596,7 +596,15 @@ function MapSceneEditor(props) {
               borderRadius: 10,
               border: '1px solid ' + T.border,
               overflow: 'hidden',
-              background: T.bg2,
+              // 内部场景编辑画布底板：透明图/空白处铺棋盘格 + 网格，不再露出裸底色
+              backgroundColor: T.bg2,
+              backgroundImage:
+                'linear-gradient(45deg, rgba(127,127,127,.14) 25%, transparent 25%, transparent 75%, rgba(127,127,127,.14) 75%),' +
+                'linear-gradient(45deg, rgba(127,127,127,.14) 25%, transparent 25%, transparent 75%, rgba(127,127,127,.14) 75%),' +
+                'linear-gradient(rgba(127,127,127,.10) 1px, transparent 1px),' +
+                'linear-gradient(90deg, rgba(127,127,127,.10) 1px, transparent 1px)',
+              backgroundSize: '18px 18px, 18px 18px, 28px 28px, 28px 28px',
+              backgroundPosition: '0 0, 9px 9px, 0 0, 0 0',
               cursor: brush ? 'crosshair' : 'default',
               touchAction: 'none',
               userSelect: 'none',
