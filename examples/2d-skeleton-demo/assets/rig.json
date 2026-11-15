@@ -1,71 +1,92 @@
 {
  "name": "xiaojing",
  "canvas": [
-  1362,
-  2244
+  1200,
+  1800
  ],
  "bones": {
   "hips": {
    "parent": null,
    "pos": [
-    681,
-    1290
-   ]
-  },
-  "chest": {
-   "parent": "hips",
-   "pos": [
-    681,
-    987
+    600.0,
+    1080.0
    ]
   },
   "head": {
-   "parent": "chest",
-   "pos": [
-    661,
-    909
-   ]
-  },
-  "hairBack": {
-   "parent": "chest",
-   "pos": [
-    681,
-    909
-   ]
-  },
-  "armL": {
-   "parent": "chest",
-   "pos": [
-    293,
-    1133
-   ]
-  },
-  "armR": {
-   "parent": "chest",
-   "pos": [
-    1069,
-    1133
-   ]
-  },
-  "legL": {
    "parent": "hips",
    "pos": [
-    561,
-    1571
+    600.0,
+    720.0
    ]
   },
-  "legR": {
+  "hair": {
+   "parent": "head",
+   "pos": [
+    600.0,
+    40
+   ]
+  },
+  "armUL": {
    "parent": "hips",
    "pos": [
-    801,
-    1571
+    350.0,
+    716.4000000000001
+   ]
+  },
+  "armLL": {
+   "parent": "armUL",
+   "pos": [
+    350.0,
+    906.4000000000001
+   ]
+  },
+  "armUR": {
+   "parent": "hips",
+   "pos": [
+    850.0,
+    716.4000000000001
+   ]
+  },
+  "armLR": {
+   "parent": "armUR",
+   "pos": [
+    850.0,
+    906.4000000000001
+   ]
+  },
+  "thighL": {
+   "parent": "hips",
+   "pos": [
+    504.0,
+    1179.0
+   ]
+  },
+  "shinL": {
+   "parent": "thighL",
+   "pos": [
+    504.0,
+    1419.0
+   ]
+  },
+  "thighR": {
+   "parent": "hips",
+   "pos": [
+    696.0,
+    1179.0
+   ]
+  },
+  "shinR": {
+   "parent": "thighR",
+   "pos": [
+    696.0,
+    1419.0
    ]
   },
   "tail": {
    "parent": "hips",
    "pos": [
-    1090,
-    1324
+    770.0,
+    1152.0
    ]
   }
  },
@@ -73,166 +94,172 @@
   "head": {
    "file": "assets/head.png",
    "box": [
-    6,
-    0,
-    1314,
-    1570
+    254,
+    100,
+    946,
+    720
    ],
-   "pivot": [
+   "size": [
+    692,
+    620
+   ]
+  },
+  "hair": {
+   "file": "assets/hair.png",
+   "box": [
     210,
-    291
+    40,
+    989,
+    1140
    ],
    "size": [
-    420,
-    504
+    779,
+    1100
    ]
   },
-  "hairBack": {
-   "file": "assets/hairBack.png",
+  "body": {
+   "file": "assets/body.png",
    "box": [
-    27,
-    886,
-    1334,
-    1615
-   ],
-   "pivot": [
-    210,
-    7
+    290,
+    706,
+    910,
+    1289
    ],
    "size": [
-    420,
-    234
+    620,
+    583
    ]
   },
-  "torso": {
-   "file": "assets/torso.png",
+  "armUL": {
+   "file": "assets/armUL.png",
    "box": [
-    367,
-    886,
-    994,
-    1290
-   ],
-   "pivot": [
-    210,
-    270
+    275,
+    710,
+    425,
+    900
    ],
    "size": [
-    420,
-    270
+    150,
+    190
    ]
   },
-  "armL": {
-   "file": "assets/armL.png",
+  "armLL": {
+   "file": "assets/armLL.png",
    "box": [
-    231,
-    1054,
-    435,
-    1447
-   ],
-   "pivot": [
-    61,
-    79
+    301,
+    884,
+    399,
+    1084
    ],
    "size": [
-    204,
-    393
+    98,
+    200
    ]
   },
-  "armR": {
-   "file": "assets/armR.png",
+  "armUR": {
+   "file": "assets/armUR.png",
    "box": [
-    926,
-    1054,
-    1130,
-    1447
-   ],
-   "pivot": [
-    143,
-    79
+    774,
+    710,
+    925,
+    900
    ],
    "size": [
-    204,
-    393
+    151,
+    190
    ]
   },
-  "skirt": {
-   "file": "assets/skirt.png",
+  "armLR": {
+   "file": "assets/armLR.png",
    "box": [
-    27,
-    1155,
-    1334,
-    1716
-   ],
-   "pivot": [
-    210,
-    3
+    806,
+    884,
+    893,
+    1084
    ],
    "size": [
-    420,
-    180
+    87,
+    200
    ]
   },
-  "legL": {
-   "file": "assets/legL.png",
+  "thighL": {
+   "file": "assets/thighL.png",
    "box": [
-    442,
-    1559,
-    681,
-    2232
-   ],
-   "pivot": [
-    119,
-    11
+    456,
+    1171,
+    553,
+    1411
    ],
    "size": [
-    239,
-    673
+    97,
+    240
    ]
   },
-  "legR": {
-   "file": "assets/legR.png",
+  "shinL": {
+   "file": "assets/shinL.png",
    "box": [
-    681,
-    1559,
-    919,
-    2232
-   ],
-   "pivot": [
-    119,
-    11
+    438,
+    1401,
+    571,
+    1721
    ],
    "size": [
-    238,
-    673
+    133,
+    320
+   ]
+  },
+  "thighR": {
+   "file": "assets/thighR.png",
+   "box": [
+    648,
+    1171,
+    744,
+    1411
+   ],
+   "size": [
+    96,
+    240
+   ]
+  },
+  "shinR": {
+   "file": "assets/shinR.png",
+   "box": [
+    628,
+    1401,
+    765,
+    1721
+   ],
+   "size": [
+    137,
+    320
    ]
   },
   "tail": {
    "file": "assets/tail.png",
    "box": [
-    994,
-    1122,
-    1355,
-    1974
-   ],
-   "pivot": [
-    95,
-    201
+    678,
+    1152,
+    861,
+    1332
    ],
    "size": [
-    361,
-    852
+    183,
+    180
    ]
   }
  },
  "z": {
-  "tail": 0,
-  "hairBack": 1,
-  "legL": 2,
-  "legR": 2,
-  "skirt": 3,
-  "torso": 4,
-  "armL": 5,
-  "armR": 5,
+  "hair": 1,
+  "tail": 1.5,
+  "shinL": 2.1,
+  "shinR": 2.1,
+  "thighL": 2.2,
+  "thighR": 2.2,
+  "body": 4,
+  "armLL": 4.4,
+  "armLR": 4.4,
+  "armUL": 5,
+  "armUR": 5,
   "head": 6
  }
 }

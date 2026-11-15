@@ -318,6 +318,10 @@ $script:img.ToolTip = $null
 # ── 桌宠待机/走路动画：manifest 里给 frames（idle/walk 数组）就自动循环播放 ──
 $script:frameTimer = $null
 $script:frameIndex = 0
+$script:actFrames = $null
+$script:actIndex = 0
+$script:actUntil = $null
+$script:actNextAt = $null
 function Start-PetFrames() {
   try {
     if ($script:frameTimer) { $script:frameTimer.Stop(); $script:frameTimer = $null }
@@ -332,6 +336,44 @@ function Start-PetFrames() {
     $t.Add_Tick({
       try {
         if ($script:reactionUntil -gt (Get-Date)) { return }
+        $now = Get-Date
+        # 随机小动作：每隔 8~16 秒挑一个动作（挥手/伸展/困/开心/张望/摸头/搓脸）播 1.8 秒
+        if ($script:actFrames -and @($script:actFrames).Count -gt 0) {
+          if ($script:actUntil -and $now -lt $script:actUntil) {
+            $arr = @($script:actFrames)
+            $i = [math]::Min([int]$script:actIndex, $arr.Count - 1)
+            $spec = [string]$arr[$i]
+            if ($spec) { Update-Image '' $spec }
+            $script:actIndex = $script:actIndex + 1
+            return
+          }
+          $script:actFrames = $null
+          $script:actIndex = 0
+          $script:actUntil = $null
+          $script:actNextAt = $now.AddSeconds((Get-Random -Minimum 8 -Maximum 16))
+        }
+        if (-not $script:actNextAt) { $script:actNextAt = $now.AddSeconds((Get-Random -Minimum 6 -Maximum 12)) }
+        if ($now -ge $script:actNextAt) {
+          $actions = $null
+          try { $actions = $script:pet.actions } catch {}
+          if (-not $actions) { try { $actions = $script:pet.frames.actions } catch {} }
+          if ($actions) {
+            $keys = @($actions.PSObject.Properties.Name)
+            if ($keys.Count -gt 0) {
+              $pick = $keys[(Get-Random -Maximum $keys.Count)]
+              $frames = @($actions.$pick)
+              if ($frames.Count -gt 0) {
+                $script:actFrames = $frames
+                $script:actIndex = 0
+                $script:actUntil = $now.AddMilliseconds(1800)
+                $arr0 = @($script:actFrames)
+                if ($arr0.Count -gt 0) { Update-Image '' ([string]$arr0[0]) }
+                return
+              }
+            }
+          }
+          $script:actNextAt = $now.AddSeconds((Get-Random -Minimum 8 -Maximum 16))
+        }
         $walk = $false
         try { if ($script:status -and ($script:status.state -eq 'traveling' -or $script:status.state -eq 'intercity')) { $walk = $true } } catch {}
         $list = $null

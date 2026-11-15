@@ -185,12 +185,18 @@ function petFramesFor(charId) {
   try {
     const dir = path.join(RUNTIME_DIR, 'assets', 'pet', String(charId || 'default'))
     const has = (n) => fs.existsSync(path.join(dir, n))
-    const idle = ['/pet-sprite/idle.png'].filter(() => has('idle.png'))
-    for (const n of ['idle2.png', 'idle3.png']) if (has(n)) idle.push('/pet-sprite/' + n)
+    const idle = []
+    for (const n of ['idle.png', 'idle0.png', 'idle1.png', 'idle2.png', 'idle3.png']) if (has(n)) idle.push('/pet-sprite/' + n)
     const walk = []
-    for (const n of ['walk0.png', 'walk1.png']) if (has(n)) walk.push('/pet-sprite/' + n)
-    if (idle.length <= 1 && walk.length === 0) return null
-    return { idle, walk }
+    for (let i = 0; i < 6; i++) if (has('walk' + i + '.png')) walk.push('/pet-sprite/walk' + i + '.png')
+    const actions = {}
+    const actionMap = { wave: ['wave'], stretch: ['stretch'], sleepy: ['sleepy'], happy: ['happy'], look: ['lookL', 'lookR'], pat: ['pat'], rub: ['rub'] }
+    for (const key of Object.keys(actionMap)) {
+      const list = actionMap[key].filter((n) => has(n + '.png')).map((n) => '/pet-sprite/' + n + '.png')
+      if (list.length) actions[key] = list
+    }
+    if (idle.length <= 1 && walk.length === 0 && Object.keys(actions).length === 0) return null
+    return { idle, walk, actions }
   } catch (e) { return null }
 }
 function loadPetCfg() {
@@ -203,6 +209,7 @@ function loadPetCfg() {
   m.expressions = (f && f.expressions) || c.expressions || PET_DEFAULT.expressions;
   // 动画帧：用户自定义优先，否则按角色实际资源自动生成（没有就退回单图）
   if (!m.frames) m.frames = petFramesFor(ACTIVE_CHAR);
+  if (!m.actions && m.frames && m.frames.actions) m.actions = m.frames.actions;
   // 迁移旧版默认按钮（👀）到新的线框眼睛
   if (!(f && Array.isArray(f.buttons)) && Array.isArray(m.buttons) && m.buttons.some((b) => b && ((b.id === 'look' && b.label === '👀') || (b.id === 'chat' && b.label === '💬')))) {
     m.buttons = PET_DEFAULT.buttons;
