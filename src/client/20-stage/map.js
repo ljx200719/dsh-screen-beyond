@@ -1563,7 +1563,7 @@ function MapView(props) {
   const rootStyle = {
     flex: 1, minHeight: 0, minWidth: 0,
     display: 'flex', flexDirection: 'column',
-    background: T.bg, color: T.text, fontFamily: T.font, fontSize: 13,
+    background: paintOn() ? 'transparent' : T.bg, color: T.text, fontFamily: T.font, fontSize: 13,
     padding: 10, gap: 8, boxSizing: 'border-box',
   }
 

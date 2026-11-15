@@ -186,44 +186,67 @@ function useImage(path, opts) {
 }
 
 
-// ── 外观美化（背景）：开关 + 自定义背景图；设置页改完派发 sbc-paint-changed ──
+// ── 外观美化（全局面板背景）：全局单例拉取 + 订阅；设置页保存后派发 sbc-paint-changed ──
 const SBC_PAINT_DEFAULT = { enabled: false, image: '' }
-function usePaintConfig() {
-  const [paint, setPaint] = React.useState(SBC_PAINT_DEFAULT)
-  const [url, setUrl] = React.useState('')
-  const load = React.useCallback(() => {
-    Api.get('/api/paint').then((r) => {
-      const p = (r && r.ok && r.data && r.data.paint) || SBC_PAINT_DEFAULT
-      setPaint({ enabled: !!p.enabled, image: String(p.image || '') })
-      if (p.image) Api.imgUrl(String(p.image)).then((u) => { if (u) setUrl(u) }).catch(() => setUrl(''))
-      else setUrl('')
-    }).catch(() => {})
-  }, [])
-  React.useEffect(() => {
-    load()
-    const onChange = () => load()
-    try { window.addEventListener('sbc-paint-changed', onChange) } catch (e) {}
-    return () => { try { window.removeEventListener('sbc-paint-changed', onChange) } catch (e) {} }
-  }, [load])
-  return { paint: paint, imageUrl: url }
+let __sbcPaint = { paint: SBC_PAINT_DEFAULT, imageUrl: '' }
+let __sbcPaintPromise = null
+const __sbcPaintSubs = new Set()
+function __sbcPaintNotify() { __sbcPaintSubs.forEach((fn) => { try { fn() } catch (e) {} }) }
+function __sbcPaintLoad(force) {
+  if (__sbcPaintPromise && !force) return __sbcPaintPromise
+  __sbcPaintPromise = Api.get('/api/paint').then((r) => {
+    const p = (r && r.ok && r.data && r.data.paint) || SBC_PAINT_DEFAULT
+    const paint = { enabled: !!p.enabled, image: String(p.image || '') }
+    if (paint.image) {
+      return Api.imgUrl(paint.image).then((u) => { __sbcPaint = { paint: paint, imageUrl: u || '' }; __sbcPaintNotify() })
+        .catch(() => { __sbcPaint = { paint: paint, imageUrl: '' }; __sbcPaintNotify() })
+    }
+    __sbcPaint = { paint: paint, imageUrl: '' }
+    __sbcPaintNotify()
+  }).catch(() => {})
+  return __sbcPaintPromise
 }
-
-// 美化背景的 CSS（关闭时返回 null，调用方回退原来的纯色）
+function usePaintConfig() {
+  const [, setTick] = React.useState(0)
+  React.useEffect(() => {
+    const fn = () => setTick((t) => t + 1)
+    __sbcPaintSubs.add(fn)
+    __sbcPaintLoad(false)
+    const onChange = () => __sbcPaintLoad(true)
+    try { window.addEventListener('sbc-paint-changed', onChange) } catch (e) {}
+    return () => {
+      __sbcPaintSubs.delete(fn)
+      try { window.removeEventListener('sbc-paint-changed', onChange) } catch (e) {}
+    }
+  }, [])
+  return __sbcPaint
+}
+// 同步判断（给不能挂 hook 的纯函数用）
+function paintOn() { return !!(__sbcPaint && __sbcPaint.paint && __sbcPaint.paint.enabled) }
+// 玻璃感面板底色（美化开启时半透明）
+function paintGlass(normal, alpha) {
+  if (!paintOn()) return normal
+  return 'rgba(12,18,30,' + (alpha === undefined ? 0.72 : alpha) + ')'
+}
+// 美化背景的 CSS 图层（关闭时返回 null）
 function paintLayers(paint, imageUrl) {
   if (!paint || !paint.enabled) return null
   const layers = []
-  if (imageUrl) layers.push('linear-gradient(180deg, rgba(8,12,22,.62), rgba(8,12,22,.82)), url(' + JSON.stringify(imageUrl) + ')')
-  layers.push('radial-gradient(900px 500px at 18% 0%, rgba(88,101,242,.20), transparent 60%)')
-  layers.push('radial-gradient(800px 460px at 86% 12%, rgba(0,196,255,.14), transparent 58%)')
-  layers.push('radial-gradient(700px 420px at 50% 110%, rgba(150,90,255,.12), transparent 60%)')
+  if (imageUrl) layers.push('linear-gradient(180deg, rgba(8,12,22,.66), rgba(8,12,22,.86)), url(' + JSON.stringify(imageUrl) + ')')
+  layers.push('radial-gradient(900px 500px at 18% 0%, rgba(88,101,242,.22), transparent 60%)')
+  layers.push('radial-gradient(800px 460px at 86% 12%, rgba(0,196,255,.15), transparent 58%)')
+  layers.push('radial-gradient(700px 420px at 50% 110%, rgba(150,90,255,.13), transparent 60%)')
   layers.push('radial-gradient(1px 1px at 40px 60px, rgba(255,255,255,.55), transparent 100%)')
   layers.push('radial-gradient(1px 1px at 130px 140px, rgba(255,255,255,.35), transparent 100%)')
   layers.push('radial-gradient(1px 1px at 210px 40px, rgba(255,255,255,.45), transparent 100%)')
   layers.push('linear-gradient(180deg, #0d1320, #0a0f19)')
   return {
     backgroundImage: layers.join(','),
-    backgroundSize: imageUrl ? 'cover, cover, auto, auto, auto, 260px 260px, 340px 340px, 220px 220px, auto' : 'auto, auto, auto, 260px 260px, 340px 340px, 220px 220px, auto',
+    backgroundSize: imageUrl
+      ? 'cover, cover, auto, auto, auto, 260px 260px, 340px 340px, 220px 220px, auto'
+      : 'auto, auto, auto, 260px 260px, 340px 340px, 220px 220px, auto',
     backgroundPosition: 'center, center, center, center, center, 0 0, 0 0, 0 0, center',
+    backgroundAttachment: imageUrl ? 'fixed, fixed, fixed, fixed, fixed, fixed, fixed, fixed, fixed' : 'fixed',
     backgroundColor: '#0a0f19',
   }
 }

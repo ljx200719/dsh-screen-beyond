@@ -149,6 +149,7 @@ class SbcViewBoundary extends React.Component {
 
 function AppShell() {
   ensureUiStyle()
+  const beauty = usePaintConfig()
   const base = useRuntimeBase()
   const status = useStatus()
   const st = status.data || {}
@@ -345,14 +346,16 @@ function AppShell() {
   return h('div', {
     style: {
       display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0,
-      boxSizing: 'border-box', background: T.bg, color: T.text, fontFamily: T.font,
+      boxSizing: 'border-box', color: T.text, fontFamily: T.font,
       fontSize: 13, lineHeight: 1.6,
+      background: T.bg,
+      ...(paintLayers(beauty.paint, beauty.imageUrl) || {}),
     },
   },
     h('div', {
       style: {
         display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-        padding: '8px 12px 6px', borderBottom: '1px solid ' + T.border, background: T.bg1, flexShrink: 0,
+        padding: '8px 12px 6px', borderBottom: '1px solid ' + T.border, background: paintGlass(T.bg1, 0.72), backdropFilter: beauty.paint.enabled ? 'blur(8px)' : 'none', flexShrink: 0,
       },
     },
       h(Avatar, { path: st.character && st.character.avatar, name: st.character && st.character.name, size: 30 }),
@@ -375,7 +378,7 @@ function AppShell() {
       } }, '看屏幕'),
     ),
     // 标签条
-    h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderBottom: '1px solid ' + T.border, background: T.bg, flexShrink: 0 } },
+    h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderBottom: '1px solid ' + T.border, background: paintGlass(T.bg, 0.55), backdropFilter: beauty.paint.enabled ? 'blur(8px)' : 'none', flexShrink: 0 } },
       h(Tabs, { value: tab, items: TABS, onChange: openTab }),
       h('span', { style: { flex: 1 } }),
       statusErr && st.version ? h(Btn, { size: 'sm', kind: 'danger', onClick: retry, disabled: reconnecting }, reconnecting ? '重连中…' : '断线重连') : null,

@@ -400,7 +400,7 @@ function StageView(props) {
   const rootStyle = {
     flex: 1, minHeight: 0, minWidth: 0,
     display: 'flex', flexDirection: 'column',
-    background: T.bg, color: T.text, fontFamily: T.font,
+    background: paintOn() ? 'transparent' : T.bg, color: T.text, fontFamily: T.font,
     fontSize: compact ? 11.5 : 13,
   }
 
@@ -505,7 +505,7 @@ function StageView(props) {
     // 非浏览器/首帧下 rect 是 0，但 React 树里有内容，不会出现"空白一片"）
     h('div', {
       ref: fit.ref,
-      style: Object.assign({ position: 'relative', flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', borderRadius: compact ? 8 : 12 }, beautyBg || { background: T.bg2 }),
+      style: Object.assign({ position: 'relative', flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', borderRadius: compact ? 8 : 12 }, beautyBg ? (beauty.paint.enabled ? { background: 'transparent' } : beautyBg) : { background: T.bg2 }),
     },
       beautyBg ? h('div', { style: { position: 'absolute', inset: 0, pointerEvents: 'none', background: 'radial-gradient(120% 90% at 50% 110%, rgba(0,0,0,0) 55%, rgba(0,0,0,.35) 100%)' } }) : null,
       // 3D：ThreeStage 自己铺满容器（WebGL 画布）；失败回调在这里切回 2D

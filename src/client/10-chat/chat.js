@@ -104,7 +104,7 @@ function chatSameUsage(a, b) {
 
 function chatHerBubbleStyle() {
   return {
-    background: T.bg1,
+    background: paintGlass(T.bg1, 0.78),
     border: '1px solid ' + T.border,
     borderRadius: '13px 13px 13px 5px',
     padding: '8px 12px',
@@ -642,7 +642,7 @@ function ChatView(props) {
     // 输入区
     h('div', {
       style: {
-        flexShrink: 0, borderTop: '1px solid ' + T.border, background: T.bg1,
+        flexShrink: 0, borderTop: '1px solid ' + T.border, background: paintGlass(T.bg1, 0.72),
         padding: '7px 12px 10px', display: 'flex', flexDirection: 'column', gap: 6,
       },
     },

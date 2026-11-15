@@ -69,12 +69,11 @@ function skeletonRig(charId) {
   const key = String(charId || '')
   if (!key) return Promise.resolve(null)
   if (skeletonRigCache[key]) return skeletonRigCache[key]
-  const base = skeletonBaseSync()
-  const dir = (base ? String(base).replace(/\/$/, '') : '') + '/skeleton-assets/' + encodeURIComponent(key) + '/poses/'
-  skeletonRigCache[key] = fetch(dir + 'poses.json', { cache: 'no-store' })
-    .then((r) => (r && r.ok ? r.json() : null))
-    .then((j) => (j && j.poses && Object.keys(j.poses).length ? j : null))
-    .catch(() => null)
+  // 走 Api.get：内部会等运行时地址就绪并带 token；失败不缓存，下次重试（之前用 fetch 相对地址，首次拿不到 base 就会永久回退成静态图）
+  skeletonRigCache[key] = Api.get('/skeleton-assets/' + encodeURIComponent(key) + '/poses/poses.json')
+    .then((r) => { const j = r && r.ok ? r.data : null; return j && j.poses && Object.keys(j.poses).length ? j : null })
+    .then((j) => { if (!j) delete skeletonRigCache[key]; return j })
+    .catch(() => { delete skeletonRigCache[key]; return null })
   return skeletonRigCache[key]
 }
 function skeletonPoseUrl(charId, file) {

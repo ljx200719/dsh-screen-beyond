@@ -52,13 +52,13 @@ function SettingsView(props) {
   }, [setTab])
 
   return h('div', {
-    style: { flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', background: T.bg, color: T.text, fontFamily: T.font },
+    style: { flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', background: paintOn() ? 'transparent' : T.bg, color: T.text, fontFamily: T.font },
   },
     // 头部：标题 + 说明 + 运行时刷新
     h('div', {
       style: {
         display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-        padding: '9px 14px 6px', borderBottom: '1px solid ' + T.border, background: T.bg1, flexShrink: 0,
+        padding: '9px 14px 6px', borderBottom: '1px solid ' + T.border, background: paintGlass(T.bg1, 0.7), flexShrink: 0,
       },
     },
       h('span', { style: { fontSize: 14, fontWeight: 600, color: T.text } }, '设置'),
