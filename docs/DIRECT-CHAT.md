@@ -101,3 +101,33 @@ powershell -ExecutionPolicy Bypass -File <桥目录>\start-bridge.ps1
 - 自建桥研究记录与限制：`docs/SELF-BRIDGE-RESEARCH.md`
 - 桥代码/脚本：`docs/self-bridge/`
 - 实际运行目录示例：`F:\onebot\next\`（JDK、注入器、日志都在这里，可整目录删除）
+
+
+## 五、限制清单（硬边界，2026-11-15）
+
+| 限制 | 说明 | 能不能绕过 |
+| --- | --- | --- |
+| 只建议小号 | 注入类方案有风控/封号风险 | 不能，风险自担 |
+| 内存注入、非服务 | QQ 退出/重启/更新后桥消失 | 用 `bridge-supervisor.ps1` 每 20 秒自动检测并重注入（QQ 未登录救不回） |
+| QQ 文件不能改 | 9.9.37 对 application.json / version.json 有 Ed25519 签名，改就报「文件已损坏」 | 不能；只能运行时注入 |
+| 单会话私聊、纯文本 | 只认固定对方 QQ；群聊/图片/文件未实现 | 需要继续开发 |
+| 依赖 QQ 界面 DOM | 需要消息页可打开；QQ 改版可能让选择器失效 | 需要跟进适配 |
+| 只监听 127.0.0.1 | 不暴露公网；token 可选（默认空=本机免鉴权） | 有意为之 |
+| 延迟 | 入站轮询约 1.2 秒；发送串行 + 最小间隔 0.9 秒 | 可调 `bridge-core.js` 里的 pollMs / minSendGapMs |
+
+## 六、自检与排障
+
+1. `GET http://127.0.0.1:3010/ping` → `{ok:true, version}`（进程活着）
+2. `POST http://127.0.0.1:3010/get_status` → 看 `chatWindow`、`events`、`lastError`、`lastSendAt`
+3. 插件 设置→VM→聊天软件直连 → 「测试连接」→「发测试消息」
+4. 掉线：跑 `bridge-supervisor.ps1`；想看日志看 `F:\onebot\next\bridge.log` 与 `bridge-supervisor.log`
+5. 想开机自启：`install-supervisor.ps1` 注册登录计划任务；卸载 `schtasks /Delete /TN "SBCBridgeSupervisor" /F`
+
+## 七、桥版本变化（0.2.0）
+
+- 发送串行队列 + 最小间隔 + 失败重试 2 次
+- 发送前自动切会话、等输入框就绪、发送后校验输入框已清空
+- 收消息签名去重（10 分钟 TTL），切会话时把历史当基线，不把旧消息当新消息
+- 渲染进程执行超时（8 秒）；聊天窗口重载后自动重新定位 webContents
+- `/get_status` 返回自检数据；端口占用/服务异常自动重试监听
+- 日志超 2MB 自动轮转
