@@ -185,6 +185,8 @@ function Load-Manifest() {
     Start-Sleep -Milliseconds 500
   }
   $script:petCharId = ''
+  $script:spriteStamp = ''
+  try { if ($m -and $m.spriteStamp) { $script:spriteStamp = [string]$m.spriteStamp } } catch {}
 $script:bubbleTimer = $null
   if ($m -and $m.status -and $m.status.character -and $m.status.character.id) { $script:petCharId = [string]$m.status.character.id }
   if ($m -and $m.pet) { $script:pet = $m.pet } else {
@@ -232,7 +234,10 @@ function Resolve-ImagePath([string]$spec = '') {
   }
   if ($spec -match '^/pet-sprite/') {
     $leaf = [IO.Path]::GetFileName($spec)
-    $cacheName = if ($script:petCharId) { 'sprite-' + $script:petCharId + '-' + $leaf } else { 'sprite-' + $leaf }
+    # 缓存名带「角色 + 素材版本」：素材更新（换成骨骼图/换装）后自动用新图，不再复用旧缓存
+    $cacheKey = if ($script:petCharId) { [string]$script:petCharId } else { 'default' }
+    $cacheStamp = if ($script:spriteStamp) { [string]$script:spriteStamp } else { '0' }
+    $cacheName = 'sprite-' + $cacheKey + '-' + $cacheStamp + '-' + $leaf
     $dest = Join-Path $DataDir $cacheName
     # 已缓存就直接用：之前每次切角色/切表情都会重新 HTTP 下载 ~0.4s 的 PNG，这是桌宠延迟的主因
     if ((Test-Path $dest) -and ((Get-Item $dest).Length -gt 1024)) { return $dest }

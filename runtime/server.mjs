@@ -4103,8 +4103,21 @@ function importMemoryItems(raw) {
       res.end(fs.readFileSync(p));
       return;
     }
+function petAssetStamp(charId) {
+  try {
+    let stamp = 0;
+    for (const dir of [path.join(RUNTIME_DIR, 'assets', 'pet', String(charId || 'default')), path.join(RUNTIME_DIR, 'assets', 'pet', 'default')]) {
+      if (!fs.existsSync(dir)) continue;
+      for (const f of fs.readdirSync(dir)) {
+        if (!f.endsWith('.png')) continue;
+        try { stamp = Math.max(stamp, Math.floor(fs.statSync(path.join(dir, f)).mtimeMs)); } catch {}
+      }
+    }
+    return stamp || 0;
+  } catch (e) { return 0; }
+}
     if (req.method === 'GET' && url.pathname === '/api/pet/manifest') {
-      json(res, 200, { ok: true, pet: loadPetCfg(), status: petStatusPayload() });
+      json(res, 200, { ok: true, pet: loadPetCfg(), status: petStatusPayload(), spriteStamp: petAssetStamp(ACTIVE_CHAR) });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/pet/status') {
