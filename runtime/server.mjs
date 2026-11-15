@@ -276,7 +276,7 @@ function petStatusPayload() {
   const lastHer = [...messages].reverse().find((m) => m.role === 'her');
   return {
     ok: true, running: petRunning(), serverTime: Date.now(),
-    character: { id: ACTIVE_CHAR, name: meta.name || '', avatar: '/api/pet/avatar?v=' + (() => { try { return Math.floor(fs.statSync(avatarPath()).mtimeMs); } catch { return 0; } })() },
+    character: { id: ACTIVE_CHAR, name: meta.name || '', sprite: characterSpriteUrl(ACTIVE_CHAR), hasPoses: characterHasPoses(ACTIVE_CHAR), avatar: '/api/pet/avatar?v=' + (() => { try { return Math.floor(fs.statSync(avatarPath()).mtimeMs); } catch { return 0; } })() },
     place: { id: cur.placeId, name: cur.name, icon: cur.icon || '' },
     state,
     transport: cur.traveling ? (cur.traveling.modeLabel || '') : (cur.intercity ? (cur.intercity.modeLabel || '') : ''),
@@ -709,6 +709,31 @@ function worldPosition(map, loc) {
   const p = placeOf(map, loc.placeId);
   return { x: p.x, y: p.y, state: 'stationary', transport: '', etaSec: 0 };
 }
+// 角色自己的「立绘」：meta.sprite / meta.chibi 里存的图；没有就空（调用方回退头像）
+function characterSpriteUrl(id) {
+  try {
+    const cid = safeCharId(id);
+    const meta = readJson(path.join(CHARS_ROOT, cid, 'meta.json'), {}) || {};
+    const s = meta.sprite || meta.chibi || '';
+    if (typeof s !== 'string' || !/^\//.test(s)) return '';
+    // meta.sprite 常是旧的 /pet-sprite/idle.png（指向"桌宠角色"），必须改写成这个角色自己的目录，
+    // 否则 A 角色会显示 B 角色的图（串角色）；本角色没有文件就返回空，调用方回退头像。
+    const petRoot = path.join(RUNTIME_DIR, 'assets', 'pet');
+    if (s.indexOf('/pet-sprite/') === 0) {
+      const leaf = s.slice('/pet-sprite/'.length).replace(/[^a-z0-9_.-]/gi, '');
+      if (!leaf) return '';
+      if (fs.existsSync(path.join(petRoot, cid, leaf))) return '/pet-sprite/' + cid + '/' + leaf;
+      if (fs.existsSync(path.join(petRoot, cid + '-' + leaf))) return '/pet-sprite/' + cid + '-' + leaf;
+      return '';
+    }
+    return s;
+  } catch (e) { return ''; }
+}
+// 该角色是否已导入 2D 姿态素材
+function characterHasPoses(id) {
+  try { return fs.existsSync(path.join(RUNTIME_DIR, 'skeleton-assets', String(safeCharId(id)), 'poses', 'poses.json')) } catch (e) { return false }
+}
+
 function worldCharacters() {
   const activeMap = getActiveMap();
   const activeCur = currentPlace();
@@ -721,7 +746,7 @@ function worldCharacters() {
     const place = map && Array.isArray(map.places) ? map.places.find((p) => p.id === placeId) : null;
     const sameMap = !!(map && activeMap && map.id === activeMap.id);
     return {
-      id: c.id, name: c.name || c.id, avatar: characterAvatarUrl(c.id),
+      id: c.id, name: c.name || c.id, avatar: characterAvatarUrl(c.id), sprite: characterSpriteUrl(c.id), hasPoses: characterHasPoses(c.id),
       mapId: (map && map.id) || '', mapName: (map && map.name) || '',
       placeId, placeName: (place && place.name) || '', icon: (place && place.icon) || '',
       x: pos.x, y: pos.y, state: pos.state, transport: pos.transport, etaSec: pos.etaSec,
@@ -3824,7 +3849,7 @@ const server = http.createServer(async (req, res) => {
 
     // ---------- api ----------
     if (req.method === 'GET' && url.pathname === '/api/status') {
-      json(res, 200, { version: VERSION, typing, busy, lastTurnAt, usage: lastUsage, count: messages.length, setup: (function(){ let keyOk = false; try { keyOk = !!apiKey(); } catch {} return { dataRoot: ROOT, apiKeyOk: keyOk, characters: listCharacters().length }; })(), tokens: (function(){ try { return tokenStats(); } catch { return null; } })(), model: loadModelCfg().name, modelConfig: loadModelCfg(), context: loadContext(), mode: effectiveMode(), place: currentPlace(), character: { id: ACTIVE_CHAR, name: loadMeta().name, avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + fs.statSync(avatarPath()).mtimeMs : '/default-avatar.png' }, memory: MEM.stats(), diaryToday: MEM.hasDiary(todayStr()), energy: loadCharState().energy });
+      json(res, 200, { version: VERSION, typing, busy, lastTurnAt, usage: lastUsage, count: messages.length, setup: (function(){ let keyOk = false; try { keyOk = !!apiKey(); } catch {} return { dataRoot: ROOT, apiKeyOk: keyOk, characters: listCharacters().length }; })(), tokens: (function(){ try { return tokenStats(); } catch { return null; } })(), model: loadModelCfg().name, modelConfig: loadModelCfg(), context: loadContext(), mode: effectiveMode(), place: currentPlace(), character: { id: ACTIVE_CHAR, name: loadMeta().name, sprite: characterSpriteUrl(ACTIVE_CHAR), hasPoses: characterHasPoses(ACTIVE_CHAR), avatar: fs.existsSync(avatarPath()) ? '/avatar.png?t=' + fs.statSync(avatarPath()).mtimeMs : '/default-avatar.png' }, memory: MEM.stats(), diaryToday: MEM.hasDiary(todayStr()), energy: loadCharState().energy });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/events') {
@@ -4162,6 +4187,18 @@ function importMemoryItems(raw) {
         fs.writeFileSync(path.join(dir, 'poses.json'), JSON.stringify(pj, null, 1));
         json(res, 200, { ok: true, charId, saved, poses: Object.keys(merged) });
       } catch (e) { json(res, 500, { ok: false, error: String(e.message || e) }); }
+      return;
+    }
+    // /pet-sprite/<角色id>/<文件名>：按角色取图（多角色各自显示自己的立绘，不串角色）
+    if (req.method === 'GET' && /^\/pet-sprite\/[a-zA-Z0-9_-]{1,40}\/[a-zA-Z0-9_.-]{1,64}$/.test(url.pathname)) {
+      const seg = url.pathname.split('/').filter(Boolean);
+      const cid = String(seg[1] || '').replace(/[^a-z0-9_-]/gi, '');
+      const leaf = String(seg[2] || '').replace(/[^a-z0-9_.-]/gi, '');
+      const petRoot = path.join(RUNTIME_DIR, 'assets', 'pet');
+      const found = [path.join(petRoot, cid, leaf), path.join(petRoot, cid + '-' + leaf)].find((f) => fs.existsSync(f));
+      if (!found) { res.writeHead(404); res.end('not found'); return; }
+      res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
+      res.end(fs.readFileSync(found));
       return;
     }
     if (req.method === 'GET' && url.pathname.startsWith('/pet-sprite/')) {

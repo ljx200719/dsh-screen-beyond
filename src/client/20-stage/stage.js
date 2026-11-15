@@ -375,7 +375,7 @@ function StageView(props) {
         },
       },
         h(SkeletonAvatar, {
-          path: avatarPath, name: character.name,
+          path: avatarPath, sprite: character.sprite, name: character.name,
           moving: marker && marker.tag ? !!marker.tag : false,
           size: compact ? 64 : 118,
           fallbackSize: compact ? 30 : 44,

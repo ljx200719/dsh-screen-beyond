@@ -208,7 +208,7 @@ function MapCanvas(props) {
         },
       }),
       h(SkeletonAvatar, {
-        path: c.avatar, name: c.name, x: c.x, y: c.y,
+        path: c.avatar, sprite: c.sprite, name: c.name, x: c.x, y: c.y,
         moving: c.state ? c.state !== 'stationary' : undefined,
         size: c.isActive ? 96 : 72,
         fallbackSize: c.isActive ? 30 : 24,

@@ -194,15 +194,29 @@ function PoseAvatar(props) {
           ref: imgRef, src: idleUrl, alt: p.name || '', draggable: false,
           style: { width: '100%', height: '100%', display: 'block', objectFit: 'contain', willChange: 'transform' },
         })
-      : h(PoseFallback, { path: p.path, name: p.name, size: p.fallbackSize || 30, moving: p.moving }),
+      : h(PoseFallback, { path: p.path, sprite: p.sprite, name: p.name, size: p.fallbackSize ? Math.max(p.fallbackSize * 3.2, 72) : 96, moving: p.moving }),
   )
 }
 
-// 没有姿态素材的角色（例如刚导入、只有一张头像）：用单图做呼吸/走动微动，避免完全静止
+// 没有姿态素材的角色：用它自己的立绘（sprite，没有就用头像图）做单图呼吸/走动微动，
+// 图片加载失败再退回圆形头像，保证任何角色都不会空白/报错。
 function PoseFallback(props) {
   const p = props || {}
   const ref = React.useRef(null)
   const anim = React.useRef({ t: Math.random() * 6, movingUntil: 0 })
+  const [src, setSrc] = React.useState('')
+  const [failed, setFailed] = React.useState(false)
+  React.useEffect(() => {
+    let alive = true
+    const path = String(p.sprite || p.path || '')
+    setFailed(false)
+    setSrc('')
+    if (!path) return () => { alive = false }
+    Api.imgUrl(path)
+      .then((u) => { if (alive && u) setSrc(u) })
+      .catch(() => { if (alive) setFailed(true) })
+    return () => { alive = false }
+  }, [p.sprite, p.path])
   React.useEffect(() => {
     const a = anim.current
     if (typeof p.moving === 'boolean') a.movingUntil = p.moving ? Date.now() + 600000 : 0
@@ -222,7 +236,7 @@ function PoseFallback(props) {
         if (a.movingUntil && Date.now() < a.movingUntil) {
           a.t += dt * 7.6 * mapSpeed()
           const b = Math.sin(a.t * Math.PI * 2)
-          el.style.transform = 'translateY(' + (-1.6 * Math.abs(b)).toFixed(2) + 'px) rotate(' + (1.2 * b).toFixed(2) + 'deg)'
+          el.style.transform = 'translateY(' + (-1.5 * Math.abs(b)).toFixed(2) + 'px) rotate(' + (1.0 * b).toFixed(2) + 'deg)'
         } else {
           a.t += dt
           const b = Math.sin(a.t * 1.6)
@@ -234,8 +248,25 @@ function PoseFallback(props) {
     raf = rafFn(frame)
     return () => cancelFn(raf)
   }, [p.moving])
-  return h('span', { ref: ref, style: { display: 'inline-block', transformOrigin: '50% 92%', willChange: 'transform' } },
-    h(Avatar, { path: p.path, name: p.name, size: p.size || 30 }),
+  const size = Math.max(20, Number(p.size) || 30)
+  const useImg = !!(src && !failed)
+  return h('span', {
+    ref: ref,
+    style: {
+      display: 'inline-block', flexShrink: 0,
+      height: useImg ? size : undefined, lineHeight: 0,
+      transformOrigin: '50% 92%', willChange: 'transform',
+    },
+  },
+    useImg
+      ? h('img', {
+          src: src,
+          alt: p.name || '',
+          draggable: false,
+          onError: () => setFailed(true),
+          style: { height: size, width: 'auto', maxWidth: 'none', display: 'block', objectFit: 'contain' },
+        })
+      : h(Avatar, { path: p.path, name: p.name, size: size }),
   )
 }
 
