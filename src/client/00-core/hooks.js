@@ -184,3 +184,46 @@ function useImage(path, opts) {
   const retry = React.useCallback(() => { setState((s) => ({ src: s.src, error: '', loading: true, tick: s.tick + 1 })) }, [])
   return { src: state.src, error: state.error, loading: state.loading, retry }
 }
+
+
+// ── 外观美化（背景）：开关 + 自定义背景图；设置页改完派发 sbc-paint-changed ──
+const SBC_PAINT_DEFAULT = { enabled: false, image: '' }
+function usePaintConfig() {
+  const [paint, setPaint] = React.useState(SBC_PAINT_DEFAULT)
+  const [url, setUrl] = React.useState('')
+  const load = React.useCallback(() => {
+    Api.get('/api/paint').then((r) => {
+      const p = (r && r.ok && r.data && r.data.paint) || SBC_PAINT_DEFAULT
+      setPaint({ enabled: !!p.enabled, image: String(p.image || '') })
+      if (p.image) Api.imgUrl(String(p.image)).then((u) => { if (u) setUrl(u) }).catch(() => setUrl(''))
+      else setUrl('')
+    }).catch(() => {})
+  }, [])
+  React.useEffect(() => {
+    load()
+    const onChange = () => load()
+    try { window.addEventListener('sbc-paint-changed', onChange) } catch (e) {}
+    return () => { try { window.removeEventListener('sbc-paint-changed', onChange) } catch (e) {} }
+  }, [load])
+  return { paint: paint, imageUrl: url }
+}
+
+// 美化背景的 CSS（关闭时返回 null，调用方回退原来的纯色）
+function paintLayers(paint, imageUrl) {
+  if (!paint || !paint.enabled) return null
+  const layers = []
+  if (imageUrl) layers.push('linear-gradient(180deg, rgba(8,12,22,.62), rgba(8,12,22,.82)), url(' + JSON.stringify(imageUrl) + ')')
+  layers.push('radial-gradient(900px 500px at 18% 0%, rgba(88,101,242,.20), transparent 60%)')
+  layers.push('radial-gradient(800px 460px at 86% 12%, rgba(0,196,255,.14), transparent 58%)')
+  layers.push('radial-gradient(700px 420px at 50% 110%, rgba(150,90,255,.12), transparent 60%)')
+  layers.push('radial-gradient(1px 1px at 40px 60px, rgba(255,255,255,.55), transparent 100%)')
+  layers.push('radial-gradient(1px 1px at 130px 140px, rgba(255,255,255,.35), transparent 100%)')
+  layers.push('radial-gradient(1px 1px at 210px 40px, rgba(255,255,255,.45), transparent 100%)')
+  layers.push('linear-gradient(180deg, #0d1320, #0a0f19)')
+  return {
+    backgroundImage: layers.join(','),
+    backgroundSize: imageUrl ? 'cover, cover, auto, auto, auto, 260px 260px, 340px 340px, 220px 220px, auto' : 'auto, auto, auto, 260px 260px, 340px 340px, 220px 220px, auto',
+    backgroundPosition: 'center, center, center, center, center, 0 0, 0 0, 0 0, center',
+    backgroundColor: '#0a0f19',
+  }
+}

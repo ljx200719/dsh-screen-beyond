@@ -4792,6 +4792,31 @@ function petAssetStamp(charId) {
       json(res, 200, { ok: true, url: r.url });
       return;
     }
+    // ── 外观美化：开关 + 自定义背景图（存在 CONFIG.paint，随配置持久化）──────────
+    if (req.method === 'GET' && url.pathname === '/api/paint') {
+      const p = CONFIG.paint || {};
+      json(res, 200, { ok: true, paint: { enabled: !!p.enabled, image: String(p.image || '') } });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/paint') {
+      try {
+        const b = req._json || {};
+        CONFIG.paint = CONFIG.paint || {};
+        if (b.enabled !== undefined) CONFIG.paint.enabled = !!b.enabled;
+        if (b.clearImage) CONFIG.paint.image = '';
+        if (b.dataUrl) {
+          const r = saveDataUrlImage(String(b.dataUrl), 'paint-bg', 10 * 1024 * 1024);
+          if (!r.ok) { json(res, 400, { ok: false, error: r.error }); return; }
+          CONFIG.paint.image = r.url;
+        }
+        if (typeof b.image === 'string' && !b.dataUrl) {
+          CONFIG.paint.image = b.image.startsWith('/models/') || b.image.startsWith('/assets/') || b.image.startsWith('/images/') ? b.image : '';
+        }
+        saveConfig();
+        json(res, 200, { ok: true, paint: { enabled: !!CONFIG.paint.enabled, image: String(CONFIG.paint.image || '') } });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message || e) }); }
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/api/place/image') {
       const b = (req._json || {});
       const maps = loadMaps();

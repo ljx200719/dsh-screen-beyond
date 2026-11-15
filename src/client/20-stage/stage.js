@@ -138,6 +138,8 @@ function stageOpenMapPage(props) {
 
 function StageView(props) {
   const p = props || {}
+  const beauty = usePaintConfig()
+  const beautyBg = paintLayers(beauty.paint, beauty.imageUrl)
   const compact = !!p.compact
   const stage = useApi('/api/stage', { refreshMs: STAGE_POLL_MS })
   const data = stage.data
@@ -503,8 +505,9 @@ function StageView(props) {
     // 非浏览器/首帧下 rect 是 0，但 React 树里有内容，不会出现"空白一片"）
     h('div', {
       ref: fit.ref,
-      style: { position: 'relative', flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', background: T.bg2, borderRadius: compact ? 8 : 12 },
+      style: Object.assign({ position: 'relative', flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', borderRadius: compact ? 8 : 12 }, beautyBg || { background: T.bg2 }),
     },
+      beautyBg ? h('div', { style: { position: 'absolute', inset: 0, pointerEvents: 'none', background: 'radial-gradient(120% 90% at 50% 110%, rgba(0,0,0,0) 55%, rgba(0,0,0,.35) 100%)' } }) : null,
       // 3D：ThreeStage 自己铺满容器（WebGL 画布）；失败回调在这里切回 2D
       use3d
         ? h(ThreeStage, { data, compact, onPickPlace: goPlace, onFail: on3dFail })

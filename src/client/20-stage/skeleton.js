@@ -94,11 +94,13 @@ function PoseAvatar(props) {
   const [rig, setRig] = React.useState(null)
   const [enabled, setEnabled] = React.useState(skeletonEnabled())
   const [urls, setUrls] = React.useState({})
+  const [poseFailed, setPoseFailed] = React.useState(false)
   const imgRef = React.useRef(null)
   const anim = React.useRef({ t: Math.random() * 6, phase: 0, movingUntil: 0, dir: 1, lastX: null })
 
   React.useEffect(() => {
     let alive = true
+    setPoseFailed(false)
     skeletonCharId()
       .then((id) => { if (!alive) return null; setCharId(id); return id ? skeletonRig(id) : null })
       .then((r) => { if (alive) setRig(r || null) })
@@ -181,7 +183,7 @@ function PoseAvatar(props) {
     return () => cancelFn(raf)
   }, [enabled, idleUrl, urls])
 
-  const hasPose = !!(enabled && idleUrl)
+  const hasPose = !!(enabled && idleUrl && !poseFailed)
   return h('span', {
     title: p.title || p.name || undefined,
     style: {
@@ -192,6 +194,7 @@ function PoseAvatar(props) {
     hasPose
       ? h('img', {
           ref: imgRef, src: idleUrl, alt: p.name || '', draggable: false,
+          onError: () => setPoseFailed(true),
           style: { width: '100%', height: '100%', display: 'block', objectFit: 'contain', willChange: 'transform' },
         })
       : h(PoseFallback, { path: p.path, sprite: p.sprite, name: p.name, size: p.fallbackSize ? Math.max(p.fallbackSize * 3.2, 72) : 96, moving: p.moving }),

@@ -414,6 +414,7 @@ function SettingsRoleTab() {
     ),
 
     // 基本信息 + 头像
+    h(Card, { title: '外观美化', sub: '可选：给舞台/地图空白处加背景美化，关闭就是现在的简洁样式', tag: '可开关' }, h(PaintCard, {})),
     h(Card, { title: '基本信息', sub: '角色身份与基本设定' },
       readOnly ? (readError ? null : h(Loading, { text: '读取角色卡…' })) : h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 10 } },
         h('div', { style: { display: 'flex', gap: 10, alignItems: 'center', gridColumn: '1 / -1', flexWrap: 'wrap' } },
@@ -809,3 +810,52 @@ function SkeletonSwitch() {
 }
 
 // (anchor fallback)
+
+// 外观美化：开关 + 自定义背景图（存运行时 CONFIG.paint；改完派发 sbc-paint-changed）
+function PaintCard() {
+  const beauty = usePaintConfig()
+  const paint = beauty.paint || { enabled: false, image: '' }
+  const [busy, setBusy] = React.useState('')
+  const [msg, setMsg] = React.useState('')
+  const fileRef = React.useRef(null)
+  const save = async (body) => {
+    setBusy('save')
+    const r = await Api.post('/api/paint', body)
+    setBusy('')
+    if (r.ok) {
+      setMsg('已保存')
+      try { window.dispatchEvent(new Event('sbc-paint-changed')) } catch (e) {}
+      toast('外观设置已保存')
+    } else setMsg(r.error || '保存失败')
+  }
+  const onFile = async (ev) => {
+    const f = ev.target.files && ev.target.files[0]
+    ev.target.value = ''
+    if (!f) return
+    setBusy('upload')
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader()
+        r.onload = () => resolve(String(r.result))
+        r.onerror = () => reject(new Error('读取失败'))
+        r.readAsDataURL(f)
+      })
+      await save({ dataUrl: dataUrl, enabled: true })
+    } catch (e) { setMsg(String(e.message || e)) }
+    setBusy('')
+  }
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+    h(Field, { label: '美化背景', hint: '关闭=现在的简洁样式；开启=舞台/地图空白处的星空氛围 + 可选背景图' },
+      h(Toggle, { checked: !!paint.enabled, onChange: (v) => save({ enabled: v }), label: paint.enabled ? '已开启' : '已关闭' })),
+    h(Row, { gap: 8, wrap: true },
+      h(Btn, { size: 'sm', disabled: !!busy, onClick: () => { if (fileRef.current) fileRef.current.click() } }, busy === 'upload' ? '上传中…' : '上传背景图'),
+      paint.image ? h(Btn, { size: 'sm', kind: 'danger', disabled: !!busy, onClick: () => save({ clearImage: true }) }, '清除背景图') : null,
+      h('input', { ref: fileRef, type: 'file', accept: 'image/*', style: { display: 'none' }, onChange: onFile }),
+    ),
+    beauty.imageUrl ? h('div', { style: { position: 'relative', width: '100%', maxWidth: 360, height: 120, borderRadius: 10, overflow: 'hidden', border: '1px solid ' + T.border } },
+      h('img', { src: beauty.imageUrl, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' } }),
+    ) : null,
+    h(Note, {}, '背景图只用于面板里的舞台/地图空白处，不会改 QQ 桌宠窗口；png/jpg/webp 都行，建议 16:9 横图。'),
+    msg ? h('div', { style: { fontSize: 11, color: T.text2 } }, msg) : null,
+  )
+}
