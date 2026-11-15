@@ -16,8 +16,13 @@ const SCREEN_PC_SHOT_MS = 2500
 const SCREEN_ENSURE_TIMEOUT_SEC = 90
 // 外部浏览器用的 noVNC 参数：不告诉它自动连接/自动重连的话，浏览器里还要手动点一次连接
 const SCREEN_VNC_QUERY = 'autoconnect=1&reconnect=1&reconnect_delay=2000&resize=scale'
-// 内嵌 iframe 用的 noVNC 参数（按需求：自动连接 / 随容器缩放 / 自动重连 / 显示连接状态点 / 裁剪视口）
-const SCREEN_EMBED_PARAMS = 'autoconnect=true&resize=scale&reconnect=true&show_dot=true&view_clip=true'
+// 内嵌 iframe 用的 noVNC 参数（F-005）
+//   · resize=scale：远端分辨率跟着 iframe 走，画面按容器等比缩放（contain）；
+//   · view_clip=0：⚠ 原来写的是 view_clip=true —— 那是「裁掉视口外的部分」，
+//     正好导致「右侧时间被裁 + 左边多一条」；关掉它才会完整显示整块桌面并留黑边；
+//   · show_dot：右上角显示连接状态点（重连状态可见）；
+//   · reconnect_delay：掉线 1.5 秒后自动重连。
+const SCREEN_EMBED_PARAMS = 'autoconnect=true&resize=scale&reconnect=true&reconnect_delay=1500&show_dot=true&view_clip=0&shared=true'
 // onLoad 之前最多等这么久；超时按「内嵌失败」处理（CSP 拦截/服务没起来都会命中）
 const SCREEN_EMBED_LOAD_TIMEOUT_MS = 8000
 
@@ -56,12 +61,31 @@ function screenEmbedSrc(spaceUrl) {
   return head + sep + SCREEN_EMBED_PARAMS + hash
 }
 
-// /api/resources 的 mem 形如 "VBoxHeadless:6123"（进程名:占用的 MB）
+// 内存统一单位（F-015）：≥1024MB 就用 GB 一位小数，否则 MB；不再混着 MB/GB 两种写法
+function fmtMemMB(mb) {
+  const n = Math.max(0, Math.round(Number(mb) || 0))
+  if (n >= 1024) return (n / 1024).toFixed(1) + ' GB'
+  return n + ' MB'
+}
+// /api/resources 的 mem：新版本是 [{ name, mb }]，老版本是 "进程名:MB" 字符串，两种都认
 function screenMemLabel(item) {
+  if (item && typeof item === 'object') return String(item.name || '进程') + ' ' + fmtMemMB(item.mb)
   const s = String(item || '').trim()
   const i = s.lastIndexOf(':')
-  if (i > 0) return s.slice(0, i) + ' ' + s.slice(i + 1) + ' MB'
+  if (i > 0) return s.slice(0, i) + ' ' + fmtMemMB(s.slice(i + 1))
   return s
+}
+// 把 /api/resources 的内存列表整成一屏能读的一行（含合计）
+function screenMemSummary(res) {
+  const r = res || {}
+  const items = Array.isArray(r.memItems) && r.memItems.length
+    ? r.memItems
+    : (Array.isArray(r.mem) ? r.mem : [])
+  if (!items.length) return ''
+  const parts = items.map(screenMemLabel)
+  const total = Number(r.memTotalMB)
+  const sum = Number.isFinite(total) && total > 0 ? total : 0
+  return parts.join(' + ') + (sum > 0 ? '（合计 ' + fmtMemMB(sum) + '）' : '')
 }
 
 // 外壳顶栏「看屏幕」按钮 / Alt+S 快捷键调这个（签名固定，别改）：
@@ -119,6 +143,33 @@ function ScreenEmbedCard(props) {
   const [frameLoaded, setFrameLoaded] = React.useState(false)
   const [frameError, setFrameError] = React.useState('')
   const prevHttp = React.useRef(null)
+  // F-005：全屏 + 画面状态
+  const frameBoxRef = React.useRef(null)
+  const [fullscreen, setFullscreen] = React.useState(false)
+
+  React.useEffect(() => {
+    if (typeof document === 'undefined' || !document || typeof document.addEventListener !== 'function') return undefined
+    const onChange = () => {
+      try {
+        const el = frameBoxRef.current
+        setFullscreen(!!el && document.fullscreenElement === el)
+      } catch (e) { setFullscreen(false) }
+    }
+    document.addEventListener('fullscreenchange', onChange)
+    return () => { try { document.removeEventListener('fullscreenchange', onChange) } catch (e) {} }
+  }, [])
+
+  const toggleFullscreen = async () => {
+    const el = frameBoxRef.current
+    if (!el) return
+    try {
+      if (document.fullscreenElement === el) { await document.exitFullscreen() }
+      else if (el.requestFullscreen) { await el.requestFullscreen() }
+      else { toast('当前浏览器不支持全屏，可以用「外部浏览器」看', 'error') }
+    } catch (e) {
+      toast('全屏失败：' + String((e && e.message) || e) + '（可以改用外部浏览器）', 'error')
+    }
+  }
 
   const src = screenEmbedSrc(spaceUrl)
   const httpOk = !!(st && st.http)
@@ -201,11 +252,17 @@ function ScreenEmbedCard(props) {
       )
     }
   } else {
+    // F-005：画面层和工具栏层分开 —— 上面是我们自己的工具条（全屏/适应窗口/重连/状态），
+    // 下面是纯画面（黑底 + contain）。noVNC 自己的工具条在它页面内部，不再被我们的高度裁掉。
     const frame = h('div', {
+      ref: frameBoxRef,
       style: {
         position: 'relative', width: '100%',
-        height: 'clamp(480px, calc(100vh - 320px), 820px)',
-        background: T.bg, border: '1px solid ' + T.border, borderRadius: T.radius, overflow: 'hidden',
+        height: fullscreen ? '100vh' : 'clamp(460px, calc(100vh - 300px), 860px)',
+        background: '#000', border: '1px solid ' + T.border, borderRadius: fullscreen ? 0 : T.radius,
+        overflow: 'hidden',
+        // 居中等比：画面按容器缩放（contain），四周留黑边，不裁切、不拉伸
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
       },
     },
       h('iframe', {
@@ -213,17 +270,18 @@ function ScreenEmbedCard(props) {
         src: src,
         title: '她的虚拟屏幕（noVNC）',
         referrerPolicy: 'no-referrer',
-        allow: 'clipboard-read; clipboard-write',
+        allow: 'clipboard-read; clipboard-write; fullscreen',
+        scrolling: 'no',
         onLoad: () => { setFrameLoaded(true); setFrameError('') },
         onError: () => setFrameError('内嵌虚拟屏幕加载失败：noVNC 页面打不开（服务没起来，或浏览器策略不允许内嵌）。'),
-        style: { width: '100%', height: '100%', border: '0', display: 'block', background: T.bg },
+        style: { width: '100%', height: '100%', border: '0', display: 'block', background: '#000' },
       }),
       waiting
         ? h('div', {
             style: {
               position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center', gap: 8, padding: 20,
-              background: T.bg, textAlign: 'center',
+              background: '#0b0f14', textAlign: 'center',
             },
           },
             h(Loading, { text: '虚拟屏幕连接中…（第一次约 3~10 秒）' }),
@@ -235,7 +293,7 @@ function ScreenEmbedCard(props) {
             style: {
               position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center', gap: 10, padding: 20,
-              background: T.bg, textAlign: 'center',
+              background: '#0b0f14', textAlign: 'center',
             },
           },
             h('div', { style: { fontSize: 13, fontWeight: 600, color: T.text } }, '内嵌虚拟屏幕没加载出来'),
@@ -248,15 +306,33 @@ function ScreenEmbedCard(props) {
           )
         : null,
     )
+    // 画面上方的工具条（和画面分层，不压住桌面）
+    const frameState = frameError
+      ? { tone: T.danger, text: '内嵌失败' }
+      : (waiting ? { tone: T.warn, text: '连接中…' } : (frameLoaded ? { tone: T.ok, text: '已连接' } : { tone: T.idle, text: '未连接' }))
+    const toolbar = h(Row, { gap: 6, wrap: true, style: { alignItems: 'center' } },
+      h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: T.text2 } },
+        h(Dot, { on: true, tone: frameState.tone }),
+        '画面：' + frameState.text),
+      h('span', { style: { flex: 1 } }),
+      h(Btn, { size: 'sm', kind: 'ghost', disabled: !src, onClick: reloadFrame, title: '重新连接 noVNC（画面卡住时用）' }, '重连'),
+      h(Btn, {
+        size: 'sm', kind: 'ghost',
+        onClick: () => { void toggleFullscreen() },
+        title: fullscreen ? '退出全屏（Esc）' : '全屏看她的桌面（工具栏会浮在画面上方）',
+      }, fullscreen ? '退出全屏' : '全屏'),
+      h(Btn, { size: 'sm', kind: 'ghost', onClick: () => setEmbed(false), title: '收起画面（不加载 iframe，省内存/CPU）' }, '收起'),
+    )
     body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
       statusKnown && !httpOk
         ? h('div', { style: { fontSize: 11.5, color: T.warn, lineHeight: 1.6 } },
             '她的屏幕现在还没连上（虚拟机没开或画面链路断了）：先在下面「她自己的屏幕」卡片里点「启动/修复」，连上后这里会自动重新连接。')
         : null,
+      toolbar,
       frame,
-      h(Note, {}, '内嵌的是她虚拟机的桌面实时画面（noVNC）：可以直接在面板里点鼠标、敲键盘，窗口会自动缩放。'),
-      h(Note, {}, '第一次连接约 3~10 秒；切到别的标签再回来会重新连。画面太小就点「折叠」，再用「外部浏览器打开」。'),
-      h(Note, {}, '如果画面一直空白/黑屏：多半是浏览器策略不允许内嵌本机页面，点上面的「外部浏览器打开」即可（同一台虚拟机）。'),
+      h(Note, {}, '内嵌的是她虚拟机的桌面实时画面（noVNC）：可以直接在面板里点鼠标、敲键盘，窗口按比例缩放（contain），不会裁掉右边的时间栏。'),
+      h(Note, {}, '第一次连接约 3~10 秒；切到别的标签再回来会重新连。画面太小就点「收起」，再用「外部浏览器打开」。'),
+      h(Note, {}, '如果画面一直空白/黑屏：多半是浏览器策略不允许内嵌本机页面，点上面的「外部浏览器」即可（同一台虚拟机）。'),
     )
   }
 
@@ -567,7 +643,7 @@ function ScreenView(props) {
   )
 
   // ── 环境开关（她屏幕/手机的运行状态 + 内存提示） ─────────────────────────
-  const mem = (resources && resources.mem) || []
+  const memItems = (resources && (resources.memItems || resources.mem)) || []
   const envCard = h(Card, {
     title: '环境开关',
     sub: '她的屏幕 / 她的手机（都很吃内存）',
@@ -581,22 +657,42 @@ function ScreenView(props) {
       res.at ? h(Note, {}, '更新于 ' + fmtTime(res.at)) : null,
     ),
     res.error ? h(ErrorBox, { title: '读不到环境状态', error: res.error, onRetry: res.reload }) : null,
-    h(Row, { gap: 6 },
-      h(Btn, { size: 'sm', kind: 'primary', disabled: !!powerBusy || screenRunning === true, onClick: () => { void togglePower('space') } }, '启动她的屏幕'),
+    // F-015：运行中就禁用对应的「启动」，别让人点了才发现已经在跑
+    h(Row, { gap: 6, wrap: true },
+      h(Btn, {
+        size: 'sm', kind: 'primary',
+        disabled: !!powerBusy || screenRunning === true,
+        title: screenRunning === true ? '她的屏幕已经在运行了' : '启动她的 Linux 虚拟机（约 1 分钟，需 9 GB 空闲内存）',
+        onClick: () => { void togglePower('space') },
+      }, screenRunning === true ? '屏幕运行中' : (powerBusy === 'space' ? '启动中…' : '启动她的屏幕')),
       h(Btn, { size: 'sm', kind: 'danger', disabled: !!powerBusy || screenRunning !== true, onClick: () => { void togglePower('space') } }, '关闭她的屏幕'),
-      h(Btn, { size: 'sm', kind: 'primary', disabled: !!powerBusy || phoneRunning === true, onClick: () => { void togglePower('phone') } }, '启动她的手机'),
+      h(Btn, {
+        size: 'sm', kind: 'primary',
+        // 手机跑在她的 Linux 屏幕里：屏幕没开时先别让人点（点了也起不来）
+        disabled: !!powerBusy || phoneRunning === true || screenRunning === false,
+        title: screenRunning === false
+          ? '先启动「她的屏幕」：手机（Waydroid）跑在那台虚拟机里'
+          : (phoneRunning === true ? '她的手机已经在运行了' : '启动手机（约 30~60 秒，需 6 GB 空闲内存）'),
+        onClick: () => { void togglePower('phone') },
+      }, phoneRunning === true ? '手机运行中' : (screenRunning === false ? '先开屏幕' : (powerBusy === 'phone' ? '启动中…' : '启动她的手机'))),
       h(Btn, { size: 'sm', kind: 'danger', disabled: !!powerBusy || phoneRunning !== true, onClick: () => { void togglePower('phone') } }, '关闭她的手机'),
     ),
     h(Note, {}, '启动她的屏幕大约要 9 GB 空闲内存、启动手机大约要 6 GB；不够时后端会拒绝，并在提示里说明原因。'),
-    mem.length
-      ? h(Row, { gap: 6 },
-          h(Note, {}, '当前占用：'),
-          mem.map((item, i) => h('span', {
+    // F-015 / P2-5：内存统一单位（≥1GB 显示 GB），并给合计；标明这是「进程占用」的统计口径
+    (Array.isArray(memItems) && memItems.length)
+      ? h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
+          h(Note, {}, '虚拟机进程占用（私有提交）：'),
+          memItems.map((item, i) => h('span', {
             key: 'screen-mem-' + i,
+            title: (item && item.workingMb) ? ('工作集 ' + fmtMemMB(item.workingMb)) : '',
             style: { fontSize: 11, color: T.text2, border: '1px solid ' + T.border, borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap' },
           }, screenMemLabel(item))),
+          Number(resources.memTotalMB) > 0
+            ? h('span', { style: { fontSize: 11, color: T.text3 } }, '合计 ' + fmtMemMB(resources.memTotalMB))
+            : null,
         )
       : h(Note, {}, '当前没有检测到虚拟机/模拟器进程在占内存。'),
+    (resources && resources.memNote) ? h(Note, {}, resources.memNote) : null,
     h(Note, {}, '关闭会中断她正在用的环境，属于危险操作，所以每次都会先弹确认框。'),
   )
 

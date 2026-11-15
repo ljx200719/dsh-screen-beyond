@@ -123,6 +123,46 @@ function MapCanvas(props) {
 
   const rect = sbcFitRect(size, aspect)
 
+  // F-008：地点名牌避让。以前 13 个名字按坐标硬画，超市/咖啡店/小鲸会叠在一起，贴边的还会被裁一半。
+  // 这里按「当前地点 > 靠上 > 靠左」排优先级逐个占位，撞了就让优先级低的那个只留图标不留名字；
+  // 名字会出画布的也不画（图标本身有 title，点开还是能看详情）。
+  const visibleLabels = (() => {
+    const out = new Set()
+    const W = Number(rect.w) || 0
+    const H = Number(rect.h) || 0
+    if (!(W > 24 && H > 24)) return out
+    const activeId = location.state === 'stationary' ? String(location.placeId || '') : ''
+    const items = places.map((pl) => {
+      const name = String(pl.name || '')
+      return {
+        id: String(pl.id),
+        name: name,
+        x: clampNum(Number(pl.x), 0, 1) * W,
+        y: clampNum(Number(pl.y), 0, 1) * H,
+        w: Math.min(104, Math.max(26, name.length * 10.5 + 12)),
+      }
+    })
+    items.sort((a, b) => {
+      if (a.id === activeId) return -1
+      if (b.id === activeId) return 1
+      if (Math.abs(a.y - b.y) > 4) return a.y - b.y
+      return a.x - b.x
+    })
+    const taken = []
+    for (const it of items) {
+      // 名牌在图标下面（图标 22px + 缝隙），粗略按这个盒子算碰撞就够用
+      const box = { x1: it.x - it.w / 2, x2: it.x + it.w / 2, y1: it.y - 41, y2: it.y - 25 }
+      let ok = box.x1 >= 2 && box.x2 <= W - 2 && box.y1 >= 2
+      if (ok) {
+        for (const q of taken) {
+          if (box.x1 < q.x2 && box.x2 > q.x1 && box.y1 < q.y2 && box.y2 > q.y1) { ok = false; break }
+        }
+      }
+      if (ok) { taken.push(box); out.add(it.id) }
+    }
+    return out
+  })()
+
   // 编辑模式：按住地点钉拖动，过程中只改 DOM，松手才提交一次 state（N04）
   const onPinDown = (place, ev) => {
     if (!editMode) return
@@ -216,9 +256,9 @@ function MapCanvas(props) {
       h('span', {
         style: {
           fontSize: 9.5, lineHeight: '13px', whiteSpace: 'nowrap',
-          color: c.isActive ? T.text : T.text2,
-          background: 'rgba(8,13,20,.78)',
-          border: '1px solid ' + (c.isActive ? T.brand : T.border),
+          color: 'var(--sbc-pin-ink, #e7edf5)',
+          background: 'var(--sbc-pin-bg, rgba(8,13,20,.78))',
+          border: '1px solid ' + (c.isActive ? T.brand : T.border2),
           borderRadius: 999, padding: '0 5px',
         },
       }, String(c.name || '她')),
@@ -292,21 +332,23 @@ function MapCanvas(props) {
                 style: {
                   width: 22, height: 22, borderRadius: '50%',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: here ? 'rgba(47,107,216,.30)' : 'rgba(8,13,20,.74)',
+                  background: here ? 'rgba(var(--sbc-accent-rgb, 47,107,216), .30)' : 'var(--sbc-pin-bg, rgba(8,13,20,.74))',
                   border: '1px ' + (editMode ? 'dashed ' : 'solid ') + (here ? T.brand : T.border2),
                   fontSize: 11.5, lineHeight: 1,
                   boxShadow: '0 2px 8px rgba(0,0,0,.32)',
                 },
               }, place.icon || '📍'),
-              h('span', {
-                style: {
-                  fontSize: 10, lineHeight: '14px',
-                  color: here ? T.text : T.text2,
-                  background: 'rgba(8,13,20,.72)', border: '1px solid ' + T.border,
-                  borderRadius: 999, padding: '0 5px', whiteSpace: 'nowrap',
-                  overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
-                },
-              }, String(place.name || '')),
+              (editMode || visibleLabels.has(String(place.id)))
+                ? h('span', {
+                    style: {
+                      fontSize: 10, lineHeight: '14px',
+                      color: 'var(--sbc-pin-ink, #e7edf5)',
+                      background: 'var(--sbc-pin-bg, rgba(8,13,20,.72))', border: '1px solid ' + T.border2,
+                      borderRadius: 999, padding: '0 5px', whiteSpace: 'nowrap',
+                      overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
+                    },
+                  }, String(place.name || ''))
+                : null,
               editMode
                 ? h('span', { style: { fontSize: 8.5, lineHeight: '12px', color: T.text3, whiteSpace: 'nowrap' } },
                     Number(place.x || 0).toFixed(2) + ', ' + Number(place.y || 0).toFixed(2))
@@ -641,7 +683,7 @@ function MapSceneEditor(props) {
                 cursor: 'grab', userSelect: 'none',
               },
             },
-              h('span', { style: { fontSize: 12, lineHeight: '15px', background: 'rgba(8,13,20,.82)', border: '1px solid ' + T.brand, borderRadius: 999, padding: '0 5px', color: T.text, whiteSpace: 'nowrap' } }, String(hs.label || '热点')),
+              h('span', { style: { fontSize: 12, lineHeight: '15px', background: 'var(--sbc-pin-bg, rgba(8,13,20,.82))', border: '1px solid ' + T.brand, borderRadius: 999, padding: '0 5px', color: 'var(--sbc-pin-ink, #e7edf5)', whiteSpace: 'nowrap' } }, String(hs.label || '热点')),
               h('span', { style: { fontSize: 8.5, lineHeight: '11px', color: T.text3, whiteSpace: 'nowrap' } }, Number(hs.x || 0).toFixed(2) + ', ' + Number(hs.y || 0).toFixed(2)),
             )),
             h('div', { ref: previewRef, style: { position: 'absolute', display: 'none', border: '1px dashed ' + T.brand, background: 'rgba(47,107,216,.18)', pointerEvents: 'none' } }),
@@ -1083,7 +1125,7 @@ function MapRoutineCard(props) {
                   key: 'routine-band-' + i,
                   style: {
                     border: '1px solid ' + (active ? T.brand : T.border),
-                    background: active ? 'rgba(47,107,216,.08)' : 'rgba(127,127,127,.04)',
+                    background: active ? 'rgba(var(--sbc-accent-rgb, 47,107,216), .08)' : 'rgba(127,127,127,.04)',
                     borderRadius: 9, padding: '5px 7px',
                     display: 'flex', flexDirection: 'column', gap: 5,
                   },
@@ -1762,7 +1804,7 @@ function MapView(props) {
                   style: {
                     display: 'flex', alignItems: 'center', gap: 7, width: '100%',
                     border: '1px solid ' + (here ? T.brand : T.border),
-                    background: here ? 'rgba(47,107,216,.10)' : 'rgba(127,127,127,.05)',
+                    background: here ? 'rgba(var(--sbc-accent-rgb, 47,107,216), .10)' : 'rgba(127,127,127,.05)',
                     borderRadius: 9, padding: '6px 8px', cursor: 'pointer',
                     color: T.text, textAlign: 'left', fontFamily: T.font,
                   },

@@ -10,6 +10,22 @@
 //         恢复备份会覆盖数据 → 二次确认；所有 POST 只发改动字段；值前端 clamp（后端同样会 clamp）；
 //         /api/memory/pin|delete|import 带 expectedRev，版本冲突(409) 时自动重读
 
+// ── 日记日期工具（F-022）──────────────────────────────────────────────
+// 本地时区的 YYYY-MM-DD；前后跳一天；不用 Date 的 toISOString（那是 UTC，会差一天）
+function settingsDataToday() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+}
+function settingsDataShiftDate(dateStr, delta) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''))
+  if (!m) return settingsDataToday()
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  d.setDate(d.getDate() + (Number(delta) || 0))
+  const p = (n) => String(n).padStart(2, '0')
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+}
+
 // 只把「和已保存值不同」的字段挑出来，POST 时不去覆盖没动的字段
 function settingsDataChanged(cur, next, keys) {
   const out = {}
@@ -187,26 +203,61 @@ function SettingsMemoryCard() {
   })
 
   // ── 文本导入 ────────────────────────────────────────────────────────
+  // F-021：拆句规则可配置 + 导入前预览（行数/前 5 条/解析不出内容的行号）
+  const [importOpts, setImportOpts] = React.useState({ splitOnComma: false, perLineOnly: false, maxLen: 90 })
+  const [importPreview, setImportPreview] = React.useState(null)
+  const [importPreviewErr, setImportPreviewErr] = React.useState('')
+  const [importPreviewing, setImportPreviewing] = React.useState(false)
+  const importRuleLabel = importOpts.perLineOnly
+    ? '只按行拆'
+    : (importOpts.splitOnComma ? '按行 + 按 。！？；， 拆' : '按行 + 按 。！？； 拆')
+  const importLineCount = String(importText || '').replace(/\r/g, '').split('\n').filter((l) => l.trim()).length
+
+  const doPreview = async () => {
+    const text = String(importText || '').trim()
+    if (!text) { toast('先粘贴要导入的记忆文本', 'error'); return }
+    setImportPreviewing(true)
+    setImportPreviewErr('')
+    try {
+      const r = await Api.post('/api/memory/import/preview', { text, opts: importOpts }, { timeoutMs: 30000 })
+      if (!r.ok) { setImportPreview(null); setImportPreviewErr(r.error || '预览失败'); return }
+      setImportPreview(r.data || null)
+    } catch (e) {
+      setImportPreview(null)
+      setImportPreviewErr((e && e.message) || '预览失败')
+    } finally {
+      setImportPreviewing(false)
+    }
+  }
+
   const importMemory = () => run('import', async () => {
     if (memApi.error) { toast('记忆配置读取失败，先点「重新读取」再导入', 'error'); return }
     const text = String(importText || '').trim()
     if (!text) { toast('先粘贴要导入的记忆文本', 'error'); return }
     const ok = await confirmDialog('导入这些记忆？', {
       title: '导入记忆',
-      detail: '会按行/句子拆分、去重并合并到现有记忆（单次最多 500 条）。',
+      detail: '规则：' + importRuleLabel + '；单条最多 ' + importOpts.maxLen + ' 字。会合并相似记忆、去重（单次最多 500 条）。',
       okText: '导入',
     })
     if (!ok) return
     const r = await Api.post('/api/memory/import', {
       text,
+      opts: importOpts,
       importance: clampNum(importImportance, 0, 1, 0.5),
       pinNew: !!importPin,
       expectedRev: memRev(),
     })
-    if (!r.ok) { toast(r.error || '导入失败', 'error'); if (r.status === 409) memApi.reload(); return }
+    if (!r.ok) {
+      // F-021：失败带行号
+      const empty = (r.data && Array.isArray(r.data.emptyLines)) ? r.data.emptyLines : []
+      toast((r.error || '导入失败') + (empty.length ? '（第 ' + empty.join('、') + ' 行）' : ''), 'error')
+      if (r.status === 409) memApi.reload()
+      return
+    }
     const d = r.data || {}
     toast('导入完成：解析 ' + (Number(d.total) || 0) + ' 条，新增 ' + (Number(d.added) || 0) + '，合并 ' + (Number(d.merged) || 0))
     setImportText('')
+    setImportPreview(null)
     memApi.reload()
   })
 
@@ -288,11 +339,17 @@ function SettingsMemoryCard() {
     h(Card, { title: '导入记忆', tag: 'txt / md / json / jsonl 纯文本' },
       h(TextArea, {
         value: importText,
-        onChange: setImportText,
-        rows: 4,
+        onChange: (v) => { setImportText(v); setImportPreview(null) },
+        rows: 6,
         placeholder: '每行一条；也可以直接粘贴 JSON（会被拆句去重）。例如：\n用户喜欢猫，讨厌狗\n用户最近在写作业',
         disabled: !!busy,
       }),
+      h(Row, { gap: 8, wrap: true },
+        h(Note, {}, '已输入 ' + importLineCount + ' 行（非空）· 当前规则：' + importRuleLabel),
+        h('span', { style: { flex: 1 } }),
+        h(Btn, { size: 'sm', kind: 'ghost', disabled: !!busy || !String(importText || '').trim(), onClick: () => { void doPreview() } },
+          importPreviewing ? '预览中…' : '预览前 5 条'),
+      ),
       h('div', { style: formGrid },
         h(Field, { label: '重要度', hint: '0 – 1；≥0.95 会自动置顶' },
           h(NumInput, { value: importImportance, onChange: setImportImportance, min: 0, max: 1, step: 0.05, width: 100, disabled: !!busy, flex: true }),
@@ -300,12 +357,58 @@ function SettingsMemoryCard() {
         h(Field, { label: '导入后置顶', hint: '新导入的记忆立刻变成核心记忆' },
           h(Toggle, { checked: !!importPin, disabled: !!busy, onChange: setImportPin, label: importPin ? '会置顶' : '不置顶' }),
         ),
+        h(Field, { label: '拆句规则', hint: '默认按行 + 句子符号拆；逗号太多时别开' },
+          h(Select, {
+            value: importOpts.perLineOnly ? 'line' : (importOpts.splitOnComma ? 'comma' : 'sentence'),
+            disabled: !!busy,
+            onChange: (v) => {
+              const next = {
+                perLineOnly: v === 'line',
+                splitOnComma: v === 'comma',
+                maxLen: importOpts.maxLen,
+              }
+              setImportOpts(next)
+              setImportPreview(null)
+            },
+            options: [
+              { value: 'sentence', label: '按行 + 。！？； 拆（默认）' },
+              { value: 'comma', label: '再按逗号拆（更碎）' },
+              { value: 'line', label: '只按行拆（不拆句）' },
+            ],
+          }),
+        ),
+        h(Field, { label: '单条最长', hint: '8 – 200 字，超了截断' },
+          h(NumInput, {
+            value: importOpts.maxLen, min: 8, max: 200, step: 10, disabled: !!busy, flex: true,
+            onChange: (v) => { setImportOpts((o) => Object.assign({}, o, { maxLen: clampNum(v, 8, 200, 90) })); setImportPreview(null) },
+          }),
+        ),
       ),
+      importPreviewErr ? h(ErrorBox, { title: '预览失败', error: importPreviewErr }) : null,
+      importPreview
+        ? h('div', {
+            style: { border: '1px solid ' + T.border, borderRadius: T.radius, background: T.bg2, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 4 },
+          },
+            h('div', { style: { fontSize: 12, color: T.text, fontWeight: 600 } },
+              '预览：共 ' + importPreview.total + ' 条（原文 ' + importPreview.lineCount + ' 行）'),
+            (importPreview.preview || []).map((t, i) => h('div', { key: 'pv' + i, style: { fontSize: 11.5, color: T.text2, lineHeight: 1.6 } }, '· ' + String(t))),
+            (importPreview.total > (importPreview.preview || []).length)
+              ? h('div', { style: { fontSize: 11, color: T.text3 } }, '…还有 ' + (importPreview.total - importPreview.preview.length) + ' 条')
+              : null,
+            (importPreview.emptyLines && importPreview.emptyLines.length)
+              ? h('div', { style: { fontSize: 11, color: T.warn, lineHeight: 1.6 } },
+                  '这些行解析不出内容（会被跳过）：第 ' + importPreview.emptyLines.join('、') + ' 行')
+              : null,
+          )
+        : null,
       h(Row, { gap: 8 },
         h(Btn, { kind: 'primary', size: 'sm', disabled: !!busy || !!memApi.error, onClick: importMemory }, busy === 'import' ? '导入中…' : '导入这些记忆'),
-        h(Btn, { size: 'sm', kind: 'ghost', disabled: !!busy || !String(importText || '').trim(), onClick: () => { setImportText(''); setImportPin(false); setImportImportance(0.5) } }, '清空'),
+        h(Btn, {
+          size: 'sm', kind: 'ghost', disabled: !!busy || !String(importText || '').trim(),
+          onClick: () => { setImportText(''); setImportPin(false); setImportImportance(0.5); setImportPreview(null) },
+        }, '清空'),
       ),
-      h(Note, {}, '导入会合并相似记忆、去重；不会删除或覆盖已有记忆。'),
+      h(Note, {}, '导入会合并相似记忆、去重；不会删除或覆盖已有记忆。失败时会给出具体行号。'),
     ),
   )
 }
@@ -319,6 +422,7 @@ function SettingsDataTab() {
 
   const diaryApi = useApi('/api/diary')
   const backupApi = useApi('/api/backup/list')
+  const petCacheApi = useApi('/api/pet/cache')
 
   const [verInfo, setVerInfo] = React.useState(null)
   const [revInfo, setRevInfo] = React.useState(null)
@@ -347,19 +451,39 @@ function SettingsDataTab() {
   const reloadAll = () => {
     diaryApi.reload()
     backupApi.reload()
+    petCacheApi.reload()
     loadMeta()
   }
 
   // ── 日记 ────────────────────────────────────────────────────────────
   const diaryDates = (diaryApi.data && diaryApi.data.dates) || []
+  // F-022：原来只有最近 30 天的日期按钮，看不到更早的、也不能直接选一天。
+  // 现在加一个日期选择器 + 前一天/后一天/今天，并且明确告诉用户"这一天没有日记"。
+  const diaryToday = settingsDataToday()
+  const [diaryDate, setDiaryDate] = React.useState(diaryToday)
+  const diaryShift = (delta) => {
+    const d = settingsDataShiftDate(diaryDate, delta)
+    if (d > diaryToday) return
+    setDiaryDate(d)
+    openDiary(d)
+  }
+  const onPickDiaryDate = (v) => {
+    const d = String(v || '')
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return
+    if (d > diaryToday) { toast('还没到那天，看不到未来的日记', 'error'); return }
+    setDiaryDate(d)
+    openDiary(d)
+  }
 
   const openDiary = async (date) => {
     setDiaryModal({ open: true, title: '日记 · ' + date, text: '', loading: true, error: '' })
     try {
       const r = await Api.get('/api/diary?date=' + encodeURIComponent(date))
       if (!r.ok) { setDiaryModal({ open: true, title: '日记 · ' + date, text: '', loading: false, error: r.error || '读取失败' }); return }
-      const text = String((r.data && r.data.text) || '')
-      setDiaryModal({ open: true, title: '日记 · ' + date, text: text || '（这篇日记是空的）', loading: false, error: '' })
+      const text = String((r.data && r.data.text) || '').trim()
+      const exists = r.data && (r.data.exists === undefined ? !!text : !!r.data.exists)
+      const body = text || (exists ? '（这篇日记是空的）' : '这一天没有日记（她那天没写）。这里只做查看，不会自动生成、也不会改数据。')
+      setDiaryModal({ open: true, title: '日记 · ' + date, text: body, loading: false, error: '' })
     } catch (e) {
       setDiaryModal({ open: true, title: '日记 · ' + date, text: '', loading: false, error: (e && e.message) || '读取失败' })
     }
@@ -394,6 +518,10 @@ function SettingsDataTab() {
   // ── 备份 ────────────────────────────────────────────────────────────
   const backups = (backupApi.data && backupApi.data.backups) || []
   const backupDir = (backupApi.data && backupApi.data.dir) || ''
+  // F-020：恢复前先看差异（只读 inspect，不动数据）
+  const [restoreModal, setRestoreModal] = React.useState({ open: false, name: '', loading: false, error: '', info: null })
+  // 进度：备份/恢复期间给一句明确的状态，不要只有转圈
+  const [backupNote, setBackupNote] = React.useState('')
 
   const doBackup = () => run('backup', async () => {
     const ok = await confirmDialog('现在备份数据目录？', {
@@ -402,21 +530,92 @@ function SettingsDataTab() {
       okText: '开始备份',
     })
     if (!ok) return
-    const r = await Api.post('/api/backup', {}, { timeoutMs: 300000 })
-    if (!r.ok) { toast('备份失败：' + (r.error || '未知错误'), 'error'); return }
-    if (r.data && r.data.ok === false) { toast('备份失败：' + (r.data.error || '未知错误'), 'error'); return }
-    toast((r.data && r.data.message) || '备份完成')
+    setBackupNote('正在打包（数据大时几分钟）…')
+    try {
+      const r = await Api.post('/api/backup', {}, { timeoutMs: 300000 })
+      if (!r.ok) { toast('备份失败：' + (r.error || '未知错误'), 'error'); return }
+      if (r.data && r.data.ok === false) { toast('备份失败：' + (r.data.error || '未知错误'), 'error'); return }
+      const made = String((r.data && r.data.name) || '')
+      // F-020：先把新备份就地插进列表（不用等下一次刷新），再对一次服务端
+      if (made) {
+        const now = Date.now()
+        backupApi.setData((d) => {
+          const list = Array.isArray(d && d.backups) ? d.backups.slice() : []
+          if (list.some((x) => x && x.name === made)) return { ok: true, dir: (d && d.dir) || '', backups: list }
+          list.unshift({ name: made, size: 0, at: now })
+          return { ok: true, dir: (d && d.dir) || '', backups: list }
+        })
+      }
+      toast((r.data && r.data.message) || '备份完成')
+    } finally {
+      setBackupNote('')
+    }
     backupApi.reload()
   })
 
+  // P1-2：备份删除。只删 backups/ 下这个命名规则的 zip；恢复路径不受影响。
+  const removeBackup = (name) => run('backupDel', async () => {
+    const ok = await confirmDialog('删除备份 ' + name + '？', {
+      title: '删除备份',
+      detail: '只删除这一个 zip 文件，不会动当前数据；删除后无法找回。',
+      okText: '删除',
+    })
+    if (!ok) return
+    const r = await Api.post('/api/backup/delete', { name }, { timeoutMs: 30000 })
+    if (!r.ok || (r.data && r.data.ok === false)) {
+      toast('删除失败：' + ((r.data && r.data.error) || r.error || '未知错误'), 'error')
+      return
+    }
+    toast('已删除备份：' + name)
+    backupApi.reload()
+  })
+
+  // P1-6：清理旧桌宠立绘缓存。服务端只删数据根目录里旧 stamp 的 sprite-*.png，
+  // 当前版本和最近 10 分钟文件保留；不会碰角色素材目录。
+  const cleanPetCache = () => run('petCache', async () => {
+    const info = petCacheApi.data || {}
+    const n = Number(info.removable) || 0
+    const mb = Number(info.removableBytes) || 0
+    const ok = await confirmDialog('清理旧桌宠立绘缓存？', {
+      title: '清理立绘缓存',
+      detail: '将删除旧版本 sprite-*.png（约 ' + n + ' 个 / ' + fmtBytes(mb) + '）。当前版本和最近 10 分钟的文件会保留，不影响正在运行的桌宠。',
+      okText: '清理',
+    })
+    if (!ok) return
+    const r = await Api.post('/api/pet/cache/clean', {}, { timeoutMs: 60000 })
+    if (!r.ok || (r.data && r.data.ok === false)) {
+      toast('清理失败：' + ((r.data && r.data.error) || r.error || '未知错误'), 'error')
+      return
+    }
+    const d = (r.data && r.data.stats) || {}
+    toast('已清理 ' + ((r.data && r.data.removed) || 0) + ' 个旧文件，' + fmtBytes((r.data && r.data.removedBytes) || 0) + '；剩余 ' + (d.count || 0) + ' 个')
+    petCacheApi.reload()
+  })
+
+  // 第一步：只读差异预览
+  const inspectBackup = async (name) => {
+    setRestoreModal({ open: true, name: name, loading: true, error: '', info: null })
+    try {
+      const r = await Api.post('/api/backup/inspect', { name }, { timeoutMs: 60000 })
+      if (!r.ok || !r.data || r.data.ok === false) {
+        setRestoreModal({ open: true, name: name, loading: false, error: (r.error || (r.data && r.data.error) || '读取备份内容失败'), info: null })
+        return
+      }
+      setRestoreModal({ open: true, name: name, loading: false, error: '', info: r.data })
+    } catch (e) {
+      setRestoreModal({ open: true, name: name, loading: false, error: (e && e.message) || '读取失败', info: null })
+    }
+  }
+
+  // 第二步：看过差异再确认恢复（会覆盖）
   const restoreBackup = (name) => run('restore', async () => {
-    const ok1 = await confirmDialog('恢复备份 ' + name + '？', {
+    const ok = await confirmDialog('恢复备份 ' + name + '？', {
       title: '恢复备份',
-      detail: '会覆盖当前的角色、配置、记忆、日记和聊天数据。建议先「立即备份」一次再恢复。',
+      detail: '会覆盖当前的角色、配置、记忆、日记和聊天数据。恢复前会自动再备份一次当前状态，出问题还能回来。',
       danger: true,
       okText: '继续',
     })
-    if (!ok1) return
+    if (!ok) return
     const ok2 = await confirmDialog('最后确认：真的要恢复这个备份吗？', {
       title: '最后确认',
       detail: '恢复过程中不要关闭 DSH；完成后需要重启 DSH 让运行时重新加载数据。',
@@ -424,10 +623,17 @@ function SettingsDataTab() {
       okText: '恢复',
     })
     if (!ok2) return
-    const r = await Api.post('/api/backup/restore', { name }, { timeoutMs: 300000 })
+    setRestoreModal((m) => Object.assign({}, m, { open: false }))
+    setBackupNote('正在恢复（会覆盖当前数据，期间别关 DSH）…')
+    let r = null
+    try {
+      r = await Api.post('/api/backup/restore', { name }, { timeoutMs: 300000 })
+    } finally {
+      setBackupNote('')
+    }
     if (!r.ok) { toast('恢复失败：' + (r.error || '未知错误'), 'error'); return }
     if (r.data && r.data.ok === false) {
-      toast('恢复失败：' + (r.data.error || '未知错误'), 'error')
+      toast('恢复失败：' + ((r.data && r.data.error) || '未知错误'), 'error')
       return
     }
     const msg = (r.data && r.data.message) || '恢复完成，请重启 DSH 让运行时重新加载数据'
@@ -481,11 +687,47 @@ function SettingsDataTab() {
     h(Card, { title: '日记', tag: '她每天写一篇' },
       diaryApi.error
         ? h(ErrorBox, { title: '日记列表读取失败', error: diaryApi.error, onRetry: diaryApi.reload })
-        : (diaryDates.length
-            ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
-                diaryDates.slice(0, 30).map((d) => h(Btn, { key: String(d), size: 'sm', kind: 'ghost', disabled: !!busy, onClick: () => openDiary(String(d)) }, String(d))),
-              )
-            : h(Note, {}, diaryApi.loading ? '日记加载中…' : '还没有日记；点「生成今天的日记」试试。')),
+        : null,
+      // F-022：任意日期都能看。前后日/今天 + 原生日期选择器（未来日期禁止）
+      h(Row, { gap: 6, wrap: true },
+        h(Btn, { size: 'sm', kind: 'ghost', disabled: !!busy, title: '看前一天的日记', onClick: () => diaryShift(-1) }, '◀ 前一天'),
+        h(Btn, {
+          size: 'sm', kind: 'ghost', disabled: !!busy,
+          title: '看后一天的日记（不能超过今天）',
+          onClick: () => diaryShift(1),
+        }, '后一天 ▶'),
+        h(Btn, {
+          size: 'sm', kind: diaryDate === diaryToday ? 'soft' : 'ghost',
+          disabled: !!busy,
+          title: '回到今天',
+          onClick: () => { setDiaryDate(diaryToday); openDiary(diaryToday) },
+        }, '今天'),
+        h('input', {
+          type: 'date',
+          className: 'sbc-input',
+          value: diaryDate,
+          max: diaryToday,
+          disabled: !!busy,
+          title: '选任意一天看那天的日记（未来日期不能选）',
+          onChange: (e) => onPickDiaryDate(e.target.value),
+          style: {
+            fontSize: 12, padding: '4px 8px', borderRadius: 8, minWidth: 132,
+            color: T.text, background: T.bg1, border: '1px solid ' + T.border, fontFamily: T.font,
+          },
+        }),
+        h('span', { style: { fontSize: 11, color: T.text3 } }, '正在看：' + diaryDate),
+      ),
+      // 有日记的日期（最近 30 个）保留成快捷按钮
+      diaryDates.length
+        ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
+            diaryDates.slice(0, 30).map((d) => h(Btn, {
+              key: String(d), size: 'sm',
+              kind: String(d) === diaryDate ? 'soft' : 'ghost',
+              disabled: !!busy,
+              onClick: () => { setDiaryDate(String(d)); openDiary(String(d)) },
+            }, String(d))),
+          )
+        : h(Note, {}, diaryApi.loading ? '日记加载中…' : '还没有日记；点「生成今天的日记」试试。'),
       h(Row, { gap: 8, style: { marginTop: 2 } },
         h(Btn, { kind: 'primary', size: 'sm', disabled: !!busy || !!diaryApi.error, onClick: generateDiary }, busy === 'diaryGen' ? '生成中…（可能要十几秒）' : '生成今天的日记'),
         h(Btn, { size: 'sm', kind: 'ghost', disabled: !!busy, onClick: showDiaryToHer }, '把今天的日记给她看'),
@@ -504,6 +746,8 @@ function SettingsDataTab() {
       ),
     },
       h(Note, {}, '导出把数据目录打包成 zip；系统每天凌晨 4 点后会自动备份一次。恢复会覆盖角色/配置/记忆/日记/聊天数据，恢复后需要重启 DSH。'),
+      // F-020：备份/恢复过程中的状态说明（不只是转圈）
+      backupNote ? h(Loading, { text: backupNote }) : null,
       backupApi.error ? h(ErrorBox, { title: '备份列表读取失败', error: backupApi.error, onRetry: backupApi.reload }) : null,
       backupApi.loading && !backupApi.data ? h(Loading, { text: '备份列表加载中…' }) : null,
       backupApi.data
@@ -515,12 +759,82 @@ function SettingsDataTab() {
                 },
                   h('span', { style: { flex: 1, minWidth: 0, fontSize: 12, color: T.text, fontFamily: T.mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, String(b.name)),
                   h('span', { style: { fontSize: 11, color: T.text3, whiteSpace: 'nowrap' } }, fmtDateTime(b.at) + ' · ' + fmtBytes(b.size)),
-                  h(Btn, { size: 'sm', kind: 'danger', disabled: !!busy, onClick: () => restoreBackup(String(b.name)), title: '恢复这个备份（会覆盖当前数据）' }, busy === 'restore' ? '恢复中…' : '恢复'),
+                  // F-020：先看差异预览，再决定要不要覆盖
+                  h(Btn, {
+                    size: 'sm', kind: 'danger', disabled: !!busy,
+                    title: '先看差异预览，再决定要不要恢复（会覆盖当前数据）',
+                    onClick: () => { inspectBackup(String(b.name)).catch(() => {}) },
+                  }, busy === 'restore' ? '恢复中…' : '恢复…'),
+                  h(Btn, {
+                    size: 'sm', kind: 'ghost', disabled: !!busy,
+                    title: '只删除这个备份文件，不动当前数据',
+                    onClick: () => { removeBackup(String(b.name)).catch(() => {}) },
+                  }, busy === 'backupDel' ? '删除中…' : '删除'),
                 )),
               )
             : h(Empty, { icon: '🗂️' }, '还没有备份；点「立即备份」生成第一个。'))
         : h(Note, {}, backupApi.loading ? '备份列表加载中…' : '还没读到备份列表，点「刷新列表」再试。'),
       backupDir ? h(Note, {}, '备份目录：' + backupDir) : null,
+    ),
+
+    // P1-6：桌宠立绘缓存（数据根目录里 sprite-*.png 旧版本会累积）
+    h(Card, {
+      title: '桌宠立绘缓存',
+      tag: '只清旧版本，不动当前',
+      actions: h(Btn, {
+        size: 'sm', kind: 'ghost', disabled: !!busy || !(petCacheApi.data && petCacheApi.data.removable),
+        onClick: () => { cleanPetCache().catch(() => {}) },
+      }, busy === 'petCache' ? '清理中…' : '清理旧版本'),
+    },
+      petCacheApi.error
+        ? h(ErrorBox, { title: '缓存统计读取失败', error: petCacheApi.error, onRetry: petCacheApi.reload })
+        : h('div', { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+            h(Note, {}, '数据目录里保存的是桌宠每次换素材时缓存的立绘帧；旧版本不会自动删除。这里只删旧版本，当前版本和最近 10 分钟文件保留。',
+              petCacheApi.data
+                ? ' 当前共 ' + (petCacheApi.data.count || 0) + ' 个 / ' + fmtBytes(petCacheApi.data.bytes || 0) + '，可清理 ' + (petCacheApi.data.removable || 0) + ' 个 / ' + fmtBytes(petCacheApi.data.removableBytes || 0) + '。'
+                : ''),
+            h(Btn, { size: 'sm', kind: 'ghost', disabled: !!busy, onClick: petCacheApi.reload }, '刷新缓存统计'),
+          ),
+    ),
+
+    // 恢复前的差异预览（只读）；确认后才真的覆盖
+    h(Modal, {
+      open: !!restoreModal.open,
+      title: '恢复前先看差异 · ' + String(restoreModal.name || ''),
+      onClose: () => setRestoreModal({ open: false, name: '', loading: false, error: '', info: null }),
+      width: 640,
+    },
+      restoreModal.loading ? h(Loading, { text: '正在读取备份内容（只读，不动任何数据）…' }) : null,
+      restoreModal.error ? h(ErrorBox, { title: '读不了这个备份的清单', error: restoreModal.error }) : null,
+      restoreModal.info
+        ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+            h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 8 } },
+              h(KV, { k: '备份文件数', v: String(restoreModal.info.backup.fileCount) }),
+              h(KV, { k: '数据文件 / 大小', v: restoreModal.info.backup.dataFiles + ' 个 · ' + restoreModal.info.backup.dataMB + ' MB' }),
+              h(KV, { k: '压缩包大小', v: restoreModal.info.zipMB + ' MB' }),
+              h(KV, { k: '备份时间', v: fmtDateTime(restoreModal.info.at) }),
+              h(KV, { k: '备份里的角色数', v: String(restoreModal.info.backup.characters.length) + '（含 ' + restoreModal.info.backup.characters.join('、') + '）' }),
+              h(KV, { k: '当前角色数', v: String(restoreModal.info.current.characters.length) + '（含 ' + restoreModal.info.current.characters.join('、') + '）' }),
+            ),
+            restoreModal.info.onlyInBackup.length
+              ? h(Note, {}, '⚠ 恢复后会多出这些角色：' + restoreModal.info.onlyInBackup.join('、'))
+              : null,
+            restoreModal.info.onlyNow.length
+              ? h(Note, {}, '⚠ 这些角色现在有、备份里没有 —— 恢复后会消失：' + restoreModal.info.onlyNow.join('、'))
+              : null,
+            restoreModal.info.configOverwritten
+              ? h(Note, {}, '配置（config.json）会被备份里的版本覆盖：模型设置、面板配色、VM/直连开关都会回到备份那一刻。')
+              : null,
+            h(Note, {}, '恢复前运行时会先自动备份一次当前状态，出问题还能再恢复回来；恢复完成后需要重启 DSH。'),
+            h(Row, { gap: 8, style: { justifyContent: 'flex-end' } },
+              h(Btn, { size: 'sm', kind: 'ghost', onClick: () => setRestoreModal({ open: false, name: '', loading: false, error: '', info: null }) }, '算了'),
+              h(Btn, {
+                size: 'sm', kind: 'danger', disabled: !!busy,
+                onClick: () => { restoreBackup(String(restoreModal.name)).catch(() => {}) },
+              }, '确认覆盖并恢复'),
+            ),
+          )
+        : null,
     ),
 
     // 数据目录 / 版本

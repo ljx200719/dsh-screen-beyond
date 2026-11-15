@@ -250,8 +250,22 @@ function Resolve-ImagePath([string]$spec = '') {
     }
     # 服务启动瞬间可能还没就绪：优先用同角色缓存，再退回旧缓存，至少不要变成空桌宠
     if (Test-Path $dest) { Log ('sprite download retry fallback: ' + $cacheName); return $dest }
-    $legacy = Join-Path $DataDir ('sprite-' + $leaf)
-    if (Test-Path $legacy) { Log ('sprite download legacy fallback: ' + $leaf); return $legacy }
+    # 表情图缺失（这个角色没画那张）：退回同一个角色的 idle 图，别把方形头像当表情显示
+    if ($leaf -ne 'idle.png') {
+      try {
+        $idleSpec = $spec.Substring(0, $spec.Length - $leaf.Length) + 'idle.png'
+        $idleCacheName = 'sprite-' + $cacheKey + '-' + $cacheStamp + '-idle.png'
+        $idleDest = Join-Path $DataDir $idleCacheName
+        if (-not ((Test-Path $idleDest) -and ((Get-Item $idleDest).Length -gt 1024))) {
+          $wc2 = New-Object System.Net.WebClient
+          $wc2.DownloadFile(($Base + $idleSpec), $idleDest)
+        }
+        if ((Test-Path $idleDest) -and ((Get-Item $idleDest).Length -gt 1024)) { Log ('expr miss, use idle: ' + $idleSpec); return $idleDest }
+      } catch { Log ('expr->idle fallback failed: ' + $spec) }
+    }
+    # F-010：这个角色没有自己的桌宠图 —— 用她自己的头像顶上，绝不保持上一帧/借用别的角色
+    $av = Resolve-ImagePath 'avatar'
+    if ($av) { Log ('sprite download failed, using her avatar: ' + $spec); return $av }
     Log ('sprite download failed: ' + $spec); return $null
   }
   if ($spec -match '^https?://') {

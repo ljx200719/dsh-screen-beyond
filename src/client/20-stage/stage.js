@@ -166,6 +166,9 @@ function StageView(props) {
   const [mode3dPref, setMode3dPref] = useLocal('companionStage3D', null)
   // 3D 启动失败的原因（WebGL/three 不可用）：非空就强制走 2D，并在底部留一行说明
   const [fail3d, setFail3d] = React.useState('')
+  // P1-5：手动点地点时的「走路过渡」。以前点击直接 instant 瞬移，看起来像闪现；
+  // 现在先在本地说一段 1.2 秒的走路（角色位置 CSS 过渡 + 走路帧），再提交 instant 移动。
+  const [walk, setWalk] = React.useState(null)
 
   // 换地图/换底图：重置比例与失败标记，按新图重新适配
   React.useEffect(() => {
@@ -176,8 +179,16 @@ function StageView(props) {
   // 换地图：上一次的 3D 失败结论不能带到新地图上（换张图可能就能 3D）
   React.useEffect(() => { setFail3d('') }, [map.id])
 
-  // 这张地图有没有 3D 资源：map.has3d=true 或配了 3D 模型；其余情况 3D 开关禁用
-  const can3d = !!(map.has3d === true || (map.model && map.model.url))
+  // P2-3：3D 需要「地图有 3D 场景」且「当前角色有 3D 模型」。
+  // 旧文案把角色缺模型说成地图缺资源，用户会去地图页白折腾。
+  const mapHas3d = !!(map.has3d === true || (map.model && map.model.url))
+  const roleHas3d = !!(character.model && character.model.url)
+  const can3d = mapHas3d && roleHas3d
+  const no3dReason = mapHas3d
+    ? ('这张地图有 3D 场景，但当前角色「' + (character.name || '她') + '」没有 3D 模型。请到「设置 → 角色」给当前角色配一个 3D 模型（.glb / .gltf）；切回有模型的小鲸也能看 3D。')
+    : (roleHas3d
+      ? ('这张地图没有 3D 资源，只能看 2D。要 3D 舞台，请到「地图」页给「' + (map.name || '这张地图') + '」配一个 3D 模型（.glb / .gltf）。')
+      : ('这张地图没有 3D 场景，当前角色也没有 3D 模型。要 3D 舞台，先到「地图」页配场景，再到「设置 → 角色」给角色配模型。'))
   const want3d = can3d && !fail3d && (mode3dPref === null ? map.displayMode === '3d' : !!mode3dPref)
   // 3D 组件由 20-stage/three3d.js 提供（同一次构建的片段）；用 typeof 兜一层：
   // 万一构建清单里漏了这个片段，面板也只是没有 3D，不会因为 ReferenceError 整页白掉。
@@ -186,7 +197,7 @@ function StageView(props) {
 
   const toggle3d = (next) => {
     if (next && !can3d) {
-      toast('这张地图没有 3D 资源', 'error')
+      toast(no3dReason, 'error')
       return
     }
     if (next && !has3dModule) {
@@ -206,6 +217,10 @@ function StageView(props) {
 
   const rect = sbcFitRect(size, aspect)
   const marker = stageMarkerPos(data)
+  // 本地走路过渡期间，标记点用目标地点坐标（带「走过去…」标签），让 CSS 过渡把人挪过去
+  const markerNow = walk
+    ? { x: Number(walk.x), y: Number(walk.y), tag: '走过去…', tone: T.warn }
+    : marker
   const traveling = (loc.state === 'traveling' && loc.traveling) || null
   const intercity = (loc.state === 'intercity' && loc.intercity) || null
   const progress = loc.state === 'traveling' && traveling ? stageTravelProgress(traveling) : (loc.state === 'intercity' && intercity ? stageTravelProgress(intercity) : 0)
@@ -221,7 +236,20 @@ function StageView(props) {
     }
     setMoving(String(place.id))
     setNotice('')
+    // P1-5：先走一段（本地过渡，1.2 秒），再真正提交 instant 移动。
+    // 过渡期间角色位置有 CSS transition，SkeletonAvatar 也会切到 walkA/walkB 走路帧。
+    const targetX = Number.isFinite(Number(place.x)) ? Number(place.x) : 0.5
+    const targetY = Number.isFinite(Number(place.y)) ? Number(place.y) : 0.5
+    // 走多久按距离算：近的一小步就 0.7s，跨图远征最多 1.9s，别让腿在原地划太快（那看着像抽动）
+    const dx = targetX - Number(marker.x || 0.5)
+    const dy = targetY - Number(marker.y || 0.5)
+    const walkMs = Math.round(Math.max(700, Math.min(1900, 700 + Math.hypot(dx, dy) * 1500)))
+    if (!use3d) {
+      // 2D 才有「走一段」的过渡；3D 里角色由 ThreeStage 自己管，别让点击多等
+      setWalk({ x: targetX, y: targetY, id: String(place.id), ms: walkMs })
+    }
     try {
+      if (!use3d) await new Promise((r) => setTimeout(r, walkMs))
       const r = await Api.post('/api/location', { placeId: place.id, instant: true })
       const d = r && r.ok ? (r.data || {}) : null
       if (r && r.ok && d && d.ok !== false) {
@@ -229,15 +257,19 @@ function StageView(props) {
         stage.reload()
         return
       }
+      setWalk(null)
       const reason = (d && (d.reason || d.error)) || (r && r.error) || '移动失败'
       setNotice(String(reason))
       toast(String(reason), 'error')
     } catch (e) {
+      setWalk(null)
       const reason = (e && e.message) || '移动失败'
       setNotice(reason)
       toast(reason, 'error')
     } finally {
       setMoving('')
+      // 数据已经回填到目标地点后再撤掉本地覆盖，避免撤早了闪回原位
+      window.setTimeout(() => setWalk(null), 260)
     }
   }
 
@@ -349,7 +381,7 @@ function StageView(props) {
             style: {
               width: compact ? 19 : 23, height: compact ? 19 : 23, borderRadius: '50%',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: here ? 'rgba(47,107,216,.30)' : 'rgba(8,13,20,.74)',
+              background: here ? 'rgba(var(--sbc-accent-rgb, 47,107,216), .30)' : 'var(--sbc-pin-bg, rgba(8,13,20,.74))',
               border: '1px solid ' + (here ? T.brand : T.border2),
               fontSize: compact ? 10 : 12, lineHeight: 1,
               boxShadow: '0 2px 8px rgba(0,0,0,.32)',
@@ -358,8 +390,8 @@ function StageView(props) {
           h('span', {
             style: {
               fontSize: compact ? 8.5 : 10, lineHeight: '13px',
-              color: here ? T.text : T.text2,
-              background: 'rgba(8,13,20,.70)', border: '1px solid ' + T.border,
+              color: 'var(--sbc-pin-ink, #e7edf5)',
+              background: 'var(--sbc-pin-bg, rgba(8,13,20,.70))', border: '1px solid ' + T.border2,
               borderRadius: 999, padding: '0 5px', whiteSpace: 'nowrap',
               overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
             },
@@ -369,29 +401,31 @@ function StageView(props) {
       h('div', {
         key: 'me',
         style: {
-          position: 'absolute', left: pct(marker.x), top: pct(marker.y),
+          position: 'absolute', left: pct(markerNow.x), top: pct(markerNow.y),
           transform: 'translate(-50%,-100%)', zIndex: 6,
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
           pointerEvents: 'none',
-          transition: 'left .9s linear, top .9s linear',
+          transition: 'left ' + (walk ? walk.ms : 900) + 'ms linear, top ' + (walk ? walk.ms : 900) + 'ms linear',
         },
       },
         h(SkeletonAvatar, {
           path: avatarPath, sprite: character.sprite, name: character.name,
-          moving: marker && marker.tag ? !!marker.tag : false,
+          // 只有真的在走的时候才播走路帧：以前这里写的是 marker.tag 非空就 true，
+          // 而「在这里」也是个 tag，于是她站着不动时腿也一直在踩（看起来像抽动）。
+          moving: !!walk || loc.state === 'traveling' || loc.state === 'intercity',
           size: compact ? 64 : 118,
           fallbackSize: compact ? 30 : 44,
         }),
-        marker.tag
+        markerNow.tag
           ? h('span', {
               style: {
                 fontSize: compact ? 8.5 : 10, lineHeight: '13px', whiteSpace: 'nowrap',
-                color: marker.tone,
-                background: 'rgba(8,13,20,.82)',
-                border: '1px solid ' + marker.tone,
+                color: markerNow.tone,
+                background: 'var(--sbc-pin-bg, rgba(8,13,20,.82))',
+                border: '1px solid ' + markerNow.tone,
                 borderRadius: 6, padding: '0 5px',
               },
-            }, marker.tag)
+            }, markerNow.tag)
           : null,
       ),
     ]
@@ -434,7 +468,7 @@ function StageView(props) {
       onClick: () => toggle3d(true),
       title: can3d
         ? (fail3d ? '3D 上次没起来（' + fail3d + '），点这里重试' : '3D 舞台：拖动旋转 · 滚轮缩放 · 点地点让她去')
-        : '这张地图没有 3D 资源',
+        : no3dReason,
       style: can3d ? undefined : { opacity: 0.45, cursor: 'not-allowed' },
     }, '3D'),
     fail3d ? h(Chip, { key: 'fail3d', tone: 'warn', title: '3D 失败原因：' + fail3d }, '3D 不可用') : null,
@@ -479,7 +513,7 @@ function StageView(props) {
             onClick: () => toggle3d(!use3d),
             title: can3d
               ? (use3d ? '切到 2D 舞台' : (fail3d ? '3D 上次没起来：' + fail3d + '，点这里重试' : '切到 3D 舞台'))
-              : '这张地图没有 3D 资源',
+              : no3dReason,
             style: { padding: '1px 7px', fontSize: 10, lineHeight: '14px', opacity: can3d ? 1 : 0.5 },
           }, use3d ? '3D' : '2D'),
         )
@@ -534,7 +568,9 @@ function StageView(props) {
       h('div', {
         style: {
           fontSize: compact ? 10 : 11.5, color: T.text2, lineHeight: 1.5,
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          // F-003：长状态（跨城/行程）允许换两行，不要右侧被裁
+          whiteSpace: 'normal', overflow: 'hidden', overflowWrap: 'anywhere',
+          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
         },
         title: statusLine(),
       }, statusLine()),
@@ -548,6 +584,10 @@ function StageView(props) {
         : null,
       notice
         ? h('div', { style: { fontSize: 10.5, color: T.danger, lineHeight: 1.5 } }, '她没去：' + notice)
+        : null,
+      // P2-1 / P3-4：没有 3D 资源时不能只弹一条几秒就消失的 toast，这里常驻说明
+      !can3d
+        ? h('div', { style: { fontSize: 10.5, color: T.text3, lineHeight: 1.5 } }, no3dReason)
         : null,
       // 3D 失败：留一行说明（toast 会消失，这行一直在；点 HUD 的「3D」可重试）
       fail3d

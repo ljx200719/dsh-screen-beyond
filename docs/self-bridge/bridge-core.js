@@ -38,6 +38,12 @@ function startBridge(ctx) {
       fs.appendFileSync(LOG, '[' + new Date().toISOString() + '] ' + JSON.stringify(o) + '\n')
     } catch (e) {}
   }
+  // F-019：注入到底成没成，先留一条 boot-probe。
+  // 之前只能靠"有没有 listening"反推，注入没成功时日志里什么都看不到，
+  // 现在：boot-probe 出现 = 代码真的在 QQ 进程里跑起来了；listening 出现 = 端口起来了。
+  try {
+    log({ step: 'boot-probe', version: state.version, pid: (ctx && ctx.process && ctx.process.pid) || 0, electron: !!electron, at: new Date().toISOString() })
+  } catch (e) {}
   // ---------- 聊天窗口定位 ----------
   function getWc() {
     try {

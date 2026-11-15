@@ -123,7 +123,7 @@ function chatUserBubbleStyle() {
     border: '1px solid ' + T.brand,
     borderRadius: '13px 13px 5px 13px',
     padding: '8px 12px',
-    color: '#fff',
+    color: T.accentInk,
     fontSize: 13,
     lineHeight: 1.66,
     whiteSpace: 'pre-wrap',
@@ -193,6 +193,342 @@ function ChatBigImage(props) {
 
 // ── 消息行（React.memo：新消息追加时不重建已有行，N04）────────────────
 
+// ── 播放统一管理（0.8.6）：自动朗读和手动播放共用一份，不会叠着放；「打断」一键全停 ──
+const SBC_AUDIO = { cur: null }
+function sbcAudioXmit(name) {
+  try { window.dispatchEvent(new Event(name)) } catch (e) {}
+}
+function sbcAudioStop() {
+  const a = SBC_AUDIO.cur
+  SBC_AUDIO.cur = null
+  if (a) { try { a.pause() } catch (e) {} }
+  sbcAudioXmit('sbc-voice-stop')
+}
+function sbcAudioPlay(url, handlers) {
+  sbcAudioStop()
+  let a
+  try { a = new Audio(url) } catch (e) { return null }
+  SBC_AUDIO.cur = a
+  sbcAudioXmit('sbc-voice-start')
+  const done = () => {
+    if (SBC_AUDIO.cur === a) SBC_AUDIO.cur = null
+    sbcAudioXmit('sbc-voice-stop')
+    if (handlers && handlers.onEnd) handlers.onEnd()
+  }
+  a.addEventListener('ended', done)
+  a.addEventListener('error', () => { done(); if (handlers && handlers.onError) handlers.onError() })
+  const pr = a.play()
+  if (pr && pr.catch) pr.catch(() => { done(); if (handlers && handlers.onError) handlers.onError() })
+  return a
+}
+
+// 有没有语音正在放：底部「■ 停止」靠它决定显不显示（F-013：空闲不要留一个点了没反应的按钮）
+function useVoicePlaying() {
+  const [on, setOn] = React.useState(() => !!SBC_AUDIO.cur)
+  React.useEffect(() => {
+    const upd = () => setOn(!!SBC_AUDIO.cur)
+    try {
+      window.addEventListener('sbc-voice-start', upd)
+      window.addEventListener('sbc-voice-stop', upd)
+    } catch (e) {}
+    return () => {
+      try {
+        window.removeEventListener('sbc-voice-start', upd)
+        window.removeEventListener('sbc-voice-stop', upd)
+      } catch (e) {}
+    }
+  }, [])
+  return on
+}
+
+// P2-14：历史消息里可能已经存了上游半截 JSON；UI 只显示人话，不把整段 body 刷出来。
+function chatVoiceErrorText(raw) {
+  const s = String(raw || '').replace(/\s+/g, ' ').trim()
+  if (!s) return '语音没有生成'
+  if (/^[\[{]/.test(s) || /火山 v3 没返回音频.*[\[{]/.test(s) || /"header"\s*:/.test(s)) {
+    return '语音通道异常（上游返回了错误）；可以到「设置 → 角色 → 语音」改用 Windows 内置语音，或切换音色/资源 ID。'
+  }
+  return s.slice(0, 140)
+}
+
+// 她的语音消息：点一下播放，再点停止（不自动播放、不自动下一条）
+// 全局「停止」由 ChatView 派发 sbc-voice-stop，所有实例一起停（V25）
+function ChatVoiceButton(props) {
+  const p = props || {}
+  const path = String(p.audio || '')
+  const [playing, setPlaying] = React.useState(false)
+  const [busy, setBusy] = React.useState(false)
+  const [err, setErr] = React.useState('')
+  React.useEffect(() => {
+    const onStop = () => setPlaying(false)
+    try { window.addEventListener('sbc-voice-stop', onStop) } catch (e) {}
+    return () => { try { window.removeEventListener('sbc-voice-stop', onStop) } catch (e) {} }
+  }, [])
+  const toggle = async () => {
+    if (playing) { sbcAudioStop(); return }
+    if (busy) return
+    setBusy(true)
+    setErr('')
+    try {
+      const url = await Api.fileUrl(path)
+      const a = sbcAudioPlay(url, {
+        onEnd: () => setPlaying(false),
+        onError: () => { setPlaying(false); setErr('播放失败') },
+      })
+      if (!a) { setErr('播放失败'); return }
+      setPlaying(true)
+    } catch (e) {
+      setErr('播放失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const dur = Number(p.duration) > 0 ? Math.round(Number(p.duration)) + '″' : ''
+  return h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 } },
+    h('button', {
+      type: 'button',
+      className: 'sbc-btn',
+      onClick: toggle,
+      title: playing ? '停止播放' : '播放这条语音',
+      style: {
+        display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 11px', borderRadius: 999,
+        border: '1px solid ' + T.brand, background: 'rgba(var(--sbc-accent-rgb, 47,107,216), .12)',
+        color: T.text, fontWeight: 500,
+        fontSize: 11.5, lineHeight: '17px', cursor: 'pointer', fontFamily: T.font,
+      },
+    }, playing ? '■ 停止' : (busy ? '… 载入' : '🔊 播放语音'), dur ? h('span', { style: { color: T.text3, fontSize: 10.5, fontWeight: 400 } }, dur) : null),
+    err ? h('span', { style: { fontSize: 10.5, color: T.danger } }, err) : null,
+  )
+}
+
+// ── 语音输入（0.8.8）：复用 DSH 自带的 SenseVoice，插件自己不带模型 ──────────
+// 录音在浏览器里编成 DSH 认可的规范 WAV（16kHz 单声道 PCM16），
+// 交给 DSH 的 speech Remote 识别；文字只放进输入框，不自动发送。
+function sbcSpeechRemote() {
+  try {
+    const ctx = SBC_CLIENT_CTX
+    const remote = ctx && typeof ctx.get === 'function' ? ctx.get('remote') : null
+    return (remote && remote.speech) || null
+  } catch (e) { return null }
+}
+
+// 任意采样率 → 16k 单声道（线性插值，够用）
+function sbcResample16k(chunks, srcRate) {
+  let total = 0
+  for (let i = 0; i < chunks.length; i++) total += chunks[i].length
+  const flat = new Float32Array(total)
+  let off = 0
+  for (let i = 0; i < chunks.length; i++) { flat.set(chunks[i], off); off += chunks[i].length }
+  const rate = Number(srcRate) || 16000
+  if (rate === 16000) return flat
+  const ratio = rate / 16000
+  const outLen = Math.max(1, Math.floor(flat.length / ratio))
+  const out = new Float32Array(outLen)
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * ratio
+    const i0 = Math.floor(pos)
+    const i1 = Math.min(flat.length - 1, i0 + 1)
+    const t = pos - i0
+    out[i] = flat[i0] * (1 - t) + flat[i1] * t
+  }
+  return out
+}
+
+// 规范 WAV：DSH 会逐字节校验（PCM/单声道/16000Hz/16bit/长度自洽）
+function sbcWavFromSamples(samples) {
+  const n = samples.length
+  const buf = new ArrayBuffer(44 + n * 2)
+  const v = new DataView(buf)
+  const put = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)) }
+  put(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); put(8, 'WAVE')
+  put(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true)
+  v.setUint32(24, 16000, true); v.setUint32(28, 32000, true)
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true)
+  put(36, 'data'); v.setUint32(40, n * 2, true)
+  for (let i = 0; i < n; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]))
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+  }
+  return new Uint8Array(buf)
+}
+
+function sbcBytesToBase64(bytes) {
+  let out = ''
+  const step = 0x8000
+  for (let i = 0; i < bytes.length; i += step) {
+    out += String.fromCharCode.apply(null, bytes.subarray(i, i + step))
+  }
+  return btoa(out)
+}
+
+// 问 DSH 要识别器；没准备好就触发准备（首次下载约 230MB，走 hf-mirror）并等
+async function sbcSpeechEnsureReady(onStatus) {
+  const speech = sbcSpeechRemote()
+  // 拿不到服务只有两种可能：没启用，或 DSH 升级后插件版本没跟上（profile 里 pin 的是旧版）
+  if (!speech) return { ok: false, error: 'DSH 的语音输入没启用：到 DSH「插件」里确认语音插件已启用、并且版本和当前 DSH 一致（升级 DSH 后要同步一次语音插件）；装好后回「设置 → 角色」点「检查 / 准备识别模型」' }
+  let cat = null
+  try { cat = await speech.catalog() } catch (e) { return { ok: false, error: '读不到识别器状态：' + String((e && e.message) || e) } }
+  if (!cat || !cat.providers || !cat.providers.length) return { ok: false, error: '没有可用的识别器' }
+  const providerId = (cat.selection && cat.selection.providerId) || cat.providers[0].id
+  const language = (cat.selection && cat.selection.language) || 'zh'
+  const maxDurationSeconds = cat.maxDurationSeconds || 120
+  const view = cat.providers.filter((x) => x.id === providerId)[0] || cat.providers[0]
+  const phase = view && view.preparation ? view.preparation.phase : 'ready'
+  if (phase === 'ready' || phase === 'standby') return { ok: true, providerId, language, maxDurationSeconds }
+  if (phase === 'failed') return { ok: false, error: '识别器准备失败：' + ((view.preparation && view.preparation.message) || '未知原因') }
+  try { await speech.prepare(providerId) } catch (e) { return { ok: false, error: '启动准备失败：' + String((e && e.message) || e) } }
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < 15 * 60 * 1000) {
+    await new Promise((r) => setTimeout(r, 1500))
+    let c2 = null
+    try { c2 = await speech.catalog() } catch (e) {}
+    const v2 = c2 && c2.providers ? c2.providers.filter((x) => x.id === providerId)[0] : null
+    const st = (v2 && v2.preparation) || { phase: 'ready' }
+    if (st.phase === 'ready' || st.phase === 'standby') return { ok: true, providerId, language, maxDurationSeconds: (c2 && c2.maxDurationSeconds) || maxDurationSeconds }
+    if (st.phase === 'failed') return { ok: false, error: '准备失败：' + (st.message || '未知原因') }
+    if (onStatus) {
+      if (st.phase === 'downloading') {
+        const pct = st.totalBytes ? ' ' + Math.round((st.completedBytes / st.totalBytes) * 100) + '%' : ''
+        onStatus('正在下载识别模型' + pct + '（首次约 230MB）')
+      } else if (st.phase === 'checking') onStatus('正在检查模型…')
+      else if (st.phase === 'loading') onStatus('正在加载模型…')
+      else onStatus('准备中…')
+    }
+  }
+  return { ok: false, error: '准备超时，稍后再点一次麦克风' }
+}
+
+// 麦克风按钮：点一下开始、再点结束；识别结果只进输入框（不自动发）
+function ChatMicButton(props) {
+  const p = props || {}
+  const [phase, setPhase] = React.useState('idle')   // idle | preparing | recording | transcribing
+  const [note, setNote] = React.useState('')
+  const [err, setErr] = React.useState('')
+  const [seconds, setSeconds] = React.useState(0)
+  const stRef = React.useRef(null)
+  const optsRef = React.useRef(null)
+
+  const teardown = React.useCallback(() => {
+    const st = stRef.current
+    stRef.current = null
+    if (!st) return null
+    try { if (st.timer) clearInterval(st.timer) } catch (e) {}
+    try { st.proc.disconnect() } catch (e) {}
+    try { st.src.disconnect() } catch (e) {}
+    try { st.sink.disconnect() } catch (e) {}
+    try { st.stream.getTracks().forEach((t) => { try { t.stop() } catch (e2) {} }) } catch (e) {}
+    try { st.ctx.close() } catch (e) {}
+    return st
+  }, [])
+  React.useEffect(() => () => { teardown() }, [teardown])
+
+  const finish = React.useCallback(async (aborted) => {
+    const st = teardown()
+    setPhase('idle')
+    setSeconds(0)
+    setNote('')
+    if (!st || aborted) return
+    if (!st.chunks.length) { setErr('没录到声音'); return }
+    const speech = sbcSpeechRemote()
+    const opts = optsRef.current || {}
+    if (!speech || !opts.providerId) { setErr('DSH 的语音输入不可用'); return }
+    setPhase('transcribing')
+    let stopAudio = null
+    try {
+      const samples = sbcResample16k(st.chunks, st.rate)
+      const wav = sbcWavFromSamples(samples)
+      if (wav.length < 46) { setErr('录音太短'); return }
+      const ctrl = new AbortController()
+      stopAudio = setTimeout(() => { try { ctrl.abort() } catch (e) {} }, 120000)
+      const result = await speech.transcribe({
+        audioBase64: sbcBytesToBase64(wav),
+        providerId: opts.providerId,
+        language: opts.language,
+      }, ctrl.signal)
+      if (!result || !result.ok) {
+        setErr(String((result && result.error && result.error.message) || '识别失败').slice(0, 90))
+        return
+      }
+      const text = String((result.value && result.value.text) || '').trim()
+      if (!text) { setErr('没听清（这次没识别到内容）'); return }
+      if (p.onText) p.onText(text)
+    } catch (e) {
+      setErr('识别失败：' + String((e && e.message) || e).slice(0, 60))
+    } finally {
+      if (stopAudio) clearTimeout(stopAudio)
+      setPhase('idle')
+    }
+  }, [teardown, p])
+
+  const start = React.useCallback(async () => {
+    if (phase !== 'idle') return
+    setErr('')
+    setNote('')
+    setPhase('preparing')
+    const ready = await sbcSpeechEnsureReady((msg) => setNote(msg))
+    if (!ready.ok) { setErr(ready.error); setPhase('idle'); return }
+    optsRef.current = { providerId: ready.providerId, language: ready.language, maxDurationSeconds: ready.maxDurationSeconds }
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('这个环境不支持录音')
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+      const Ctx = window.AudioContext || window.webkitAudioContext
+      if (!Ctx) throw new Error('浏览器不支持 AudioContext')
+      const ctx = new Ctx({ sampleRate: 16000 })
+      const src = ctx.createMediaStreamSource(stream)
+      const proc = ctx.createScriptProcessor(4096, 1, 1)
+      const sink = ctx.createGain()
+      sink.gain.value = 0
+      const chunks = []
+      proc.onaudioprocess = (ev) => { chunks.push(new Float32Array(ev.inputBuffer.getChannelData(0))) }
+      src.connect(proc)
+      proc.connect(sink)
+      sink.connect(ctx.destination)
+      const st = { stream, ctx, src, proc, sink, chunks, rate: ctx.sampleRate || 16000, timer: null, startedAt: Date.now() }
+      stRef.current = st
+      setNote('')
+      setPhase('recording')
+      setSeconds(0)
+      const maxSec = Math.max(3, Math.min(120, Number(ready.maxDurationSeconds) || 120))
+      st.timer = setInterval(() => {
+        const cur = stRef.current
+        if (!cur) return
+        const s = (Date.now() - cur.startedAt) / 1000
+        setSeconds(s)
+        if (s >= Math.min(60, maxSec)) { void finish(false) }
+      }, 200)
+    } catch (e) {
+      const msg = String((e && e.message) || e)
+      setErr(/permission|denied|notallowed/i.test(msg) ? '没有麦克风权限：先在系统里允许 DSH 用麦克风' : ('录音失败：' + msg.slice(0, 60)))
+      setPhase('idle')
+    }
+  }, [phase, finish])
+
+  if (phase === 'recording') {
+    return h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 } },
+      h('button', {
+        type: 'button', className: 'sbc-btn', onClick: () => { void finish(false) }, title: '结束录音并转成文字',
+        style: { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 11px', borderRadius: 9, border: '1px solid ' + T.danger, color: T.danger, background: 'rgba(239,83,80,.12)', fontSize: 12.5, cursor: 'pointer', fontFamily: T.font },
+      }, '■ 结束 ' + seconds.toFixed(1) + 's'),
+      h('button', {
+        type: 'button', className: 'sbc-btn', onClick: () => { void finish(true) }, title: '取消这次录音',
+        style: { padding: '6px 9px', borderRadius: 9, border: '1px solid ' + T.border, background: 'transparent', color: T.text2, fontSize: 12.5, cursor: 'pointer', fontFamily: T.font },
+      }, '×'),
+    )
+  }
+  const busy = phase === 'preparing' || phase === 'transcribing'
+  const label = phase === 'transcribing' ? '识别中…' : (phase === 'preparing' ? '准备中…' : '🎤')
+  return h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 } },
+    h('button', {
+      type: 'button', className: 'sbc-btn', disabled: busy || undefined,
+      onClick: () => { void start() },
+      title: '点一下开始录音，再点结束；识别用 DSH 自带的 SenseVoice，文字只放进输入框',
+      style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '6px 12px', borderRadius: 9, border: '1px solid ' + T.border, background: 'transparent', color: T.text, fontSize: 12.5, lineHeight: '18px', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.65 : 1, fontFamily: T.font, flexShrink: 0, whiteSpace: 'nowrap' },
+    }, label),
+    note ? h('span', { style: { fontSize: 10.5, color: T.text3, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: note }, note) : null,
+    err ? h('span', { title: err, style: { fontSize: 10.5, color: T.danger, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, err) : null,
+  )
+}
+
 const ChatMessageRow = React.memo(function ChatMessageRowInner(props) {
   const p = props || {}
   const m = p.m || {}
@@ -233,6 +569,13 @@ const ChatMessageRow = React.memo(function ChatMessageRowInner(props) {
         image ? h(ChatImage, { path: image, onOpen: p.onOpenImage }) : null,
         (!text && !image) ? h('div', { style: { fontSize: 12, color: T.text3 } }, '（这条消息没有内容）') : null,
       ),
+      // 语音是附加物：文字永远在，音频失败只给一行小字（V15）
+      (!isUser && m.audio) ? h(ChatVoiceButton, { audio: m.audio, duration: m.audioDuration }) : null,
+      (!isUser && m.voiceWarning) ? h('div', {
+        style: { fontSize: 10.5, color: T.text3, lineHeight: 1.5 },
+        title: String(m.voiceWarning),
+      }, '语音提示：' + String(m.voiceWarning).slice(0, 120)) : null,
+      (!isUser && !m.audio && m.voiceError) ? h('div', { style: { fontSize: 10.5, color: T.text3, lineHeight: 1.5 } }, '语音没生成：' + chatVoiceErrorText(m.voiceError)) : null,
     ),
   )
 })
@@ -287,6 +630,11 @@ function ChatView(props) {
 
   // 角色信息只从 /api/status 取（不写死角色名/头像，N02）；useStatus 是全局单例轮询
   const status = useStatus()
+  const voice = useVoiceSettings()
+  // 自动朗读：默认开。Electron 的 webview 默认允许自动播放，所以新消息能直接出声；
+  // 历史消息（超过 60 秒）不自动读，只给手点。
+  const [autoSpeak, setAutoSpeak] = useLocal('companionVoiceAutoplay', true)
+  const autoPlayedRef = React.useRef('')
   const st = (status && status.data) || null
   const char = (st && st.character) || null
   const charId = char && char.id !== undefined && char.id !== null ? String(char.id) : ''
@@ -324,6 +672,7 @@ function ChatView(props) {
   const stoppingRef = React.useRef(false)
   const charIdRef = React.useRef('')
   const pollRef = React.useRef(null)
+  const voiceRevRef = React.useRef(0)      // 语音异步挂上来的增量水位（/api/events?voiceSince=）
 
   React.useEffect(() => {
     mountedRef.current = true
@@ -351,6 +700,7 @@ function ChatView(props) {
     const data = r.data || {}
     const list = chatNormalizeMessages(data.messages)
     lastIdRef.current = list.length ? chatMsgId(list[list.length - 1]) : 0
+    voiceRevRef.current = Number(data.voiceRev) || 0
     failsRef.current = 0
     pendingBottomRef.current = true
     setMsgs(list)
@@ -368,7 +718,7 @@ function ChatView(props) {
     pollingRef.current = true
     let r
     try {
-      r = await Api.get('/api/events?since=' + lastIdRef.current)
+      r = await Api.get('/api/events?since=' + lastIdRef.current + '&voiceSince=' + voiceRevRef.current)
     } catch (e) {
       r = { ok: false, error: (e && e.message) || '网络错误' }
     }
@@ -387,6 +737,21 @@ function ChatView(props) {
     // usage 是同一份对象内容，内容没变就不换 state，避免每次轮询都重渲染
     setUsage((prev) => (chatSameUsage(prev, data.usage) ? prev : (data.usage || null)))
     const list = chatNormalizeMessages(data.messages)
+    // 语音是异步挂上去的，按 rev 增量补到已有消息上（不重排、不重复）
+    const vu = Array.isArray(data.voiceUpdates) ? data.voiceUpdates : []
+    if (vu.length) {
+      setMsgs((prev) => {
+        let touched = false
+        const next = prev.map((m) => {
+          const hit = vu.find((u) => Number(u.id) === Number(m.id))
+          if (!hit) return m
+          touched = true
+          return Object.assign({}, m, hit)
+        })
+        return touched ? next : prev
+      })
+    }
+    if (Number(data.voiceRev) > voiceRevRef.current) voiceRevRef.current = Number(data.voiceRev)
     if (list.length) {
       const maxId = chatMsgId(list[list.length - 1])
       if (maxId > lastIdRef.current) lastIdRef.current = maxId
@@ -409,6 +774,32 @@ function ChatView(props) {
   useInterval(() => { void poll() }, EVENTS_POLL_MS, !loading && !bootError)
   // 首屏失败后自动重试：面板可能比运行时先起来，运行时恢复后不用用户手动点
   useInterval(() => { void loadInitial(true) }, STATUS_POLL_MS, !!bootError)
+
+  // 语音自动朗读：她最新一条带音频的消息只自动播一次；历史消息（>60 秒）不自动读
+  React.useEffect(() => {
+    if (!autoSpeak) return undefined
+    if (!(voice.settings && voice.settings.enabled)) return undefined
+    let target = null
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]
+      if (m && m.role === 'her' && m.audio) { target = m; break }
+    }
+    if (!target || !target.audio) return undefined
+    const key = String(target.audio)
+    if (autoPlayedRef.current === key) return undefined
+    if (Date.now() - (Number(target.at) || 0) > 60000) return undefined
+    let cancelled = false
+    const timer = setTimeout(() => {
+      if (cancelled || autoPlayedRef.current === key) return
+      // 真正开始播了才记下来：中间又有消息进来导致 effect 重跑时还能补播
+      autoPlayedRef.current = key
+      Api.fileUrl(target.audio).then((u) => {
+        if (cancelled || !u) return
+        sbcAudioPlay(u)
+      }).catch(() => {})
+    }, 150)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [msgs, autoSpeak, voice.settings])
 
   // ── 实时流（Api.stream，不是 EventSource）────────────────────────
   const handleStreamEvent = React.useCallback((ev) => {
@@ -595,6 +986,7 @@ function ChatView(props) {
 
   const live = liveText !== null
   const busy = typing || live
+  const voicePlaying = useVoicePlaying()
   const canSend = !sending && (String(input || '').trim().length > 0 || !!outImage)
   const usageText = chatUsageText(usage)
   // 列表元素只随消息/角色变化重建；流式 delta 不会重算整个列表（N04）
@@ -655,6 +1047,22 @@ function ChatView(props) {
             }, stageOpen ? '隐藏舞台' : '显示舞台')
           : null,
         h('span', { style: { fontSize: 10.5, color: T.text3, minWidth: 0 } }, 'Enter 发送 · Shift+Enter 换行 · 📎 发图片'),
+        // 语音总开关：关闭只发文字；打开后她的回复会带一条可点的语音（不自动播放）
+        h(Chip, {
+          active: !!(voice.settings && voice.settings.enabled),
+          title: '她的回复要不要生成语音（点一下切换）',
+          onClick: () => { void saveVoiceSettings({ enabled: !(voice.settings && voice.settings.enabled) }) },
+        }, (voice.settings && voice.settings.enabled) ? '🔊 语音开' : '🔇 语音关'),
+        (voice.settings && voice.settings.enabled)
+          ? h(Chip, {
+              active: !!autoSpeak,
+              title: '新消息是否自动读出来（关掉=只在你点播放时读）',
+              onClick: () => setAutoSpeak((v) => !v),
+            }, autoSpeak ? '🔈 自动读' : '🔈 手点读')
+          : null,
+        (voice.settings && voice.settings.enabled && voicePlaying)
+          ? h(Chip, { title: '停止正在播放的语音', onClick: () => { sbcAudioStop() } }, '■ 停止')
+          : null,
         h('span', { style: { flex: 1 } }),
         usageText ? h(Badge, { title: '最近一次模型用量（tokens）' }, usageText) : null,
       ),
@@ -679,6 +1087,9 @@ function ChatView(props) {
           )
         : null,
       h('div', { style: { display: 'flex', gap: 8, alignItems: 'flex-end', minWidth: 0 } },
+        h(ChatMicButton, {
+          onText: (t) => setInput((prev) => (prev && prev.trim() ? prev.replace(/\s+$/, '') + ' ' + t : t)),
+        }),
         h(Btn, {
           size: 'md', kind: 'ghost', title: '发一张图片（上限 6MB）',
           disabled: sending,

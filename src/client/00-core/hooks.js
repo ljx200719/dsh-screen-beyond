@@ -186,6 +186,57 @@ function useImage(path, opts) {
 }
 
 
+// ── 语音总开关（全局单例）：聊天页和设置页共用；保存后派发 sbc-voice-changed ──
+// 约定（V-D13～V-D16）：第一版只有一个能用的声音；音色怎么换是 users 自己的事，
+// 这里只透传 provider / voice / endpoint，不认识具体值。
+const SBC_VOICE_DEFAULTS = { enabled: false, provider: 'sapi', voice: '', speed: 1, maxChars: 300, endpoint: '', method: 'POST', headers: {}, apiKeyRef: '', pitch: 0, format: 'wav' }
+let __sbcVoice = { settings: SBC_VOICE_DEFAULTS, providers: [], hasKey: false, cache: null }
+let __sbcVoicePromise = null
+const __sbcVoiceSubs = new Set()
+function __sbcVoiceNotify() { __sbcVoiceSubs.forEach((fn) => { try { fn() } catch (e) {} }) }
+function __sbcVoiceLoad(force) {
+  if (__sbcVoicePromise && !force) return __sbcVoicePromise
+  __sbcVoicePromise = Api.get('/api/voice/settings').then((r) => {
+    if (r && r.ok && r.data && r.data.settings) {
+      __sbcVoice = {
+        settings: r.data.settings,
+        providers: Array.isArray(r.data.providers) ? r.data.providers : [],
+        hasKey: !!r.data.hasKey,
+        cache: r.data.cache || null,
+      }
+      __sbcVoiceNotify()
+    }
+    return __sbcVoice
+  }).catch(() => __sbcVoice)
+  return __sbcVoicePromise
+}
+function useVoiceSettings() {
+  const [, setTick] = React.useState(0)
+  React.useEffect(() => {
+    const fn = () => setTick((t) => t + 1)
+    __sbcVoiceSubs.add(fn)
+    __sbcVoiceLoad(false)
+    const onChange = () => __sbcVoiceLoad(true)
+    try { window.addEventListener('sbc-voice-changed', onChange) } catch (e) {}
+    return () => {
+      __sbcVoiceSubs.delete(fn)
+      try { window.removeEventListener('sbc-voice-changed', onChange) } catch (e) {}
+    }
+  }, [])
+  return __sbcVoice
+}
+// 保存语音设置（局部字段）；失败返回 { ok:false, error }
+async function saveVoiceSettings(patch) {
+  const r = await Api.post('/api/voice/settings', patch || {})
+  if (!r || !r.ok) return { ok: false, error: (r && r.error) || '保存失败' }
+  if (r.data && r.data.settings) {
+    __sbcVoice = Object.assign({}, __sbcVoice, { settings: r.data.settings })
+    __sbcVoiceNotify()
+  }
+  try { window.dispatchEvent(new Event('sbc-voice-changed')) } catch (e) {}
+  return { ok: true, settings: (r.data && r.data.settings) || __sbcVoice.settings }
+}
+
 // ── 外观美化（全局面板背景）：全局单例拉取 + 订阅；设置页保存后派发 sbc-paint-changed ──
 const SBC_PAINT_DEFAULT = { enabled: false, image: '' }
 let __sbcPaint = { paint: SBC_PAINT_DEFAULT, imageUrl: '' }
@@ -223,23 +274,24 @@ function usePaintConfig() {
 }
 // 同步判断（给不能挂 hook 的纯函数用）
 function paintOn() { return !!(__sbcPaint && __sbcPaint.paint && __sbcPaint.paint.enabled) }
-// 玻璃感面板底色（美化开启时半透明）
+// 玻璃感面板底色（美化开启时半透明）。深色主题是深玻璃、浅色主题是白玻璃——
+// 以前这里硬编码深色，DSH 切浅色后就是「深底 + 深字」，整页看不见（0.8.1 实机踩到）。
 function paintGlass(normal, alpha) {
   if (!paintOn()) return normal
-  return 'rgba(12,18,30,' + (alpha === undefined ? 0.72 : alpha) + ')'
+  return 'rgba(var(--sbc-glass-rgb, 12,18,30), ' + (alpha === undefined ? 0.72 : alpha) + ')'
 }
-// 美化背景的 CSS 图层（关闭时返回 null）
+// 美化背景的 CSS 图层（关闭时返回 null）；底色/星光/柔光都走 --sbc-* 变量，跟着配色走
 function paintLayers(paint, imageUrl) {
   if (!paint || !paint.enabled) return null
   const layers = []
-  if (imageUrl) layers.push('linear-gradient(180deg, rgba(8,12,22,.66), rgba(8,12,22,.86)), url(' + JSON.stringify(imageUrl) + ')')
-  layers.push('radial-gradient(900px 500px at 18% 0%, rgba(88,101,242,.22), transparent 60%)')
-  layers.push('radial-gradient(800px 460px at 86% 12%, rgba(0,196,255,.15), transparent 58%)')
-  layers.push('radial-gradient(700px 420px at 50% 110%, rgba(150,90,255,.13), transparent 60%)')
-  layers.push('radial-gradient(1px 1px at 40px 60px, rgba(255,255,255,.55), transparent 100%)')
-  layers.push('radial-gradient(1px 1px at 130px 140px, rgba(255,255,255,.35), transparent 100%)')
-  layers.push('radial-gradient(1px 1px at 210px 40px, rgba(255,255,255,.45), transparent 100%)')
-  layers.push('linear-gradient(180deg, #0d1320, #0a0f19)')
+  if (imageUrl) layers.push('linear-gradient(180deg, var(--sbc-paint-veil-a, rgba(8,12,22,.66)), var(--sbc-paint-veil-b, rgba(8,12,22,.86))), url(' + JSON.stringify(imageUrl) + ')')
+  layers.push('radial-gradient(900px 500px at 18% 0%, var(--sbc-glow1, rgba(88,101,242,.22)), transparent 60%)')
+  layers.push('radial-gradient(800px 460px at 86% 12%, var(--sbc-glow2, rgba(0,196,255,.15)), transparent 58%)')
+  layers.push('radial-gradient(700px 420px at 50% 110%, var(--sbc-glow3, rgba(150,90,255,.13)), transparent 60%)')
+  layers.push('radial-gradient(1px 1px at 40px 60px, var(--sbc-star1, rgba(255,255,255,.55)), transparent 100%)')
+  layers.push('radial-gradient(1px 1px at 130px 140px, var(--sbc-star2, rgba(255,255,255,.35)), transparent 100%)')
+  layers.push('radial-gradient(1px 1px at 210px 40px, var(--sbc-star3, rgba(255,255,255,.45)), transparent 100%)')
+  layers.push('linear-gradient(180deg, var(--sbc-paint-a, #0d1320), var(--sbc-paint-b, #0a0f19))')
   return {
     backgroundImage: layers.join(','),
     backgroundSize: imageUrl
@@ -247,6 +299,6 @@ function paintLayers(paint, imageUrl) {
       : 'auto, auto, auto, 260px 260px, 340px 340px, 220px 220px, auto',
     backgroundPosition: 'center, center, center, center, center, 0 0, 0 0, 0 0, center',
     backgroundAttachment: imageUrl ? 'fixed, fixed, fixed, fixed, fixed, fixed, fixed, fixed, fixed' : 'fixed',
-    backgroundColor: '#0a0f19',
+    backgroundColor: 'var(--sbc-paint-b, #0a0f19)',
   }
 }

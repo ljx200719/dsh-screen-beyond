@@ -23,6 +23,7 @@ export const FILES = [
   '00-core/store.js',
   '00-core/ui.js',
   '00-core/hooks.js',
+  '00-core/theme.js',
   '10-chat/chat.js',
   '20-stage/skeleton.js',
   '20-stage/three3d.js',

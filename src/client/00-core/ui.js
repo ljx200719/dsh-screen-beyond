@@ -8,13 +8,16 @@ const SBC_CSS = [
   '.sbc-btn:not(:disabled):hover{filter:brightness(1.08)}',
   '.sbc-btn:not(:disabled):active{transform:translateY(1px)}',
   '.sbc-input{outline:none;transition:border-color .15s ease,box-shadow .15s ease}',
-  '.sbc-input:focus{border-color:var(--dsw-alias-brand-primary,#2f6bd8)!important;box-shadow:0 0 0 3px rgba(47,107,216,.16)}',
+  '.sbc-input:focus{border-color:var(--sbc-accent,#2f6bd8)!important;box-shadow:0 0 0 3px rgba(var(--sbc-accent-rgb,47,107,216),.16)}',
   '.sbc-fade{animation:sbcFade .16s ease-out}',
   '@keyframes sbcFade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}',
   '.sbc-blink{animation:sbcBlink 1.1s ease-in-out infinite}',
   '@keyframes sbcBlink{0%,100%{opacity:.35}50%{opacity:1}}',
   '.sbc-range{-webkit-appearance:none;appearance:none;height:4px;border-radius:3px;background:var(--dsw-alias-border-l2,rgba(255,255,255,.2));outline:none}',
-  '.sbc-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-brand-primary,#2f6bd8);cursor:pointer;border:2px solid var(--dsw-alias-bg-base,#0b0f14)}',
+  '.sbc-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--sbc-accent,#2f6bd8);cursor:pointer;border:2px solid var(--dsw-alias-bg-base,#0b0f14)}',
+  // 骨架屏（F-014）：首帧先给一个"正在读"的形状，不要先渲染一个假的空状态再突然跳成内容
+  '.sbc-skel{background:linear-gradient(90deg,rgba(127,127,127,.10) 0%,rgba(127,127,127,.22) 50%,rgba(127,127,127,.10) 100%);background-size:200% 100%;animation:sbcSkel 1.3s ease-in-out infinite}',
+  '@keyframes sbcSkel{0%{background-position:120% 0}100%{background-position:-20% 0}}',
 ].join('\n')
 
 let sbcStyleReady = false
@@ -53,7 +56,7 @@ function Btn(props) {
     fontFamily: T.font,
     flexShrink: 0,
   }
-  if (kind === 'primary') Object.assign(base, { background: T.brand, borderColor: T.brand, color: '#fff' })
+  if (kind === 'primary') Object.assign(base, { background: T.brand, borderColor: T.brand, color: T.accentInk })
   else if (kind === 'danger') Object.assign(base, { background: 'transparent', borderColor: T.danger, color: T.danger })
   else if (kind === 'soft') Object.assign(base, { background: 'rgba(127,127,127,.10)' })
   else if (kind === 'chip') Object.assign(base, { borderRadius: 999, fontSize: 11, padding: '2px 9px', background: 'rgba(127,127,127,.10)' })
@@ -80,7 +83,7 @@ function Chip(props) {
       display: 'inline-flex', alignItems: 'center', gap: 4,
       padding: '2px 9px', borderRadius: 999,
       border: '1px solid ' + (active ? tone : T.border),
-      background: active ? 'rgba(47,107,216,.16)' : 'rgba(127,127,127,.08)',
+      background: active ? 'rgba(var(--sbc-accent-rgb, 47,107,216), .16)' : 'rgba(127,127,127,.08)',
       color: active ? tone : T.text2,
       fontSize: 11, lineHeight: '16px', cursor: p.onClick ? 'pointer' : 'default',
       whiteSpace: 'nowrap', fontFamily: T.font,
@@ -297,7 +300,7 @@ function Toggle(props) {
     }, h('span', {
       style: {
         position: 'absolute', top: 2, left: on ? 18 : 2, width: 14, height: 14, borderRadius: '50%',
-        background: '#fff', transition: 'left .16s ease', display: 'block',
+        background: on ? T.accentInk : '#fff', transition: 'left .16s ease', display: 'block',
       },
     })),
     p.label ? h('span', { style: { fontSize: 12.5, color: T.text2 } }, p.label) : null,
@@ -336,7 +339,7 @@ function Tabs(props) {
           padding: p.dense ? '3px 10px' : '5px 13px',
           borderRadius: p.pill === false ? 8 : 999,
           border: '1px solid ' + (active ? T.brand : T.border),
-          background: active ? 'rgba(47,107,216,.16)' : 'transparent',
+          background: active ? 'rgba(var(--sbc-accent-rgb, 47,107,216), .16)' : 'transparent',
           color: active ? T.text : T.text2,
           fontSize: p.dense ? 11.5 : 12.5,
           cursor: 'pointer',
@@ -451,6 +454,39 @@ function Empty(props) {
   return h('div', {
     style: Object.assign({ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, textAlign: 'center', color: T.text3, fontSize: 12.5, padding: '22px 12px', lineHeight: 1.7 }, p.style || {}),
   }, p.icon ? h('div', { style: { fontSize: 22, opacity: 0.7 } }, p.icon) : null, p.children)
+}
+
+// 骨架块：读接口时的占位。宽高直接给 style，不写死在任何业务文件里。
+function Skeleton(props) {
+  const p = props || {}
+  return h('div', {
+    className: 'sbc-skel',
+    'aria-hidden': 'true',
+    style: Object.assign({ height: 12, borderRadius: 6, width: '100%', minWidth: 24, flexShrink: 0 }, p.style || {}),
+  })
+}
+
+// 列表骨架：rows 行 × 每行左圆右两条，够像真实行就行
+function SkeletonRows(props) {
+  const p = props || {}
+  const n = Math.max(1, Math.min(8, Number(p.rows) || 2))
+  const rows = []
+  for (let i = 0; i < n; i++) {
+    rows.push(h('div', {
+      key: 'sk' + i,
+      style: { display: 'flex', gap: 10, alignItems: 'center', padding: '7px 0', borderTop: i ? '1px solid ' + T.border : 'none' },
+    },
+      p.avatar === false ? null : h(Skeleton, { style: { width: 32, height: 32, borderRadius: 999 } }),
+      h('div', { style: { flex: 1, display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 } },
+        h(Skeleton, { style: { width: (72 - i * 9) + '%', height: 11 } }),
+        h(Skeleton, { style: { width: (46 - i * 6) + '%', height: 9 } }),
+      ),
+    ))
+  }
+  return h('div', { role: 'status', 'aria-label': p.label || '读取中', style: { display: 'flex', flexDirection: 'column', gap: 0 } },
+    rows,
+    p.label ? h('div', { className: 'sbc-blink', style: { fontSize: 11, color: T.text3, paddingTop: 6 } }, p.label) : null,
+  )
 }
 
 function ErrorBox(props) {

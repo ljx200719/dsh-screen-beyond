@@ -1,9 +1,11 @@
 # 屏幕彼端 · 语音功能任务单
 
-> 版本：Draft 1（2026-11-15）  
-> 当前插件版本：0.8.0  
+> 版本：Draft 2（2026-11-15）  
+> 当前插件版本：0.8.7  
+> **0.8.7 决策：语音只保留「她说话」（TTS）。§2.2 语音输入、§2.3 双向对话已在代码里移除，本文保留作历史记录，见 §16。**  
 > 目标：在 DSH 原生面板里实现「她说话 / 你说话 / 语音对话」三条能力，全部按钮控制。  
 > 本任务单只定需求、接口、验收和任务拆分，不包含实现代码。  
+> **Draft 2 变更**：按产品决策收敛——第一版只要**一个能用的声音**，不做音色训练/克隆，其余能力全部以 provider 接口外挂，交给用户自己接。见 §1 的 V-D13～V-D16 与 §12。  
 > 文件位置：`F:\屏幕彼端\插件最新版\dsh-screen-beyond\docs\VOICE-FEATURE-TASKS.md`
 
 ---
@@ -38,13 +40,17 @@
 | V-D03 | 免费方案 | 至少提供一个免费 TTS；Edge TTS 免费在线 + Windows SAPI 离线兜底 |
 | V-D04 | 付费云 TTS | 允许，音质优先 |
 | V-D05 | ASR | 本地 ASR 作为离线选项 |
-| V-D06 | 语音播放 | 聊天页消息点击播放，不自动播放 |
+| V-D06 | 语音播放 | 聊天页消息点击播放；**新消息默认自动读，历史消息手点**（自动读可关） |
 | V-D07 | 语音发送 | 不自动发送；你按发送才发 |
 | V-D08 | 总按钮 | 控制“她会不会发语音” |
 | V-D09 | 子按钮 | 控制“用电脑时会不会主动看屏幕并语音说一句” |
 | V-D10 | 子按钮生效条件 | 只在打开时生效 |
 | V-D11 | 全双工 | 后续阶段；第一版按钮半双工 |
 | V-D12 | 手机 | 不在本轮；只留 API/数据契约 |
+| **V-D13** | **第一版音质目标** | **只要「一个能用的声音」**：默认 Windows SAPI 中文音色（离线、免 Key，已实测可用）。~~Edge 优先~~ → **Edge 实测握手 1006 连不通，后置**（见 §12.5）。不做调参 UI |
+| **V-D14** | **音色训练 / 克隆** | **不做**。训练、微调、克隆一律不进插件（用户想练自己在外面的 GPT-SoVITS / CosyVoice 里练） |
+| **V-D15** | **音色从哪来** | **全走 provider 接口**：云 Key、自建 HTTP 服务、训练好的本地模型，都通过同一套 `voice.json` 接进来 |
+| **V-D16** | **每角色音色** | 字段留在契约里（接口），**第一版 UI 只给「开/关 + 试听」**，多音色选择后置 |
 
 ---
 
@@ -79,7 +85,7 @@
 **必须**
 
 - 每个角色独立 `voice.json`
-- 每个角色独立音色/语速/音调
+- **第一版默认音色写死一个**（Edge TTS 中文女声，如 `zh-CN-XiaoxiaoNeural`）；音色/语速/音调字段留在契约里但不做 UI
 - 文本清洗：去掉 Markdown/动作旁白，不把括号动作读出来
 - 音频缓存：相同文本 + 音色 + 参数不重复合成
 - 音频文件存储、清理、大小限制
@@ -91,10 +97,11 @@
 **不做**
 
 - 不做克隆他人声音
+- **不做音色训练 / 微调 / 克隆界面**（V-D14：用户要练，在外面自己练，插件只吃接口）
 - 不把 API Key 写进聊天、日志、记忆
 - 不默认把长文本整段念出来；需要长度上限
 
-### 2.2 ASR：你说话
+### 2.2 ASR：你说话（⚠️ 0.8.7 已撤销，代码已删除，仅存档）
 
 **目标**
 
@@ -124,7 +131,7 @@
 - DSH 已有的 experimental voice input 是主聊天框的 SenseVoice，插件面板不能直接复用，需先验证服务接口。
 - 如果无法复用，就在插件运行时做独立 ASR 适配层。
 
-### 2.3 语音对话：双向
+### 2.3 语音对话：双向（⚠️ 0.8.7 已撤销，代码已删除，仅存档）
 
 **第一版**
 
@@ -322,47 +329,50 @@ POST /api/voice/preview
 
 ## 7. 任务拆分
 
+> **第一版（0.8.3）只做最小闭环**：V01～V05 + V07（Edge）+ V10（SAPI 兜底）+ V13 + V14 + V15 + V21 + V25。
+> 其余任务**只留接口不动代码**：provider 抽象层（V02）在，用户自己接 V08/V09/V11；ASR 与双向留到 0.8.4+。
+
 ### P0：基础设施
 
-- [ ] V01 `voice.json` schema + 配置迁移
-- [ ] V02 TTS provider 抽象接口
-- [ ] V03 音频缓存/生命周期/清理
-- [ ] V04 消息 `audio` 字段 + 历史兼容
-- [ ] V05 API 契约 + 错误码
-- [ ] V06 密钥读取（环境/文件/DPAPI 引用）
+- [x] V01 `voice.json` schema + 配置迁移 → `CONFIG.voice` + `<数据根>/voice/characters/<id>.json` 覆盖
+- [x] V02 TTS provider 抽象接口 → `runtime/voice.mjs`：`sapi` / `http`
+- [x] V03 音频缓存/生命周期/清理 → `<数据根>/voice/audio/`，200MB / 2000 条上限
+- [x] V04 消息 `audio` 字段 + 历史兼容 → `/api/events` 带 `voiceRev`+`voiceUpdates`
+- [x] V05 API 契约 + 错误码 → `GET/POST /api/voice/*`
+- [x] V06 密钥读取（环境/文件引用）→ `apiKeyRef = env: / file:`（DPAPI 暂不做）
 
 ### P1：TTS
 
-- [ ] V07 Edge TTS 免费 provider
-- [ ] V08 用户云 TTS provider（HTTP）
-- [ ] V09 自建 TTS provider（command/http）
-- [ ] V10 Windows SAPI 离线兜底
-- [ ] V11 本地神经 TTS 高级适配
-- [ ] V12 每角色音色设置
-- [ ] V13 文本清洗/长度限制
-- [ ] V14 播放/停止/重播 UI
-- [ ] V15 失败回退文字
+- [ ] V07 Edge TTS 免费 provider —— **未做**：本机实测 WSS 握手被关（1006），通用 WSS 正常，属对方拒绝；等能验证再接
+- [ ] V08 用户云 TTS provider（HTTP）—— **由 `http` provider 覆盖**（同一套约定），不单独做 UI
+- [ ] V09 自建 TTS provider（command/http）—— **由 `http` provider 覆盖**
+- [x] V10 Windows SAPI 离线兜底 → 默认音色，离线可用
+- [ ] V11 本地神经 TTS 高级适配 —— 只留 `http` 口子，不实现适配器
+- [ ] V12 每角色音色设置 —— 字段与覆盖文件已就绪，UI 后置
+- [x] V13 文本清洗/长度限制
+- [x] V14 播放/停止/重播 UI
+- [x] V15 失败回退文字
 
-### P1：ASR
+### P1：ASR（⚠️ 0.8.7 全部撤销）
 
-- [ ] V16 麦克风按钮 + 录音 UI
-- [ ] V17 本地 ASR 适配
-- [ ] V18 转写文本入输入框、人工确认发送
-- [ ] V19 权限/取消/错误提示
-- [ ] V20 在线 ASR 可选 provider
+- [~] V16 麦克风按钮 + 录音 UI —— **已撤销（0.8.7 删除）**
+- [~] V17 本地 ASR 适配 —— **已撤销（SAPI 准确率不够，代码删除）**
+- [~] V18 转写文本入输入框、人工确认发送 —— **已撤销**
+- [~] V19 权限/取消/错误提示 —— **已撤销**
+- [~] V20 在线 ASR 可选 provider —— **已撤销**
 
 ### P1：按钮与主动语音
 
-- [ ] V21 总开关：她是否发语音
-- [ ] V22 子开关：电脑前主动看屏幕语音
-- [ ] V23 冷却/安静时段/停用
-- [ ] V24 主动语音不打断、不连续截图
-- [ ] V25 全局静音/停止
+- [x] V21 总开关：她是否发语音
+- [x] V22 子开关：电脑前主动看屏幕语音 → 「语音说出来」开关，要求总语音开
+- [x] V23 冷却/安静时段/停用 → 间隔 5–240 分可配、安静时段可配、关闭立即停
+- [x] V24 主动语音不打断、不连续截图 → 你录音时不开口、你 5 分钟内说过话就让给你
+- [x] V25 全局静音/停止
 
-### P2：双向与高级
+### P2：双向与高级（⚠️ 双向部分 0.8.7 撤销）
 
-- [ ] V26 语音对话开始/结束按钮
-- [ ] V27 VAD/回声消除/打断
+- [~] V26 语音对话开始/结束按钮 —— **已撤销（0.8.7 删除）**
+- [~] V27 VAD/回声消除/打断 —— **已撤销**（0.8.6 做过 VAD + 打断，0.8.7 随双向一起删）
 - [ ] V28 流式 TTS/低延迟
 - [ ] V29 本地优先全离线模式
 - [ ] V30 手机/DSH Go 语音接口预留
@@ -423,11 +433,16 @@ POST /api/voice/preview
 
 ## 10. 待确认
 
-1. 免费 TTS 默认用 **Edge TTS** 还是 **Windows SAPI**？（可两者都有，Edge 优先）
-2. “她发语音”是所有回复都带语音，还是只给部分回复？
-3. 主动看屏幕语音的默认冷却时间？
-4. 本地神经 TTS 要不要第一版就接，还是先留接口？
-5. 语音对话第一版只做按钮半双工，可以吗？
+已定（Draft 2 收敛）：
+
+1. ~~免费 TTS 默认用 Edge 还是 SAPI~~ → **Edge 优先，SAPI 兜底，两个都做**
+2. ~~本地神经 TTS 要不要第一版就接~~ → **不接，只留 `http` provider 口子**
+3. ~~语音对话第一版只做按钮半双工~~ → **是；ASR / 双向整体后置到 0.8.4+**
+
+仍待定（不阻塞第一版，实现时先给默认值）：
+
+1. 她发语音是**每条回复都生成**，还是只在总开关打开时**按需生成**？（建议：总开关打开就每条都生成，长文本按 `maxChars` 截断）
+2. 主动看屏幕语音的默认冷却时间（建议 15–30 分钟，跟随生活模拟的安静时段）
 
 ---
 
@@ -440,3 +455,255 @@ POST /api/voice/preview
 - 所有播放、录音、主动语音都由按钮控制
 - 不自动播放、不自动发送、不后台常听
 - 手机不在本轮，只留 API 契约
+- **音色是「用户自己的事」**：插件只保证有一个能用的声音 + 一套能外接的口子，不打包模型、不做训练、不做克隆
+
+---
+
+## 12. 第一版最小实现（0.8.3，接口优先）
+
+> 诉求：**一个能用的声音就够**；其余留给用户接。所以这一版的重点不是音质，是**把 provider 接口定死**。
+
+### 12.1 做（最小闭环）
+
+| 项 | 内容 |
+|---|---|
+| 声音 | Edge TTS 中文女声（默认 `zh-CN-XiaoxiaoNeural`），免 Key |
+| 兜底 | Windows SAPI（`System.Speech`，离线、没网也能出声） |
+| 触发 | 聊天页语音总开关；打开后她的回复带语音消息 |
+| 播放 | 消息上的播放/停止按钮（不自动播放、不自动下一条） |
+| 缓存 | 文本+音色+参数 hash → `<dataRoot>/voice/audio/<hash>.mp3`，有大小上限和清理 |
+| 清洗 | 去掉 Markdown / 括号旁白，超 `maxChars` 截断 |
+| 回退 | 合成失败只在消息上标「语音失败」，文字永远在 |
+| 设置 | 设置 → 语音：总开关 + provider 下拉（edge / sapi / http）+ 试听按钮 |
+
+### 12.2 接口（这一版必须定死，之后不再改）
+
+`voice.json`（每角色一份，存 `<dataRoot>/voice/<角色Id>/voice.json`）：
+
+```json
+{
+  "enabled": true,
+  "provider": "edge",
+  "endpoint": "",
+  "method": "POST",
+  "headers": {},
+  "apiKeyRef": "",
+  "model": "",
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "speed": 1.0,
+  "pitch": 0,
+  "format": "mp3",
+  "maxChars": 300
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `provider` | `edge`（默认，免费在线）/ `sapi`（离线兜底）/ `http`（万能口子，用户自接）/ 预留 `command` |
+| `endpoint` + `method` + `headers` | 仅 `http` 用。约定：**发 `{text, voice, speed, pitch, format}`，回音频二进制**。GPT-SoVITS 的 `api_v2.py`、CosyVoice、OpenAI 兼容、云厂商 TTS 都能用一个薄适配接上 |
+| `apiKeyRef` | **只存引用**：`env:VAR` / `file:<路径>` / `dpapi:<名>`。明文 Key 不进 voice.json、不进日志 |
+| `voice` / `model` | 音色/模型 ID 透传给 provider，插件不认识具体值——这就是「交给用户」的地方 |
+| `speed` / `pitch` | 契约里保留，第一版不给 UI |
+
+HTTP API（后端，手机端将来也吃这套）：
+
+```text
+GET  /api/voice/settings          → { ok, settings, providers[] }
+POST /api/voice/settings          → 只改传了的字段
+POST /api/voice/tts               → { text, characterId? } → { ok, audio, duration, provider, cached }
+POST /api/voice/preview           → 试听（固定一句话）
+GET  /voice/audio/<file>          → 音频（只允许受控目录）
+```
+
+### 12.3 明确不做
+
+- 不做训练 / 微调 / 克隆 / 音色管理界面（用户在外面练，练完用 `http` 接进来）
+- 不做多音色选择 UI（字段留着）
+- 不做 ASR、双向对话、VAD、流式（0.8.4+）
+- 不打包任何模型权重、不请求任何云端付费服务（除了用户自己配的）
+
+### 12.4 验收
+
+- [x] 装上就能出声（不需要任何 Key）—— 冒烟 `POST /api/voice/tts` 真合成出音频
+- [x] 不依赖网络就能出声 —— 默认 SAPI 本身是离线的
+- [ ] 合成失败：文字在、消息可读、有明确中文提示 —— 代码路径直读，未单独造错
+- [x] 同一条消息重复播放不重复合成（命中缓存）
+- [x] 总开关关闭：不生成语音、历史语音仍可播
+- [x] `apiKeyRef` 里的 Key 不出现在日志/消息/记忆（只注入请求头）
+- [x] `http` provider 的约定 —— 用假 TTS 服务验：请求体字段与返回音频都被断言
+
+### 12.5 实现记录（0.8.3 已落地）
+
+| 项 | 实现 | 怎么验的 |
+|---|---|---|
+| provider 抽象 | `runtime/voice.mjs`：`sapi` / `http` | 冒烟 7 项（settings / tts / 缓存 / 音频 / 目录穿越 / http 口子） |
+| 默认声音 | Windows SAPI（`runtime/env/tts-sapi.ps1`，UTF-8 **带 BOM**） | 本机实测：0.4 秒/句，7.89 秒音频 / 348KB |
+| 文本清洗 | 去 Markdown / 代码块 / 链接 / 括号旁白 / emoji，按句子截断 | 自测 3 组样例 |
+| 缓存 | `sha1(provider+voice+speed+pitch+format+text)` | 第二次 0ms 命中 |
+| 异步挂音频 | `addMessage` 里 fire-and-forget；`/api/events` 回 `voiceRev` + `voiceUpdates` | 客户端冒烟「语音消息渲染播放按钮」 |
+| 失败回退 | 消息下显示「语音没生成：原因」，文字不动 | 代码路径直读 |
+| 开关 / 播放 | 输入区 `🔊/🔇` + `🔈 自动读/手点读` + `■ 停止`；消息内 `🔊 播放语音` | 客户端冒烟 2 项 |
+
+**0.8.3 实机反馈后的调整（同版本内）**：第一版严格按 V-D06 做成了「不自动播放」，结果她回完话用户没听到声音（音频其实已生成、按钮也在，只是没人点）。已改为**新消息默认自动朗读**（>60 秒的历史消息仍只手点），聊天页多一个 `🔈 自动读 / 手点读` 开关，设置页也有同一个开关。
+
+**与计划的差异**：Edge 没接（实测握手 1006，通用 WSS 正常 → 对方拒绝）；`command` provider 没做（`http` 够用）；DPAPI 密钥没做（`env:` / `file:` 够用）。
+
+**已知限制**
+
+- SAPI 音色取决于系统装了什么：中文系统一般有 `Microsoft Huihui Desktop`；纯英文系统只有英文音色。
+- 每句合成要起一次 `powershell.exe`（约 0.3–0.5 秒），不是常驻长连接。
+- 语音是异步生成的：慢的时候消息先出来，几百毫秒后播放键才出现。
+
+---
+
+## 13. 语音输入实现记录（0.8.4 已落地）
+
+| 项 | 实现 | 怎么验的 |
+|---|---|---|
+| 录音 | 浏览器 `getUserMedia` + `AudioContext({sampleRate:16000})` + ScriptProcessor，JS 直接编 16k 单声道 WAV | 客户端冒烟渲染出 `🎤` |
+| provider | `sapi`（Windows 内置 Recognizer `MS-2052-80-DESK`）/ `http` | 运行时冒烟 7 项 |
+| 端到端 | TTS 合成「今天天气不错」→ `/api/asr` → 识别回「今天天气不错」 | 冒烟「合成→识别端到端」 |
+| 静音 | 回「没听清（这次录音里没有识别到说话）」 | 冒烟「静音录音回没听清」 |
+| 自建服务 | POST `audio/wav` 二进制 → `{text}` | 冒烟 mock 服务断言收到 32KB WAV |
+
+**为什么没有复用 DSH 自带的 SenseVoice**（§2.2 里「需先验证服务接口」的结论）：
+
+- 本机全盘没找到任何 onnx 模型（说明这个实验能力在这台机器上没被真正启用/下载过）；
+- `sherpa-onnx-*` 原生模块虽然在 `app.asar.unpacked` 里，但 JS 包在 asar 内，插件不该依赖宿主内部布局；
+- DSH 没有对外的语音 HTTP 接口（9230 / 62006 只回 404）。
+
+→ 结论：不复用。留 `http` 口子给用户接自己的（faster-whisper / SenseVoice 服务 / 云端），插件不打包模型。
+
+**已知限制**
+
+- Windows 内置识别对长句准确率低（实测 6 秒长句只能听出大意），短句还行。
+- 录音固定 16k 单声道 WAV；HTTP 识别服务要能收 `audio/wav`。
+- 不做 VAD / 后台常听 / 唤醒词；只在按下的这段时间录音。
+
+---
+
+## 14. 双向语音对话实现记录（0.8.5 已落地）
+
+| 项 | 实现 | 备注 |
+|---|---|---|
+| 入口 | 输入区 `🎙 语音对话` 开关；打开后消息区下方出现对话栏 | 状态存在 localStorage，切标签不丢 |
+| 一轮流程 | 点「🎤 说话」→ 录音 → 「■ 结束并发送」→ ASR → **直接 POST /api/chat** → 她回复 → **自动朗读** | 双向模式才自动发；退出后麦克风按钮仍只手填输入框 |
+| 半双工 | 她说（typing/live）时「说话」按钮禁用，并提示「先等她说，避免打断」 | 不排队、不打断、不自动开启下一轮 |
+| 丢弃 | `× 丢弃` 直接扔掉这段录音，不发 | 对应 §2.2「取消可丢弃」 |
+| 识别通道 | `sapi`（离线兜底）/ `openai`（标准 `/audio/transcriptions`，multipart）/ `http`（自定义） | 0.8.5 新增 openai：base URL + model + `env:`/`file:` 密钥引用 |
+
+**设计取舍**
+
+- 双向模式里「说完直接发」是对 V-D07 的**局部例外**：V-D07 约束的是打字模式下的麦克风按钮（只填输入框）。若不自动发，语音对话就退化成「语音转文字」，没有存在意义。
+- 不做自动循环（她说完不会自动开麦），避免出现「对着空气连续录音」和回声。
+
+**已知限制**
+
+- 仍然没有 VAD / 打断 / 回声消除（V27）。
+- 识别慢的时候（SAPI 约 0.5–1 秒，云端 1–3 秒）对话栏会停在「识别中…」，这是同步等待，没有假进度。
+- 麦克风权限、设备选择都交给系统和 DSH，插件不做设备切换。
+
+---
+
+## 15. VAD / 打断 / 主动语音实现记录（0.8.6 已落地）
+
+| 项 | 实现 | 关键取舍 |
+|---|---|---|
+| VAD 自动断句 | 客户端每帧算 RMS；出现人声（RMS>0.012）之后再静音超过 `vadSilenceMs`（默认 1200ms）就自动结束并发出去 | 不做服务端 VAD：录音就在浏览器里，就地判断延迟最低 |
+| 没声音保护 | 开录 8 秒内一个有声帧都没有 → 自动取消 + 提示 | 避免对着麦克风干等 |
+| 打断 | 播放统一收口成 `sbcAudioPlay/sbcAudioStop`；开始录音先停掉当前播放 | 自动朗读和手动播放共用一份播放器，不会两句话叠着放 |
+| 录音上报 | `POST /api/voice/state {listening}`，3 分钟自动过期 | 主动语音靠它避让 |
+| 主动语音子开关 | `watchScreen.voice`（默认开）+ 总语音必须开 | 复用已有 watch-screen 定时器，不新开循环 |
+| 冷却 / 安静时段 | `minMinutes`/`maxMinutes` + `quietStart`/`quietEnd`，跨零点用 `inQuietHours` | 默认 2–7 点 |
+| 不打断你 | 录音中不开口；你 5 分钟内说过话就让给你；她在回话时不插嘴 | 宁可少说，不能抢话 |
+| 排查 | `GET /api/watch-screen` 返回 `debug.why` | 不用翻日志猜 |
+
+**没做的**：回声消除（AEC）、流式低延迟、真全双工、唤醒词。
+
+**已知限制**
+
+- VAD 阈值固定 0.012：安静房间好用，嘈杂环境可能一直等不到静音（会走 `maxSeconds` 上限结束）。
+- 打断只停「她正在放的声音」，不会取消她正在生成的回复（那要用「停止」按钮）。
+- 主动语音每轮都会消耗一次模型调用（含看屏幕），间隔别调太短。
+
+---
+
+## 16. 最终决定：只留 TTS（0.8.7）
+
+**原话**：「试了一下，我决定了……就留tts吧」
+
+**为什么**
+
+- 语音输入（ASR）实测准确率太差：Windows 内置识别短句还行、长句基本听错；要准必须外接服务（OpenAI 兼容 / 自建），而用户不想为这个再配一套。
+- 独立 ASR 的产品价值低：转成文字后还是要点发送，和打字没有本质区别。
+- 双向语音对话依赖 ASR，ASR 不行它就不行，一并撤掉。
+
+**保留**
+
+- 她的回复生成语音、消息 `🔊 播放语音`、新消息自动朗读 + 开关、总开关、全局停止、试听、缓存、文本清洗、失败回退
+- 音色 provider 接口（`sapi` / `http` + `apiKeyRef` 引用）
+- 「她自己看你的屏幕」的语音说出来 / 间隔 / 安静时段（输出侧，不是输入侧；默认关）
+
+**移除（代码已删，不是隐藏）**
+
+| 层 | 删掉的东西 |
+|---|---|
+| 文件 | `runtime/asr.mjs`、`runtime/env/asr-sapi.ps1` |
+| 服务端 | `GET/POST /api/asr/settings`、`POST /api/asr`、`POST /api/voice/state`、`USER_LISTENING` 状态 |
+| 客户端 | `useAsrSettings`/`saveAsrSettings`、`ChatMicButton`、`VoiceTalkBar`、`chatEncodeWav`、`🎙 语音对话` 开关、`🎤` 按钮、设置里的「语音输入」卡片 |
+| 测试 | 冒烟里 20 条 ASR/双向检查 |
+
+**以后要拿回来**：逻辑在 `RELEASE-0.8.4.md` ~ `RELEASE-0.8.6.md` 和对应版本的 git 历史里（若已提交）。
+
+---
+
+## 17. 语音输入以「复用 DSH」的方式回来（0.8.8）
+
+**背景**：0.8.7 砍掉自建 ASR 之后，发现 DSH 本身带了一个可选语音输入 bundle（`@deepseek-ai/dsh-experimental-voice-input-bundle`：SenseVoiceSmall ONNX + Silero VAD，纯 CPU，靠下载模型工作）。
+
+**做法**：不自建，直接借 DSH 的。
+
+| 层 | 怎么做 |
+|---|---|
+| 识别器 | DSH 的 `speechToText` 服务（`sensevoice-local` Provider） |
+| 调用方式 | 客户端 Remote：`ctx.remote.speech.transcribe({ audioBase64, providerId, language }, signal)` |
+| 音频格式 | **必须**是规范 WAV：`RIFF/WAVE` + `fmt`(PCM, 1ch, 16000Hz, 32000B/s, 16bit) + `data`，且长度自洽（DSH 逐字节校验） |
+| 模型 | 由 DSH 托管在 `<DSH主目录>/speech-to-text/sensevoice/models/{sensevoice-onnx,silero}/`，插件**不存第二份** |
+| 首次准备 | 点 🎤 时自动 `prepare()`，轮询 `catalog()` 显示「正在下载识别模型 x%（首次约 230MB）」 |
+| 失败提示 | DSH 没启用语音输入 / 没权限 / 没听清，都给中文提示 |
+
+**为什么能复用它**：它的 client UI 插件就是这么调的（`ctx.remote.speech.transcribe`），Remote 是 DSH 的正式扩展点，不是私有 hack；但**属于实验性 experimental 包**，接口随 DSH 版本可能变，所以本插件只用「catalog / prepare / transcribe」三个方法，并全部包在 try/catch 里。
+
+**代价与取舍**：插件重新有了 🎤，但没有恢复自建的 `sapi`/`openai`/`http` provider——只走 DSH 一条路，避免维护两套识别。
+
+**实测（2026-11-15 夜）**：三个模型文件已预下载到上述目录并校验 SHA-256 通过（228.2MB + 309KB + 1.7MB）；HF 直连不通、hf-mirror 可用，DSH 默认源顺序会自动落到镜像。
+
+---
+
+## 18. 火山引擎「豆包语音 2.0」接入（0.8.9 / 2026-11-15 夜）
+
+**背景**：用户要"好听"的音色，但不想绑信用卡（Azure 要卡）。火山引擎账号已有（Ark 用着），于是接火山语音。
+
+**方舟（Ark）与语音是两套东西**：实测 Ark key 调 `/audio/speech`、`/tts`、`/audio/tts` 全 404；`GET /models` 返回 55 个模型，分类里没有任何音频模型。**Ark key 不能合成语音**。
+
+**接入路径（新版控制台 v3）**：
+
+| 项 | 值 |
+|---|---|
+| 端点 | `POST https://openspeech.bytedance.com/api/v3/tts/unidirectional` |
+| 鉴权头 | `X-Api-Key`（控制台「API Key」生成）+ `X-Api-App-Id`（服务管理页顶部 APP ID）+ `X-Api-Resource-Id` |
+| 资源 ID | `seed-tts-2.0`（语音合成 2.0） |
+| 请求体 | `{ user:{uid}, req_params:{ text, speaker, audio_params:{format:'mp3', sample_rate:24000, speech_rate} } }` |
+| 响应 | 若干行 JSON，`code:0` 的 `data` 是 base64 mp3，拼起来解码；结束标记 `code:20000000` |
+
+**踩过的坑**：
+1. 只带 `X-Api-Key` 不带 `X-Api-App-Id` → 403 `requested resource not granted`
+2. `Authorization: Bearer` / `Bearer;` 都不行 → 400 `app key not found` / `no token or access_key`
+3. 资源 2.0 必须配 2.0 的音色（`_uranus_bigtts`）；配 `_moon_bigtts`（1.0 音色）→ `resource ID is mismatched with speaker related resource`
+4. PowerShell 5.1 `Invoke-RestMethod` 发中文 body 会被按非 UTF-8 编码 → 服务端收到乱码、火山回 `No readable text!`。测试要用 `[Text.Encoding]::UTF8.GetBytes($json)` + `charset=utf-8`
+
+**计费**：开通即后付费 0.0003 元/字数；新账号 20,000 字免费额度，先用完再扣。实测约 17～20 个汉字/句 → 单句 20～32KB mp3、3～4 秒。
+
+**落地配置**（运行时 `voice.json`）：`provider=volc`、`appId=<用户自己的 APP ID>`、`resourceId=seed-tts-2.0`、`voice=<用户选的音色>`、`apiKeyRef=file:<用户自己的 Key 文件>`。
+
+**换音色**：2.0 的音色以 `_uranus_bigtts` 结尾（如 `zh_female_vv_uranus_bigtts` 更甜、`zh_female_gaolengyujie_uranus_bigtts` 高冷御姐）。

@@ -141,6 +141,15 @@ function PoseAvatar(props) {
   const cssW = height * ratio
   const idleUrl = urls['idle'] || ''
 
+  // P1-5：走路帧先把两张图预加载好，切换时不会因为现解码而闪一下（那也会被看成抽动）
+  React.useEffect(() => {
+    ;['idle', 'walkA', 'walkB'].forEach((k) => {
+      const u = urls[k]
+      if (!u) return
+      try { const im = new Image(); im.src = u } catch (e) {}
+    })
+  }, [urls])
+
   React.useEffect(() => {
     if (!enabled || !idleUrl) return
     const rafFn = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : null
@@ -157,16 +166,25 @@ function PoseAvatar(props) {
         el.style.transformOrigin = '50% 92%'
         const moving = a.movingUntil && Date.now() < a.movingUntil
         if (moving && urls['walkA'] && urls['walkB']) {
-          a.phase += dt * mapSpeed()
-          const pose = Math.floor(a.phase * 6) % 2 === 0 ? 'walkA' : 'walkB'
-          if (el.dataset.pose !== pose) {
-            el.dataset.pose = pose
-            el.src = urls[pose] || idleUrl
+          // 固定节拍切帧：默认 260ms 一帧（约 3.8 次/秒），速度倍率只影响快慢。
+          // 以前是 floor(phase*6)%2，按 dt 连续推算——速度一调就变成十几赫兹抖动，看着像抽风。
+          const frameMs = 260 / Math.max(0.5, Math.min(2.5, mapSpeed()))
+          a.walkT = (a.walkT || 0) + dt * 1000
+          if (a.walkT >= frameMs) {
+            a.walkT = a.walkT % frameMs
+            a.walkFlip = ((a.walkFlip || 0) + 1) % 2
+            const pose = a.walkFlip ? 'walkA' : 'walkB'
+            if (el.dataset.pose !== pose) {
+              el.dataset.pose = pose
+              el.src = urls[pose] || idleUrl
+            }
           }
-          const bob = -2.0 * Math.abs(Math.sin(a.phase * Math.PI * 6))
-          const tilt = 1.1 * Math.sin(a.phase * Math.PI * 6)
-          el.style.transform = 'translateY(' + bob.toFixed(2) + 'px) rotate(' + (a.dir > 0 ? tilt : -tilt).toFixed(2) + 'deg)'
+          const k = Math.min(1, (a.walkT || 0) / frameMs)
+          const bob = -2.2 * Math.sin(Math.PI * k)
+          const tilt = 1.1 * Math.sin(Math.PI * k) * (a.dir > 0 ? 1 : -1)
+          el.style.transform = 'translateY(' + bob.toFixed(2) + 'px) rotate(' + tilt.toFixed(2) + 'deg)'
         } else {
+          a.walkT = 0
           a.t += dt
           if (el.dataset.pose !== 'idle') {
             el.dataset.pose = 'idle'

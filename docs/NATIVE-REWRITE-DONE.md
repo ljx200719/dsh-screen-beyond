@@ -21,7 +21,7 @@
 | 6 | 屏幕按钮只打开外部浏览器 | ✅ 真机 | DSH 面板点「打开她的屏幕」→ 浏览器新标签打开 noVNC；面板渲染树无 iframe |
 | 7 | VM 聊天设置和状态可用 | ✅ 设置/状态 | 9 项设置写入读回；`/api/vm-chat/status`、`wake` 实测；`send` 图片路径白名单 400 实测。⚠️ 没有对真实 QQ 会话发测试消息（避免误发群），发送链路仍是代码路径+离线测试验收 |
 | 8 | 旧网页删除后 API、数据、备份、恢复仍正常 | ✅ | 旧网页 410 后 API 正常；备份创建 + `restore.ps1 -Zip` 真实恢复 + 重启加载新数据全流程跑通 |
-| 9 | 手机 API 文档/示例可读，未来客户端不需要改后端 | ✅ | `API-CONTRACT.md`（128 端点）+ `docs/schema/api-index.json` + `docs/schema/models.json` + `MOBILE-GATE.md` |
+| 9 | 手机 API 文档/示例可读，未来客户端不需要改后端 | ✅ | `API-CONTRACT.md`（154 端点 / 14 组，2026-11-15 校正；当时为 128）+ `docs/schema/api-index.json` + `docs/schema/models.json` + `MOBILE-GATE.md`；三者一致性由 `npm run smoke` 双向核对 |
 | 10 | 备份、发布、回滚路径明确 | ✅ | `scripts/backup.ps1` / `restore.ps1`（含 `-Zip`、BOM、重启时序）；发布按用户要求暂缓 |
 
 ---
@@ -62,7 +62,7 @@ npm run smoke:client  # 38/38（把 lib/client.js 在 Node 里挂载：迷你 Re
 ### 2.3 真实渲染验证
 
 - **DSH 桌面端本体**：左侧栏「屏幕彼端」→ 原生面板；聊天（真实历史/蓝色用户气泡/头像/图片）、舞台分屏、地图、设置、**3D 舞台（WebGL 真实渲染 + 点地点移动）**、屏幕页（真实 noVNC 状态 + 手机截图）。
-  截图：`C:\Users\Lenovo\AppData\Local\dsh-desktop\screenshots\2026-11-14\` 下 `capture_591396_20261114_224750_515463.png`（3D 舞台）、`..._224552_271978.png`（聊天+分屏舞台）等
+  截图：`%USERPROFILE%\AppData\Local\dsh-desktop\screenshots\2026-11-14\` 下 `capture_591396_20261114_224750_515463.png`（3D 舞台）、`..._224552_271978.png`（聊天+分屏舞台）等
 - **独立浏览器（真实 React + 真实 `lib/client.js` + 真实运行时数据）**：六标签逐个点开；3D 渲染、拖动旋转、滚轮缩放、点地点移动；点「打开她的屏幕」在浏览器新标签打开 noVNC（不是 iframe）。
 
 ### 2.4 真机验证中发现并修掉的问题

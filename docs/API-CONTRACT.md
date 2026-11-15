@@ -1,6 +1,6 @@
 # 屏幕彼端 · API / SSE 契约（冻结版 v2）
 
-> **状态：冻结（2026-11-14）** · `apiVersion = 2` · 运行时版本 `0.7.23` · 覆盖 **128 个冻结 `/api/*` 端点 / 13 组**（0.7.24 另加 13 个向后兼容端点，见 §13）
+> **状态：冻结（2026-11-14，2026-11-16 随 0.9.0 同步）** · `apiVersion = 2` · 运行时版本 `0.9.0` · 覆盖 **165 个 `/api/*` 端点 / 15 组**（其中 0.7.24 新增的 13 个向后兼容端点明细见 §13；0.8.9 补齐的 13 个、0.8.10 新增的 8 个手机门端点已并入 §5）
 >
 > 这份文档是「屏幕彼端」插件运行时的 **REST + SSE 对外契约**，供两类客户端使用：
 > 1. DSH 桌面原生面板（本机 `127.0.0.1:8900` 直连，见 §10）；
@@ -19,7 +19,7 @@
 | 文档 | 面向 | 内容 |
 |---|---|---|
 | **API-CONTRACT.md（本文）** | 人（客户端开发者） | 版本/鉴权/错误码/SSE/图片/数据模型/兼容规则的完整说明 + 每个端点一行 |
-| [`schema/api-index.json`](./schema/api-index.json) | 机器 | 128 个端点的 `method/path/auth/req/res/errors/sse/evidence` 索引；`apiVersion` 与本文一致 |
+| [`schema/api-index.json`](./schema/api-index.json) | 机器 | 165 个端点的 `method/path/auth/req/res/errors/sse/evidence` 索引；`apiVersion`、`groups`/`endpoints` 计数与本文一致 |
 | [`schema/models.json`](./schema/models.json) | 机器 | 角色/消息/记忆/生活/钱包/地图/场景/同步事件等 JSON Schema（draft-07 简化版） |
 | [`MOBILE-GATE.md`](./MOBILE-GATE.md) | 产品/后续手机开发 | 手机门当前状态、最小能力集、鉴权与配对预留、同步合并的后续阶段 |
 
@@ -62,8 +62,8 @@ curl -s -X POST http://127.0.0.1:8900/api/chat \
 {
   "ok": true,
   "apiVersion": 2,
-  "version": "0.7.23",
-  "minClient": "0.7.24",
+  "version": "0.9.0",
+  "minClient": "0.9.0",
   "dataRoot": "D:\\linzhi",
   "auth": {
     "mode": "loopback",
@@ -73,11 +73,12 @@ curl -s -X POST http://127.0.0.1:8900/api/chat \
     "allowedOrigins": ["127.0.0.1", "localhost", "::1", "dsh-app://app"]
   },
   "features": {
-    "chat": true, "stream": true, "stage2d": true, "stage3d": false,
+    "chat": true, "stream": true, "stage2d": true, "stage3d": true,
     "mapView": true, "mapEdit": true, "settings": true, "screen": true,
     "pet": true, "vmChat": true, "memory": true, "diary": true, "backup": true,
     "sync": true, "image": true, "weatherFx": true, "legacyWeb": false
   },
+  "install": { "kind": "git", "legacyWebStatus": 410 },
   "schema": {
     "contract": "docs/API-CONTRACT.md",
     "apiIndex": "docs/schema/api-index.json",
@@ -97,12 +98,15 @@ curl -s -X POST http://127.0.0.1:8900/api/chat \
 |---|---|---|
 | `apiVersion` | integer | **契约版本**。当前 `2`（第一次为原生面板 + 手机门冻结）。删字段/改语义/改错误约定才 +1 |
 | `version` | string | 运行时插件版本（`package.json.version`，可被 `DSH_COMPANION_VERSION` 覆盖） |
-| `minClient` | string | 服务端建议的最低客户端版本（源码当前固定 `"0.7.24"`，未做运行时校验） |
+| `minClient` | string | 服务端建议的最低客户端版本（0.8.9 起等于当前版本；仍未做运行时强制校验） |
 | `dataRoot` | string | 本机数据目录绝对路径。**仅本机调试用；手机/第三方客户端不得依赖** |
 | `auth.mode` | `loopback` \| `token` | `token` 表示运行实例开了 API token（见 §3.3）；`loopback` 表示只跑当前的本机鉴权 |
 | `features` | object | 能力开关。**新增能力只加 key，不 +apiVersion**；值为 `false` 时客户端必须降级而不是报错 |
+| `install` | object | **0.8.9 新增**。`kind`: `git`（本地 git 检出）/ `link`（pnpm link）/ `npm`（npm 或插件管理器安装）/ `unknown`；`legacyWebStatus`: 旧网页入口当前返回的 HTTP 码（默认 `410`，开了 `--legacy-web` 才是 `200`）。用来判断「怎么更新」和「旧网页是否可达」，不要去猜 |
 | `schema` | object | 三份契约文档相对路径 |
 | `endpoints` | object | 常用端点快捷入口（只是提示，不是全部） |
+
+> **0.8.9 的两处变化**：`features.stage3d` 由 `false` 改为 **`true`**（3D 舞台确实可用，WebGL 不可用由客户端回退 2D）；新增 `install` 字段。两者都**不改变** `apiVersion=2`，老客户端忽略新字段即可。
 
 **版本号有三套，别混**：
 
@@ -112,7 +116,7 @@ curl -s -X POST http://127.0.0.1:8900/api/chat \
 | 同步协议 | `GET /api/sync/info.apiVersion` | `1` | 设备/事件日志协议（与主 API 独立演进） |
 | 舞台载荷 | `GET /api/stage.apiVersion` | `1` | **历史遗留字段**，源码里恒为 1，不要拿它判断契约版本 |
 
-> **已实测（2026-11-14 重启运行时后）**：`127.0.0.1:8900` 的 `GET /api/version` 返回 `200`，结构与上面示例一致（`apiVersion=2`、`features` 17 项、`legacyWeb=false`、`auth.mode=loopback`）。`/api/version` 同样受 Origin/Host 校验（白名单 Origin 回显 ACAO，恶意 Origin 实测 403）。其余未验证项见 §12。
+> **已实测（2026-11-15，0.8.9 运行时）**：`127.0.0.1:8900` 的 `GET /api/version` 返回 `200`，结构含上面的 `install`，`features.stage3d=true`、`legacyWeb=false`、`auth.mode=loopback`、`install.kind=git`。`/api/version` 同样受 Origin/Host 校验（白名单 Origin 回显 ACAO，恶意 Origin 实测 403）。其余未验证项见 §12。
 
 ---
 
@@ -257,7 +261,9 @@ x-sync-token: <token>
 
 ---
 
-## 5. 端点清单（128 个 / 13 组）
+## 5. 端点清单（165 个 / 15 组）
+
+> 与 `docs/schema/api-index.json` 的 `totals` 保持一致（该文件是机器可读版）。新增端点时必须两边同时加，并跑 `npm run smoke` 里的契约一致性检查（M-401/§12.1）。
 
 约定：**鉴权列** `api` = 回环 + Origin 白名单 +（token 模式时需 token）；`api+sync` = 另需同步令牌；`api+loopback` = 另需本机回环 IP；`api·免token` = token 模式也豁免（仅 `/api/token`）。
 「主要错误」列只列业务侧常见错误；`400 请求格式不正确`、`500`、`403` 等全局规则见 §4。
@@ -310,22 +316,23 @@ x-sync-token: <token>
 | POST | `/api/persona` | api | body `meta`: object（浅合并进现有 meta；avatar 会被丢弃）；`body`: string（人设正文全文）；`expectedRev`: integer（可选，实体 character 的 rev） | `ok`: boolean<br>`meta`: characterMeta<br>`body`: string<br>`rev`: revisionRecord&#124;null<br>`personaRev`: revisionRecord&#124;null | 409 版本冲突：数据已被修改，请刷新后再试（附 entity/id/expectedRev/currentRev） |
 | POST | `/api/avatar` | api | body `dataUrl`: string（data:image/…;base64,…，≤3MB；不传=dataUrl 为空则删除头像） | `ok`: boolean<br>`avatar`: string（/avatar.png?t=…，仅上传成功时） | 400 不支持的图片格式<br>400 图片太大 |
 
-### 5.5 记忆 / 日记（8 个）
+### 5.5 记忆 / 日记（9 个）
 
 记忆事实卡 + 日记。写操作建议带 `expectedRev` 防止旧页面覆盖新改动。
 
 | 方法 | 路径 | 鉴权 | 入参 | 出参要点 | 主要错误 |
 |---|---|---|---|---|---|
 | GET | `/api/memory` | api | — | `stats`: memoryStats<br>`params`: memoryParams<br>`facts`: memoryFact[]（未归档）<br>`archived`: memoryFact[]<br>`diaryDates`: string[]（YYYY-MM-DD）<br>`rev`: revisionRecord&#124;null | — |
-| POST | `/api/memory/import` | api | body `text`: string（≤300000 字；支持纯文本/JSON/JSONL）；`importance`: number（0..1，默认 0.5）；`pinNew`: boolean（新事实是否置顶）；`expectedRev`: integer（可选） | `ok`: boolean<br>`total`: integer<br>`added`: integer<br>`merged`: integer<br>`stats`: memoryStats<br>`preview`: object[]（前 5 条） | 400 导入内容为空<br>400 没有解析出可用记忆<br>409 版本冲突（附 currentRev） |
+| POST | `/api/memory/import` | api | body `text`: string（≤300000 字；支持纯文本/JSON/JSONL）；`opts`: object（可选，`splitOnComma` / `perLineOnly` / `maxLen` 8..200）；`importance`: number（0..1，默认 0.5）；`pinNew`: boolean（新事实是否置顶）；`expectedRev`: integer（可选） | `ok`: boolean<br>`total`: integer<br>`lineCount`: integer<br>`added`: integer<br>`merged`: integer<br>`stats`: memoryStats<br>`preview`: object[]（前 5 条） | 400 导入内容为空<br>400 没有解析出可用记忆（附 `emptyLines`/`lineCount`）<br>409 版本冲突（附 currentRev） |
+| POST | `/api/memory/import/preview` | api | body `text`: string；`opts`: object（与 import 同一套规则） | `ok`: boolean<br>`total`: integer<br>`lineCount`: integer<br>`nonEmptyLines`: integer<br>`isJson`: boolean<br>`emptyLines`: integer[]（最多 20 个行号）<br>`preview`: string[]（前 5 条） | 400 内容为空 |
 | POST | `/api/memory/pin` | api | body `id`: integer（事实 id）；`expectedRev`: integer（可选） | `ok`: boolean | 409 版本冲突（附 currentRev） |
 | POST | `/api/memory/delete` | api | body `id`: integer（事实 id）；`expectedRev`: integer（可选） | `ok`: boolean | 409 版本冲突（附 currentRev） |
 | POST | `/api/memory/params` | api | body `halfLifeDays`: number（0.5..365）；`forgetThreshold`: number（0.01..0.9）；`reinforceBoost`: number（0..1）；`maxInjected`: integer（0..100）；`coreStrength`: number（0.1..1）；`maxPromptChars`: integer（100..5000） | `ok`: boolean<br>`params`: memoryParams | — |
-| GET | `/api/diary` | api | query `date`: string（YYYY-MM-DD；不传则返回日期列表） | `dates`: string[]（不带 date 时）<br>`date`: string（带 date 时）<br>`text`: string（日记正文，可能为空） | — |
+| GET | `/api/diary` | api | query `date`: string（**只接受 `YYYY-MM-DD`**；不传则返回日期列表） | `dates`: string[]（不带 date 时）<br>`date`: string（带 date 时）<br>`text`: string（日记正文，可能为空）<br>`exists`: boolean（这一天到底有没有日记） | 400 日期要写成 YYYY-MM-DD |
 | POST | `/api/diary/generate` | api | — | `ok`: boolean<br>`text`: string（生成失败为 ''，仍是 200） | — |
 | POST | `/api/diary/show` | api | — | `ok`: boolean | 200 今天还没写日记（ok:false） |
 
-### 5.6 舞台 / 地图 / 场景 / 地点（23 个）
+### 5.6 舞台 / 地图 / 场景 / 地点（25 个）
 
 舞台/地图/场景/地点。坐标都是 0..1 归一化；地图保存是「传了才改」，`places` 是整体替换。
 
@@ -354,6 +361,8 @@ x-sync-token: <token>
 | POST | `/api/routine` | api | body `bands`: object[]{start,end,allowed,weights{placeId:weight}}（≤16 段，会排序/裁剪）；`smart`: boolean | `ok`: boolean<br>`routine`: object{bands,smart} | — |
 | GET | `/api/location` | api | — | `location`: currentPlace（fields: mapId,mapName,placeId,name,icon,desc,feel,since,minutes,manual,reason,traveling,intercity,avatar） | — |
 | POST | `/api/location` | api | body `placeId`: string（目标地点）；`mapId`: string（可选，默认当前地图）；`mode`: string（交通方式）；`instant`: boolean（瞬移）；`confirmNight`: boolean（夜间出门确认） | `ok`: boolean<br>`location`: currentPlace（行程中 traveling 有值） | 200 ok:false + refused:true（needsConfirm/reason/location） |
+| GET | `/api/stage/poses` | api | — | `ok`: boolean<br>`current`: string<br>`characters`: object[]{id,poses[],current}（poses=idle/walkA/walkB/wave/stretch/sleepy/happy 子集） | 500 String(e.message) |
+| POST | `/api/stage/import-poses` | api | body `charId`: string（可选，默认当前角色）；`files`: object[]{name,w,h,dataUrl}（name 必须是 7 个姿态名之一；同尺寸；png/jpeg/webp；单张 ≤8MB） | `ok`: boolean<br>`charId`: string<br>`saved`: string[]<br>`poses`: string[] | 400 角色 id 不合法 / 没有收到图片 / 不是合法 dataURL / 只支持 png/jpg/webp / 超过 8MB / 缺少宽高信息 / 所有姿态图必须同尺寸 / 文件名要叫 idle…happy |
 
 ### 5.7 生活 / 天气 / 日常（20 个）
 
@@ -395,7 +404,7 @@ x-sync-token: <token>
 | POST | `/api/balance-alert` | api | body `enabled`: boolean；`thresholdRmb`: number（≥0）；`cooldownMin`: number（1..10080） | `ok`: boolean<br>`alert`: object | — |
 | POST | `/api/balance-alert/test` | api | — | `ok`: boolean<br>`total`: number<br>`threshold`: number<br>`text`: string | 500 String(e.message) |
 
-### 5.9 设置 / 模型 / 环境 / 外观（25 个）
+### 5.9 设置 / 模型 / 环境 / 外观（36 个）
 
 设置类。密钥类字段只写不读（`apiKeySet` 布尔）；数值字段会被 clamp。
 
@@ -420,12 +429,25 @@ x-sync-token: <token>
 | POST | `/api/chat-style` | api | body `noParens`: boolean | `ok`: boolean<br>`style`: object{noParens} | — |
 | GET | `/api/ui-theme` | api | — | `ok`: boolean<br>`current`: string<br>`themes`: object[]{id,name,colors} | — |
 | POST | `/api/ui-theme` | api | body `id`: string（themes[].id） | `ok`: boolean<br>`current`: string<br>`themes`: object[] | 400 没有这个配色 |
+| GET | `/api/panel-theme` | api | — | `ok`: boolean<br>`current`: object{mode,accent}<br>`modes`: string[]<br>`accents`: string[] | — |
+| POST | `/api/panel-theme` | api | body `mode`: follow&#124;light&#124;dark（可选）；`accent`: string（accents[] 里的 id，可选） | `ok`: boolean<br>`current`: object{mode,accent} | 400 没有这个配色模式<br>400 没有这个强调色 |
+| GET | `/api/voice/settings` | api | — | `ok`: boolean<br>`settings`: voiceConfig{enabled,provider,voice,speed,pitch,format,maxChars,endpoint,method,headers,apiKeyRef}<br>`providers`: object[]{id,name,needsEndpoint}<br>`defaults`: voiceConfig<br>`cache`: object{count,total,removed}<br>`character`: string<br>`hasKey`: boolean | — |
+| POST | `/api/voice/settings` | api | body `enabled`: boolean?；`provider`: sapi&#124;http?；`voice`: string?；`speed`: number(0.5..2)?；`maxChars`: number(20..2000)?；`endpoint`: string?；`method`: POST&#124;PUT?；`headers`: object?；`apiKeyRef`: string（只接受 `env:` / `file:`，其它置空）?；`characterId`: string?（写了就存每角色覆盖） | `ok`: boolean<br>`settings`: voiceConfig | — |
+| POST | `/api/voice/tts` | api | body `text`: string（≤4000，内部再按 `maxChars` 截断） | `ok`: boolean<br>`audio`: string（`/voice/audio/<file>`）<br>`cached`: boolean<br>`provider`: sapi&#124;http<br>`duration`: number?（wav 可算）<br>`error`: string（ok=false 时） | 400 没有要念的文字<br>200 + `ok:false` 合成失败 |
+| POST | `/api/voice/preview` | api | body `text`: string?（默认「你好，我是<角色名>…」） | 同 `/api/voice/tts` | — |
+| POST | `/api/voice/cleanup` | api | — | `ok`: boolean<br>`cache`: object{count,total,removed} | — |
+| GET | `/api/watch-screen` | api | — | `ok`: boolean<br>`watch`: object{enabled,voice,minMinutes,maxMinutes,quietStart,quietEnd,nextAt,lastAt}<br>`voiceEnabled`: boolean<br>`autoVoiceActive`: boolean<br>`debug`: object{checkedAt,why} | — |
+| POST | `/api/watch-screen` | api | body `enabled`: boolean?；`voice`: boolean?；`minMinutes`: number(5..120)?；`maxMinutes`: number(10..240)?；`quietStart`/`quietEnd`: number(0..23)? | `ok`: boolean<br>`watch`: object | — |
 | GET | `/api/chat-bg` | api | — | `ok`: boolean<br>`current`: string<br>`options`: object[]{id,name,url} | — |
 | POST | `/api/chat-bg` | api | body `id`: string（options[].id 或 custom） | `ok`: boolean<br>`current`: string<br>`options`: object[] | 400 还没有自定义背景<br>400 没有这张背景 |
 | POST | `/api/chat-bg/upload` | api | body `image`: string（data:image/jpeg&#124;jpg&#124;png&#124;webp;base64,…，≤10MB） | `ok`: boolean<br>`current`: string<br>`options`: object[] | 400 请上传 jpg/png/webp 图片<br>400 图片太大（最大 10MB） |
 | GET | `/api/chat-bg/custom` | api | — | `binary`: 图片二进制（image/jpeg&#124;png&#124;webp） | 404 no custom background（text/plain） |
 | POST | `/api/preview` | api | body `text`: string（用户台词，默认「在吗」） | `ok`: boolean<br>`text`: string（她的预览回复） | — |
 | GET | `/api/tutorial` | api | — | `text`: string（tutorial.md 全文 Markdown） | — |
+| GET | `/api/paint` | api | — | `ok`: boolean<br>`paint`: object{enabled,image}（image 为空串=用内置底） | — |
+| POST | `/api/paint` | api | body `enabled`: boolean?；`dataUrl`: string?（≤10MB，上传自定义背景）；`image`: string?（只接受 /models/ /assets/ /images/ 开头的受控路径）；`clearImage`: boolean? | `ok`: boolean<br>`paint`: object{enabled,image} | 400 不支持的图片格式/图片太大<br>500 String(e.message) |
+
+> 分组边界说明：本文 §5.7 与 §5.9 的划分和 `api-index.json` 的 `life` / `settings` 组不完全相同（例如 `watch-screen` 在索引里归 `life`，在本文放在「设置」）。**端点总数以 §5 标题为准**，分组只是可读性，机器核对按路径集合做，不按分组计数。
 
 ### 5.10 她的屏幕 / 手机 / 环境进程（9 个）
 
@@ -444,7 +466,6 @@ x-sync-token: <token>
 | POST | `/api/phone/stop` | api | — | `ok`: boolean<br>`stopping`: boolean<br>`message`: string | 500 String(e.message) |
 
 ### 5.11 VM 聊天（虚拟机里的聊天软件）（6 个）
-
 VM（虚拟机）里的聊天软件控制。`/check`、`/send` 会真的操作虚拟机，属于高成本操作。
 
 | 方法 | 路径 | 鉴权 | 入参 | 出参要点 | 主要错误 |
@@ -456,7 +477,7 @@ VM（虚拟机）里的聊天软件控制。`/check`、`/send` 会真的操作�
 | POST | `/api/vm-chat/check` | api | — | `ok`: boolean<br>`result`: object（VM_CHAT.checkAndReply 结果：unread/recent/sent/requiresLogin…） | 500 String(e.message) |
 | POST | `/api/vm-chat/send` | api | body `text`: string；`imagePath`: string（可选，只允许 <数据根>/data/images 下的文件名） | `ok`: boolean<br>`result`: object（发送结果：sentAt/verify/analysis…） | 400 图片路径不允许（只允许 data/images 下的文件）<br>501 当前运行时还不支持图片发送<br>500 String(e.message) |
 
-### 5.12 桌宠（独立 WPF 进程）（9 个）
+### 5.12 桌宠（独立 WPF 进程）（11 个）
 
 桌宠是独立 WPF 进程，面板只做开关/状态。`/api/pet/status` 适合高频轮询（桌宠 700ms 级）。
 
@@ -471,16 +492,71 @@ VM（虚拟机）里的聊天软件控制。`/check`、`/send` 会真的操作�
 | GET | `/api/pet/manifest` | api | — | `ok`: boolean<br>`pet`: petConfig<br>`status`: petStatus（同 /api/pet/status） | — |
 | GET | `/api/pet/status` | api | — | petStatus（见 models.json） | — |
 | GET | `/api/pet/avatar` | api | — | `binary`: 头像图片（png/jpeg/webp） | 404 no avatar（text/plain） |
+| GET | `/api/pet/cache` | api | — | `ok`: boolean<br>`dir`: string<br>`count`: integer<br>`bytes`: integer<br>`removable`: integer<br>`removableBytes`: integer<br>`current`: object（角色 → 当前素材 stamp） | — |
+| POST | `/api/pet/cache/clean` | api | — | `ok`: boolean<br>`removed`: integer<br>`removedBytes`: integer<br>`stats`: object（同 `/api/pet/cache`） | 500 String(e.message) |
 
-### 5.13 备份 / 恢复（3 个）
+> `/api/pet/cache*` 是 0.8.11 的桌宠立绘缓存清理入口：只处理 `<数据根>/data` 与 `<数据根>` 下的 `sprite-*.png`，保留当前 stamp 和最近 10 分钟文件。
 
-备份/恢复。恢复会覆盖当前数据，必须二次确认；恢复后要重启 DSH 让运行时重新加载。
+### 5.13 备份 / 恢复（5 个）
+
+备份/恢复。恢复会覆盖当前数据，必须二次确认；恢复前会自动再备份一次，恢复后要重启 DSH 让运行时重新加载。
 
 | 方法 | 路径 | 鉴权 | 入参 | 出参要点 | 主要错误 |
 |---|---|---|---|---|---|
-| POST | `/api/backup` | api | — | `ok`: boolean<br>`message`: string | 500 备份失败原因 |
+| POST | `/api/backup` | api | — | `ok`: boolean<br>`name`: string（新建的备份名 backup-YYYYMMDD-HHMMSS）<br>`dir`: string（备份目录）<br>`message`: string | 500 备份失败原因 |
+| POST | `/api/backup/delete` | api | body `name`: string（backup-YYYYMMDD-HHMMSS.zip） | `ok`: boolean<br>`name`: string<br>`removedBytes`: integer | 400 备份名不合法<br>404 找不到这个备份<br>500 删除失败：String(e.message) |
 | GET | `/api/backup/list` | api | — | `ok`: boolean<br>`dir`: string（备份目录绝对路径）<br>`backups`: object[]{name,size,at}（最多 30 条，倒序） | 500 String(e.message) |
-| POST | `/api/backup/restore` | api | body `name`: string（backup-YYYYMMDD-HHMMSS.zip） | `ok`: boolean<br>`message`: string<br>`output`: string（恢复脚本输出尾部 ≤1500 字） | 400 备份名不合法<br>404 找不到这个备份<br>500 安装包缺少 scripts/restore.ps1 / String(e.message) |
+| POST | `/api/backup/inspect` | api | body `name`: string（backup-YYYYMMDD-HHMMSS.zip） | `ok`: boolean<br>`zipMB`: number<br>`at`: integer<br>`hasManifest`: boolean<br>`backup`: object{fileCount,pluginFiles,dataFiles,dataMB,characters[]}<br>`current`: object{characters[]}<br>`onlyInBackup`: string[]<br>`onlyNow`: string[]<br>`configOverwritten`: boolean | 400 备份名不合法<br>404 找不到这个备份<br>500 String(e.message) |
+| POST | `/api/backup/restore` | api | body `name`: string（backup-YYYYMMDD-HHMMSS.zip） | `ok`: boolean<br>`message`: string<br>`safetyBackup`: string（恢复前自动留的当前状态备份名）<br>`output`: string（恢复脚本输出尾部 ≤1500 字） | 400 备份名不合法<br>404 找不到这个备份<br>500 安装包缺少 scripts/restore.ps1 / String(e.message) |
+
+> `/api/backup/inspect` 是**只读差异预览**（读 zip 里的 `manifest.json`，不写盘），用于恢复前告诉用户「会覆盖掉什么、哪些角色会多出来 / 消失」。备份属于桌面端能力，手机端不要调。
+
+### 5.14 聊天软件直连 / 插件更新 / 余额刷新（13 个）
+
+这一组是 0.7.24 新增、`apiVersion` 仍为 2 的向后兼容端点。**明细只在 §13 维护一份**（避免两处各写一份然后走样），这里只占位说明它计入总数。
+
+| 能力 | 端点 | 明细 |
+|---|---|---|
+| OneBot 11 直连（设置/状态/朋友/发送/测试/上报） | `/api/direct-chat/*`（9 个） | [§13](#13-0724-新增端点向后兼容) |
+| 插件更新（检查/执行/设置） | `/api/update/*`（3 个） | [§13](#13-0724-新增端点向后兼容) |
+| 真实余额强制刷新 | `POST /api/balance/refresh`（1 个） | [§13](#13-0724-新增端点向后兼容) |
+
+> 手机端**不依赖**这一组：直连、更新、余额刷新都是桌面端能力；写进契约只是为了「数得清、机器能索引」。
+
+### 5.15 手机连接（局域网 + TLS + 配对 + 设备凭证）（8 个）
+
+桌面端为手机客户端准备的那一层（0.8.10）。**主服务仍然只听 `127.0.0.1`**；只有显式开启后，才额外在 `0.0.0.0:8920`（默认）起一个 **HTTPS 网关**。网关只做四件事：认证、授权、限流、审计，然后把请求原样转发给回环主服务——业务逻辑不复制，权限收紧不会和业务走样。
+
+| 方法 | 路径 | 鉴权 | 入参 | 出参要点 | 主要错误 |
+|---|---|---|---|---|---|
+| GET | `/api/mobile-gate/status` | api（回环） | — | `enabled`<br>`port`<br>`tls`（恒 true）<br>`fingerprint`<br>`addresses`: object[]{iface,ip,url}<br>`allow`: string[]<br>`devices`: object[]{id,name,scope,createdAt,lastSeenAt,revokedAt,lastIp}<br>`requests`/`denied` | 500 手机门模块不可用 |
+| POST | `/api/mobile-gate/enable` | api（回环） | body `enabled`: boolean（默认 true）；`port`: integer（1024..65535，默认 8920）；`tls`: boolean（传 false 直接 400） | `ok`<br>`port`<br>`host`<br>`fingerprint`<br>`addresses`<br>`enabled` | 400 不允许明文：手机连接必须走 TLS<br>500 端口被占用 / 证书加载失败 |
+| POST | `/api/mobile-gate/pair-code` | api（回环） | — | `ok`<br>`code`: string（6 位，一次性）<br>`expiresAt`: integer<br>`ttlMs`: integer | 500 同时最多 5 个未使用配对码 |
+| POST | `/api/mobile-gate/pair` | 配对码（HTTPS 网关；回环也可，便于调试） | body `code`: string；`deviceName`: string（≤40 字）；`scope`: chat&#124;readonly | `ok`<br>`deviceId`<br>`token`: string（**只返回这一次**）<br>`fingerprint`<br>`allow`: string[] | 401 配对码不对/过期/已用过<br>429 配对尝试太频繁（同 IP 5 次 / 5 分钟） |
+| GET | `/api/mobile-gate/self` | 设备令牌（**只在 HTTPS 网关上**） | — | `device`: object{id,name,scope}<br>`version`<br>`fingerprint` | 401 没配对/令牌失效 |
+| GET | `/api/mobile-gate/devices` | api（回环） | — | `devices`: object[]（脱敏，不含摘要） | — |
+| POST | `/api/mobile-gate/revoke` | api（回环） | body `deviceId`: string；或 `all`: boolean=true | `ok`<br>`devices`: object[]<br>`revoked`: integer（all 时） | 200 ok:false 没有这台设备 |
+| GET | `/api/mobile-gate/audit` | api（回环） | query `limit`: integer（1..200，默认 50） | `entries`: object[]{at,type,deviceId?,name?,ip?,method?,path?,reason?,fingerprint?} | — |
+
+**手机端能做什么**（网关的放行表；`status.allow` 与配对结果里的 `allow` 都是这一份）：`GET` `/api/version`、`/api/status`、`/api/events`、`/api/stream`、`/api/characters`、`/api/persona`、`/api/stage`、`/api/stage/stream`、`/api/location`、`/api/life/state`、`/api/life/states`、`/api/economy`、`/api/diary`、`/api/memory`、`/api/world/characters`；`POST` `/api/chat`、`/api/chat/cancel`；以及静态图片/语音（`/images/*`、`/models/*`、`/avatar.png`、`/voice/audio/*`）。另外 `/api/mobile-gate/self` 对已配对设备开放（只回它自己）。
+
+**手机网页版（0.8.11）**：网关还在根路径直接提供一页手机网页，浏览器打开 `https://<地址>:<端口>/` 即可用，不用装 App：
+
+| 路径 | 类型 | 说明 |
+|---|---|---|
+| `/`、`/index.html` | text/html | 手机页（配对 + 聊天 + 状态）。**公开**（任何人可加载），但限流 120 次/分钟/IP；带 `Content-Security-Policy: default-src 'self'`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`；**页面里不含任何令牌** |
+| `/app.css`、`/app.js` | text/css、text/javascript | 同上，同源静态资源 |
+
+页面内做配对（调 `POST /api/mobile-gate/pair`），令牌存在该页面的 `localStorage`；页面顶部常驻「🧪 手机端 · 正在研究（内部测试版）」标识。**注意**：网页版只是众多形态之一，不是最终产品形态。
+
+**默认拒绝**：设置（`/api/model`、`/api/env`、`/api/paint`…）、备份/恢复、她的屏幕/手机、桌宠、VM 聊天、地图编辑 —— 手机一律 403（`手机端没有这个权限：<method> <path>`），并记 `perm.deny` 审计。
+
+**红线**：
+- 不提供明文模式；`tls:false` 直接 400。**没有 TLS 就不允许离开回环**。
+- 不要把 8920 做路由器端口转发或公网暴露：这是**局域网内**的方案（MOBILE-GATE §4.4）。
+- 令牌只在配对响应里出现一次，服务端只存 `sha256`；审计日志里没有明文令牌。
+- 撤销立即生效（每次请求都查内存里的设备表），不需要重启。
+- 配对码只在内存里，进程重启即失效；一次性、5 分钟过期、同 IP 5 次/5 分钟限流。
 
 ---
 
@@ -576,10 +652,11 @@ curl -N http://127.0.0.1:8900/api/stage/stream
 | `GET /chat-bg/<id>.jpg`、`/chat-bg.jpg` | 网页版聊天背景 | 原生面板用自己的背景 |
 | `GET /official-map.jpg` | 官方地图底图 | 地图 `image.url` 默认值 |
 | `GET /models/scenes/<地点>.jpg` | 13 个内置地点内部场景图 | 由 `place.scene.background` 引用 |
+| `GET /voice/audio/<file>` | `<数据根>/voice/audio/` | 语音合成产物；文件名只接受 `40 位 sha1 + .wav/.mp3/.ogg/.m4a/.webm`，其它 404 |
 
 ### 7.3 缓存
 
-- 图片接口基本是 `cache-control: no-store`；`/models/*`、`/vendor/*` 是 `public, max-age=3600`；`/images/*`、`/avatar.png`、`/api/pet/avatar` 是 `no-store`；`/chat-bg/*`、`/official-map.jpg` 是 `public, max-age=86400`。
+- 图片接口基本是 `cache-control: no-store`；`/models/*`、`/vendor/*`、`/voice/audio/*` 是 `public, max-age=3600`（语音是 `604800`）；`/images/*`、`/avatar.png`、`/api/pet/avatar` 是 `no-store`；`/chat-bg/*`、`/official-map.jpg` 是 `public, max-age=86400`。
 - 头像/角色列表会在 URL 带 `?t=<mtime/时间戳>` 做防缓存；客户端换图后自己加时间戳。
 - 舞台/地图/场景图片路径约束：`place.image` 只接受 `/models/` 开头；`place.scene.background` 只接受 `/models/`、`/assets/`、`/images/` 开头；不符合会被**静默置空**（不是报错）。
 
@@ -775,10 +852,16 @@ scene = { background, characters[], hotspots[], photos[], obstacles[], walkable[
 ## 11. 契约变更流程
 
 1. 改 `runtime/server.mjs` 的 `/api/*` 行为时，同一提交更新：本文端点表 + `schema/api-index.json` + `schema/models.json`。
-2. 用脚本核对「文档端点集合 == 源码路由集合」（避免漏写/编造端点）：
+2. **机器核对（已落地，不用手工跑）**：`npm run smoke` 里有「契约一致性」一组检查，自动做四件事——
+   - `api-index.json` 的 `totals.endpoints/groups` == 实际条目数；
+   - 本文 §5 标题里的「N 个 / M 组」== `api-index.json` 的计数（这就是 0.8.6 之前「文档写 128、索引写 141」那类漂移的兜底）；
+   - `api-index.json` 里每个 `path` 都能在 `runtime/server.mjs` 里找到同名路径字面量（防「文档写了、代码没有」）；
+   - `models.json` 能解析，且 `x-runtime-version` 与 `package.json.version` 一致。
+
+   下面这段是从前手工核对用的写法，保留作参考（现在由 `scripts/smoke-test.mjs` 承担，逻辑等价、不需要 python）：
 
 ```bash
-# 建议做法：从 server.mjs 提取 (method, path)，与 api-index.json 的 method/path 求差集
+# 历史做法：从 server.mjs 提取 (method, path)，与 api-index.json 的 method/path 求差集
 python - <<'PY'
 import json, re
 src = open('runtime/server.mjs', encoding='utf-8').read()
@@ -833,8 +916,8 @@ PY
 
 ### 12.3 本次核对结论
 
-- 源码路由 128 个，`api-index.json` / 本文端点表 128 个（0.7.24 新增 13 个见 §13），**一一对应**（脚本核对，见 §11）。
-- `GET /api/version` 在重启运行时后实测 `200`：`apiVersion=2`、`version=0.7.23`、`minClient=0.7.24`、`features` 17 项（`legacyWeb=false`）、`schema`/`auth`/`endpoints` 与 §2 一致；带白名单 Origin 回显 ACAO，恶意 Origin 实测 403。
+- 源码路由 **154** 个；`api-index.json` 的 `totals`（`groups: 14` / `endpoints: 154`）与本文 §5 标题计数一致。0.8.9 起这条由 `npm run smoke` 的契约一致性检查自动核对，而且是**双向**的：代码里的每条 `/api` 路由必须在索引里、索引里每条路径必须在本文里、本文 §5 标题的数字必须等于索引计数。0.7.24 那 13 个的明细仍只在 §13。
+- `GET /api/version` 在 0.8.9 运行实例实测 `200`：`apiVersion=2`、`version=0.8.9`、`minClient=0.8.9`、`features` 17 项（`stage3d=true`、`legacyWeb=false`）、`install={kind:"git",legacyWebStatus:410}`、`schema`/`auth`/`endpoints` 与 §2 一致；带白名单 Origin 回显 ACAO，恶意 Origin 实测 403。
 - 旧网页入口 `/`、`/map` 实测 `410` JSON：`{ok:false,error:"网页入口已下线",hint,apiVersion:2,legacyPage}`（新源码默认关闭，D08/S02）。
 - 所有**返回 JSON 的 GET 端点**已在 `127.0.0.1:8900` 只读实测，包括 `/api/status`、`/api/events`、`/api/map`、`/api/stage`、`/api/economy`、`/api/pet/status`、`/api/env/check`、`/api/data/revisions`、`/api/sync/local` 等；例外：`/api/sync/events`、`/api/sync/info` 未带令牌（实测 401）。
 - 二进制接口：`/api/pet/avatar` 实测 `200 image/png`，`/api/screen/pc` 实测 `200 image/jpeg`，`/api/chat-bg/custom` 实测 `404`（`no custom background`，非 JSON）；`/api/screen/phone` 未实测（模拟器未启动）。

@@ -4,9 +4,10 @@
   "title": "屏幕彼端 · 数据模型（冻结契约 apiVersion=2）",
   "description": "字段以 runtime/server.mjs、runtime/memory.mjs、runtime/sync.mjs、runtime/data-store.mjs 的实际实现为准（源码核对日 2026-11-14，运行时版本 0.7.23）。这是「简化 draft-07」：只描述字段名/类型/必填/含义，不做严格校验；服务端本身也不校验全部字段（多处是 clamp 或原样合并）。运行实例的实测/未实测状态见 docs/API-CONTRACT.md §12。",
   "x-api-version": 2,
-  "x-runtime-version": "0.7.23",
+  "x-runtime-version": "0.9.0",
   "x-source": "runtime/server.mjs, runtime/memory.mjs, runtime/sync.mjs, runtime/data-store.mjs",
-  "x-frozen-at": "2026-11-14",
+  "x-frozen-at": "2026-11-15",
+  "x-changelog": "2026-11-15（0.8.9）：补 stagePayload.character.standee/hasPoses；其余字段与 0.7.23 一致。",
   "definitions": {
     "apiError": {
       "title": "错误响应 {ok:false,error}",
@@ -629,6 +630,8 @@
             "name": { "type": "string" },
             "avatar": { "type": "string" },
             "sprite": { "type": "string" },
+            "standee": { "type": "string", "description": "0.8.9 新增：这个角色可直接当立绘用的图（优先 skeleton-assets/<id>/poses/idle.*，其次 meta.sprite 整图）；空串表示没有，客户端应回退到 avatar 或占位。绝不返回别的角色的素材。" },
+            "hasPoses": { "type": "boolean", "description": "0.8.9 新增：是否导入过 2D 姿态素材（skeleton-assets/<id>/poses/poses.json 存在）" },
             "chibi": { "type": ["string", "null"] },
             "model": { "type": "object" },
             "age": { "type": ["number", "null"] },

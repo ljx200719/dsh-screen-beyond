@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="referrer" content="no-referrer">
+<title>屏幕彼端 · 手机</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div id="app" class="app">
+
+  <!-- 研究阶段标识：这一版是内部测试，不承诺稳定，别当成品 -->
+  <div class="stage-banner" role="note">🧪 <b>手机端 · 正在研究</b>（内部测试版，功能会变）</div>
+
+  <!-- 一、配对 -->
+  <section id="pairView" class="pair" hidden>
+    <div class="pair-card">
+      <div class="pair-title">连接这台电脑</div>
+      <p class="pair-sub">在你电脑的面板里打开「设置 → VM → 手机连接」，点<b>生成配对码</b>，把 6 位数字填在这里。</p>
+      <div class="pair-code">
+        <input id="codeInput" type="tel" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" aria-label="六位配对码">
+      </div>
+      <label class="field">
+        <span>这台手机叫什么</span>
+        <input id="deviceName" type="text" maxlength="40" placeholder="我的手机">
+      </label>
+      <button id="pairBtn" class="btn primary block">配对并连接</button>
+      <p id="pairMsg" class="pair-msg" role="status"></p>
+      <details class="pair-help">
+        <summary>连不上？</summary>
+        <ul>
+          <li>手机和电脑要在同一个 Wi-Fi（不是同名不同网）。</li>
+          <li>浏览器提示证书不安全 → 选「高级 / 继续访问」，这是你电脑自己签的证书，不是外网网站。</li>
+          <li>证书指纹要和电脑面板上的一致（<code id="fpHint">—</code>）。</li>
+          <li>配对码 5 分钟内有效、只能用一次；过期就回电脑面板再生成。</li>
+          <li>连不上还可能是电脑防火墙拦了端口（默认 8920）。</li>
+        </ul>
+      </details>
+    </div>
+  </section>
+
+  <!-- 二、聊天 -->
+  <section id="chatView" class="chat" hidden>
+    <header class="topbar">
+      <img id="avatar" class="avatar" alt="" src="/default-avatar.png">
+      <div class="who">
+        <div class="name" id="charName">她</div>
+        <div class="where" id="charWhere">正在连接…</div>
+      </div>
+      <button id="moreBtn" class="icon-btn" aria-label="更多">⋯</button>
+    </header>
+
+    <div id="netbar" class="netbar" hidden></div>
+
+    <div id="list" class="list" data-empty="1">
+      <div class="empty" id="emptyHint">还没有聊过天。说点什么吧。</div>
+    </div>
+
+    <div id="typing" class="typing" hidden>她在打字…</div>
+
+    <footer class="composer">
+      <button id="imgBtn" class="icon-btn" aria-label="发图片">＋</button>
+      <input id="fileInput" type="file" accept="image/*" hidden>
+      <textarea id="input" rows="1" placeholder="跟她说点什么…" enterkeyhint="send"></textarea>
+      <button id="sendBtn" class="btn primary send">发送</button>
+      <button id="stopBtn" class="btn danger send" hidden>停止</button>
+    </footer>
+    <div id="imgPreview" class="img-preview" hidden>
+      <img id="imgPreviewImg" alt="待发送图片">
+      <button id="imgCancel" class="icon-btn" aria-label="移除图片">✕</button>
+    </div>
+  </section>
+
+  <!-- 三、更多（设备信息 / 退出） -->
+  <section id="sheetView" class="sheet" hidden>
+    <div class="sheet-card">
+      <div class="sheet-title">这台手机</div>
+      <div class="sheet-stage">状态：<b>正在研究</b>（内部测试版 · 只做聊天和看状态）</div>
+      <dl class="kv">
+        <dt>设备</dt><dd id="selfName">—</dd>
+        <dt>权限</dt><dd id="selfScope">—</dd>
+        <dt>电脑地址</dt><dd><code id="selfUrl">—</code></dd>
+        <dt>证书指纹</dt><dd class="fp"><code id="selfFp">—</code></dd>
+        <dt>版本</dt><dd id="selfVer">—</dd>
+      </dl>
+      <p class="hint">手机只能聊天和看状态；设置、环境、虚拟机、备份、她的屏幕这些只在电脑面板里。</p>
+      <button id="closeSheet" class="btn block">关闭</button>
+      <button id="forgetBtn" class="btn danger block">从这台手机解除配对</button>
+    </div>
+  </section>
+
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

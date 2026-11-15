@@ -1,14 +1,15 @@
 {
   "schemaVersion": 1,
   "apiVersion": 2,
-  "runtimeVersion": "0.7.24",
-  "generatedAt": "2026-11-14T15:14:21.678Z",
+  "runtimeVersion": "0.9.0",
+  "generatedAt": "2026-11-16T18:40:00.000Z",
   "baseUrl": "http://127.0.0.1:8900",
   "source": {
     "file": "runtime/server.mjs",
-    "runtimeVersion": "0.7.23",
+    "runtimeVersion": "0.9.0",
     "note": "端点与字段以源码实现为准；evidence=live 表示已在 127.0.0.1:8900 运行实例上核对过响应，source 表示只读过源码（写操作没有在真实数据上执行），unverified 见 docs/API-CONTRACT.md §12"
   },
+  "syncNote": "2026-11-16（0.9.0）：语音失败自动回退 SAPI/错误人话；备份删除、桌宠立绘缓存清理、记忆混排 JSON、3D 角色/地图文案、更新版本显示、直连桥前置校验。API 端点 165 个 / 15 组。",
   "contract": "docs/API-CONTRACT.md",
   "models": "docs/schema/models.json",
   "authSchemes": {
@@ -92,15 +93,16 @@
             "ok": "boolean",
             "apiVersion": "integer=2（冻结契约版本）",
             "version": "string（运行时插件版本）",
-            "minClient": "string（建议最低客户端版本，源码当前 0.7.24）",
+            "minClient": "string（建议最低客户端版本，0.8.9 起等于当前版本）",
             "dataRoot": "string（本机数据目录；手机端不得依赖）",
             "auth": "object{mode,tokenEndpoint,header,cookie,allowedOrigins}",
             "features": "object（chat/stream/stage2d/stage3d/mapView/mapEdit/settings/screen/pet/vmChat/memory/diary/backup/sync/image/weatherFx/legacyWeb）",
+            "install": "object{kind,legacyWebStatus}（0.8.9 新增：kind=git|link|npm|unknown，由运行时实测安装方式；legacyWebStatus=410 默认 / 200 表示开了调试网页，见 API-CONTRACT §2.1）",
             "schema": "object{contract,apiIndex,models}",
             "endpoints": "object（常用端点快捷路径）"
           },
           "errors": [],
-          "notes": "Lead 本轮新增。客户端启动必须先读它再决定调用哪些能力。2026-11-14 重启运行时后已实测 200，返回与 API-CONTRACT §2 完全一致（apiVersion=2、features 17 项、legacyWeb=false）。"
+          "notes": "客户端启动必须先读它再决定调用哪些能力。0.8.9 起 features.stage3d=true（3D 舞台可用，WebGL 不可用时客户端自行回退 2D），并新增 install 字段；未知字段一律忽略，不要因为多了 install 就当版本不兼容。"
         },
         {
           "id": "token.get",
@@ -456,7 +458,7 @@
           "response": {
             "switch": "ok,active,characters,character{id,name,avatar}",
             "new": "ok,id,characters,active",
-            "delete": "ok,characters,active"
+            "delete": "ok,characters,active,cleaned（0.8.9 新增：被一并清掉的角色附属资产，如 runtime/skeleton-assets/<id>；内置素材永不删）"
           },
           "errors": [
             {
@@ -592,6 +594,7 @@
           "request": {
             "body": {
               "text": "string（≤300000 字；支持纯文本/JSON/JSONL）",
+              "opts": "object（0.8.9 新增，可选：splitOnComma=逗号也拆句；perLineOnly=只按行拆；maxLen=单条最长 8..200，默认 90）",
               "importance": "number（0..1，默认 0.5）",
               "pinNew": "boolean（新事实是否置顶）",
               "expectedRev": "integer（可选）"
@@ -600,6 +603,7 @@
           "response": {
             "ok": "boolean",
             "total": "integer",
+            "lineCount": "integer（0.8.9 新增：原文行数）",
             "added": "integer",
             "merged": "integer",
             "stats": "memoryStats",
@@ -612,14 +616,44 @@
             },
             {
               "status": 400,
-              "error": "没有解析出可用记忆"
+              "error": "没有解析出可用记忆（附 emptyLines/lineCount，0.8.9 起带行号）"
             },
             {
               "status": 409,
               "error": "版本冲突（附 currentRev）"
             }
           ],
-          "notes": "一行一条、按句号拆分、自动去重、相似合并强化；最多取 500 条。"
+          "notes": "一行一条、按句号拆分、自动去重、相似合并强化；最多取 500 条。0.8.9 起拆句规则可由 opts 配置，失败时返回 emptyLines（解析不出内容的行号，最多 20 个）便于定位。"
+        },
+        {
+          "id": "memory.import.preview.post",
+          "method": "POST",
+          "path": "/api/memory/import/preview",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "body": {
+              "text": "string（≤300000 字）",
+              "opts": "object（可选：splitOnComma / perLineOnly / maxLen，和 /api/memory/import 完全同一套规则）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "total": "integer（按当前规则能解析出多少条）",
+            "lineCount": "integer（原文行数）",
+            "nonEmptyLines": "integer（非空行数）",
+            "isJson": "boolean（是否按 JSON 解析）",
+            "emptyLines": "integer[]（解析不出内容的行号，最多 20 个）",
+            "preview": "string[]（前 5 条文本）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "内容为空：先粘贴要导入的记忆文本"
+            }
+          ],
+          "notes": "0.8.9 新增。只读：不写任何记忆、不触发衰减。和 /api/memory/import 走同一份解析函数，所以「预览到多少」就是「会导入多少」（除 500 条上限与去重合并的影响）。"
         },
         {
           "id": "memory.pin.post",
@@ -708,10 +742,16 @@
           "response": {
             "dates": "string[]（不带 date 时）",
             "date": "string（带 date 时）",
-            "text": "string（日记正文，可能为空）"
+            "text": "string（日记正文，可能为空）",
+            "exists": "boolean（0.8.9 新增：这一天到底有没有日记；text 为空且 exists=false 时 UI 应显示「这一天没有日记」）"
           },
-          "errors": [],
-          "notes": "列表最多 60 篇，倒序。"
+          "errors": [
+            {
+              "status": 400,
+              "error": "日期要写成 YYYY-MM-DD"
+            }
+          ],
+          "notes": "列表最多 60 篇，倒序。date 只接受 YYYY-MM-DD（服务端会校验，别传相对路径/其它格式）；查未来日期不报错但通常 exists=false。"
         },
         {
           "id": "diary.generate.post",
@@ -766,7 +806,7 @@
             "payload": "stagePayload（角色/地图/位置/天气/钱包/设置/动画提示；见 models.json）"
           },
           "errors": [],
-          "notes": "注意 payload.apiVersion 字段源码恒为 1（历史遗留），契约版本以 /api/version 为准。"
+          "notes": "注意 payload.apiVersion 字段源码恒为 1（历史遗留），契约版本以 /api/version 为准。payload.character 自 0.8.9 起额外带 standee（该角色可用的立绘地址，空串=没有）与 hasPoses（是否导入过 2D 姿态素材），见 models.json 的 stagePayload.character。"
         },
         {
           "id": "stage.stream.get",
@@ -1281,6 +1321,58 @@
             }
           ],
           "notes": "同地图移动；会校验体力、夜间外出、交通方式可用性（未满 18/无驾照不能开车）。"
+        },
+        {
+          "id": "stage.poses.get",
+          "method": "GET",
+          "path": "/api/stage/poses",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "current": "string（当前角色 id）",
+            "characters": "object[]{id,poses[],current}（poses=已导入的姿态名 idle/walkA/walkB/wave/stretch/sleepy/happy）"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message || e)"
+            }
+          ],
+          "notes": "列「还活着的角色」导入过 2D 姿态素材的情况；0.8.9 起已删除角色留下的目录不会再出现在这里（F-002）。同时扫 runtime/skeleton-assets 与 <数据根>/skeleton-assets 两处。运行时目录里没有静态版本索引，这是唯一的查询入口。"
+        },
+        {
+          "id": "stage.import-poses.post",
+          "method": "POST",
+          "path": "/api/stage/import-poses",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "charId": "string（可选，默认当前角色；只接受 [A-Za-z0-9_-]{1,40}）",
+              "files": "object[]（每项 {name,w,h,dataUrl}；name 必须是 idle/walkA/walkB/wave/stretch/sleepy/happy 之一；dataUrl 为 png/jpeg/webp）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "charId": "string",
+            "saved": "string[]（实际写入的姿态名）",
+            "poses": "string[]（合并后的全部姿态名）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "角色 id 不合法 / 没有收到图片 / 不是合法的图片 dataURL / 只支持 png/jpg/webp / 超过 8MB / 缺少宽高信息 / 所有姿态图必须是同一尺寸 / 文件名要叫 idle…happy"
+            },
+            {
+              "status": 500,
+              "error": "String(e.message || e)"
+            }
+          ],
+          "notes": "顾客自助导入姿态素材：所有图必须同尺寸，写入 runtime/skeleton-assets/<id>/poses/ 并合并 poses.json（canvas/baseY 由首张图算）。导入后地图/舞台按骨骼角色显示。"
         }
       ]
     },
@@ -2339,6 +2431,416 @@
           },
           "errors": [],
           "notes": "使用说明正文。"
+        },
+        {
+          "id": "panel.theme.get",
+          "method": "GET",
+          "path": "/api/panel-theme",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "current": "object{mode,accent}",
+            "modes": "string[]（follow/light/dark）",
+            "accents": "string[]（blue/cyan/violet/rose/emerald/amber/coral/graphite）"
+          },
+          "errors": [],
+          "notes": "面板配色。只影响插件面板，不动 DSH 宿主；手机端不需要。"
+        },
+        {
+          "id": "panel.theme.post",
+          "method": "POST",
+          "path": "/api/panel-theme",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "body": {
+              "mode": "follow|light|dark（可选；与 accent 是两回事，可只提交一个）",
+              "accent": "string（可选，必须在 accents 白名单里）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "current": "object{mode,accent}（合并后的完整值）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "没有这个配色模式 / 没有这个强调色"
+            }
+          ],
+          "notes": "只改传了的字段（服务端先读当前值再合并）。0.8.9 起面板每次成对提交 mode+accent，避免切深浅把强调色重置成雾蓝（F-011）。"
+        },
+        {
+          "id": "paint.get",
+          "method": "GET",
+          "path": "/api/paint",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "paint": "object{enabled,image}（image 为空串表示用内置底）"
+          },
+          "errors": [],
+          "notes": "外观美化（玻璃底/星光/自定义背景）。"
+        },
+        {
+          "id": "paint.post",
+          "method": "POST",
+          "path": "/api/paint",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "enabled": "boolean（可选）",
+              "dataUrl": "string（可选，≤10MB；上传自定义背景图）",
+              "image": "string（可选；只接受 /models/ /assets/ /images/ 开头的受控路径）",
+              "clearImage": "boolean（可选，清空自定义背景）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "paint": "object{enabled,image}"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "不支持的图片格式/图片太大"
+            },
+            {
+              "status": 500,
+              "error": "String(e.message || e)"
+            }
+          ],
+          "notes": "只改传了的字段；dataUrl 优先于 image；非受控路径的 image 会被清成空串（不报错）。"
+        },
+        {
+          "id": "voice.settings.get",
+          "method": "GET",
+          "path": "/api/voice/settings",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "settings": "object（voiceSettings：enabled/provider/voice/speed/apiKeyRef…）",
+            "providers": "string[]（sapi/http）",
+            "defaults": "object",
+            "cache": "object（缓存统计）",
+            "character": "string（角色 id）",
+            "hasKey": "boolean（只报是否配过 Key，不返回 Key 本身）"
+          },
+          "errors": [],
+          "notes": "语音按角色覆盖 + 全局默认；apiKeyRef 只存引用。"
+        },
+        {
+          "id": "voice.settings.post",
+          "method": "POST",
+          "path": "/api/voice/settings",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "body": {
+              "characterId": "string（可选；给了就写该角色的覆盖，不给写全局）",
+              "enabled": "boolean（可选）",
+              "provider": "sapi|http（可选）",
+              "voice": "string（可选，留空=系统默认音色）",
+              "speed": "number（可选 0.5..2）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "settings": "object（保存后的 voiceSettings）"
+          },
+          "errors": [],
+          "notes": "只改传了的字段。"
+        },
+        {
+          "id": "voice.tts.post",
+          "method": "POST",
+          "path": "/api/voice/tts",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "body": {
+              "text": "string（≤4000 字）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "audio": "string（/voice/audio/<sha1>.<ext>，可 GET 取二进制）",
+            "cached": "boolean（命中缓存时）",
+            "error": "string（失败时）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "没有要念的文字"
+            }
+          ],
+          "notes": "失败的 ok:false 仍是 HTTP 200（业务性失败）。同一句会命中缓存。"
+        },
+        {
+          "id": "voice.preview.post",
+          "method": "POST",
+          "path": "/api/voice/preview",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "body": {
+              "text": "string（可选；默认用一句带角色名的试听文案）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "audio": "string（同 /api/voice/tts）",
+            "cached": "boolean（命中缓存时）",
+            "error": "string（失败时）"
+          },
+          "errors": [],
+          "notes": "设置页「试听」用；和 tts 同一条合成链路。"
+        },
+        {
+          "id": "voice.cleanup.post",
+          "method": "POST",
+          "path": "/api/voice/cleanup",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "cache": "object（缓存统计）"
+          },
+          "errors": [],
+          "notes": "清语音缓存入口。注意：按当前源码实现，它只返回缓存统计，本次没有真正删除文件（如实记录，别当清缓存用）。"
+        }
+      ]
+    },
+    {
+      "id": "mobile-gate",
+      "title": "手机连接（局域网 + TLS + 配对 + 设备凭证，0.8.10 新增）",
+      "description": "桌面端为手机客户端准备的那一层：主服务仍只听 127.0.0.1；显式开启后额外监听一个 HTTPS 端口（默认 8920），手机必须用一次性配对码换设备令牌才能访问，且只有聊天 + 只读权限。status/enable/pair-code/devices/revoke/audit 只在回环主服务上暴露；pair 与 self 在 HTTPS 网关上。",
+      "endpoints": [
+        {
+          "id": "mobilegate.status.get",
+          "method": "GET",
+          "path": "/api/mobile-gate/status",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "enabled": "boolean（是否在监听）",
+            "port": "integer",
+            "tls": "boolean（恒为 true：不提供明文）",
+            "pairing": "string=code",
+            "scopes": "string[]（chat / readonly）",
+            "fingerprint": "string（证书 SHA-256 指纹，冒号分隔大写；手机首次信任时对一次）",
+            "certSubject": "string",
+            "certNotAfter": "string（证书到期时间）",
+            "addresses": "object[]{iface,ip,kind,url,note}（kind=lan 局域网 / vpn 虚拟局域网如 Tailscale；手机端填这个 url）",
+            "web": "object{path,title}（0.8.11 新增：手机网页版入口，浏览器直接打开网关根路径）",
+            "allow": "string[]（手机端被允许的 method + 路径模式）",
+            "devices": "object[]{id,name,scope,createdAt,lastSeenAt,revokedAt,lastIp}",
+            "activeDevices": "integer",
+            "requests": "integer（已转发请求数）",
+            "denied": "integer（被拒次数）",
+            "lastError": "string",
+            "version": "string"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "手机门模块不可用（证书或目录初始化失败）"
+            }
+          ],
+          "notes": "面板「手机连接」卡片就靠它。首次调用会生成自签证书（RSA-2048 / SHA-256 / SAN=本机所有非回环 IPv4 + 主机名，含 Tailscale/ZeroTier 的 100.x 地址）；新网卡出现会自动重签（audit: cert.renew，指纹会变）。证书落在 <数据根>/mobile-gate/。0.8.11 起网关还在 / 上直接提供手机网页版（静态 index.html/app.css/app.js，公开但限流，带 CSP + 禁嵌入），页面里不含任何令牌。"
+        },
+        {
+          "id": "mobilegate.enable.post",
+          "method": "POST",
+          "path": "/api/mobile-gate/enable",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "body": {
+              "enabled": "boolean（默认 true）",
+              "port": "integer?（1024..65535，默认 8920；故意避开主服务 8900~8912 扫描段）",
+              "tls": "boolean?（传 false 会被 400 拒绝——不允许明文离开回环）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "port": "integer",
+            "host": "string（0.0.0.0）",
+            "fingerprint": "string",
+            "addresses": "object[]{iface,ip,url}",
+            "enabled": "boolean（关闭时为 false）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "不允许明文：手机连接必须走 TLS"
+            },
+            {
+              "status": 500,
+              "error": "端口被占用 / 证书加载失败"
+            }
+          ],
+          "notes": "开启后立刻可在局域网访问；关闭会关闭监听（已配对设备的令牌保留，下次开启仍有效）。状态写回 config.mobileGate，重启后自动恢复。"
+        },
+        {
+          "id": "mobilegate.paircode.post",
+          "method": "POST",
+          "path": "/api/mobile-gate/pair-code",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "code": "string（6 位数字，一次性）",
+            "expiresAt": "integer（ms epoch，默认 5 分钟后过期）",
+            "ttlMs": "integer"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "同时最多 5 个未使用配对码，先等一下"
+            }
+          ],
+          "notes": "只能在回环面板调用；配对码不落盘（内存里，进程重启即失效）。"
+        },
+        {
+          "id": "mobilegate.pair.post",
+          "method": "POST",
+          "path": "/api/mobile-gate/pair",
+          "auth": "mobile-pairing",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "body": {
+              "code": "string（6 位配对码）",
+              "deviceName": "string（手机名字，≤40 字）",
+              "scope": "chat|readonly（可选，默认 chat）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "deviceId": "string",
+            "name": "string",
+            "scope": "string",
+            "token": "string（设备令牌，只返回这一次；服务端只存 sha256）",
+            "fingerprint": "string（证书指纹，供首次信任核对）",
+            "allow": "string[]（这台手机被允许的 method + 路径模式）",
+            "apiVersion": "integer=2"
+          },
+          "errors": [
+            {
+              "status": 401,
+              "error": "配对码不对/过期/已用过"
+            },
+            {
+              "status": 429,
+              "error": "配对尝试太频繁（同一 IP 5 次 / 5 分钟）"
+            }
+          ],
+          "notes": "HTTPS 网关上的公开接口（不需要令牌，但要配对码），也允许从回环调（本机调试）。配对成功与失败都进审计。"
+        },
+        {
+          "id": "mobilegate.self.get",
+          "method": "GET",
+          "path": "/api/mobile-gate/self",
+          "auth": "mobile-device",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "device": "object{id,name,scope}",
+            "version": "string",
+            "fingerprint": "string"
+          },
+          "errors": [
+            {
+              "status": 401,
+              "error": "手机没配对，或者这个令牌已失效"
+            }
+          ],
+          "notes": "只在 HTTPS 网关上提供（不在回环主服务上）：手机自检「我是谁、还能不能用」。"
+        },
+        {
+          "id": "mobilegate.devices.get",
+          "method": "GET",
+          "path": "/api/mobile-gate/devices",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "devices": "object[]{id,name,scope,createdAt,lastSeenAt,revokedAt,lastIp}"
+          },
+          "errors": [],
+          "notes": "只在回环面板；返回的是脱敏视图（不含 tokenHash）。"
+        },
+        {
+          "id": "mobilegate.revoke.post",
+          "method": "POST",
+          "path": "/api/mobile-gate/revoke",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "body": {
+              "deviceId": "string（撤销一台）",
+              "all": "boolean?（true=撤销全部有效设备）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "devices": "object[]（撤销后的列表）",
+            "revoked": "integer（all:true 时）"
+          },
+          "errors": [
+            {
+              "status": 200,
+              "error": "ok:false + error=没有这台设备"
+            }
+          ],
+          "notes": "撤销后旧令牌**立刻** 401（每次请求都查 devices.json 的内存副本）。只在回环面板。"
+        },
+        {
+          "id": "mobilegate.audit.get",
+          "method": "GET",
+          "path": "/api/mobile-gate/audit",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "query": {
+              "limit": "integer（1..200，默认 50）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "entries": "object[]{at,type,deviceId?,name?,ip?,method?,path?,reason?,fingerprint?}"
+          },
+          "errors": [],
+          "notes": "只在回环面板。事件类型：cert.create / gate.start / gate.stop / paircode.issue / pair.ok / pair.fail / pair.ratelimited / auth.fail / perm.deny / perm.deny.readonly / rate.limited / device.revoke / device.revoke-all / proxy.fail。**不记令牌明文**。"
         }
       ]
     },
@@ -2861,6 +3363,48 @@
             }
           ],
           "notes": "桌宠头像二进制；不是 JSON。"
+        },
+        {
+          "id": "pet.cache.get",
+          "method": "GET",
+          "path": "/api/pet/cache",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "dir": "string",
+            "count": "integer",
+            "bytes": "integer",
+            "removable": "integer",
+            "removableBytes": "integer",
+            "current": "object（角色 -> 当前素材 stamp）"
+          },
+          "errors": [],
+          "notes": "0.8.11 P1-6：桌宠立绘缓存统计；统计 <root>/data 与 <root> 下的 sprite-*.png。"
+        },
+        {
+          "id": "pet.cache.clean.post",
+          "method": "POST",
+          "path": "/api/pet/cache/clean",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": null,
+          "response": {
+            "ok": "boolean",
+            "removed": "integer",
+            "removedBytes": "integer",
+            "stats": "object（同 /api/pet/cache）"
+          },
+          "errors": [
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "0.8.11 P1-6：只删已知角色旧 stamp 的 sprite-*.png；当前 stamp、最近 10 分钟文件、未知文件保留。"
         }
       ]
     },
@@ -2879,6 +3423,8 @@
           "request": null,
           "response": {
             "ok": "boolean",
+            "name": "string（0.8.9 新增：新建的备份名，形如 backup-YYYYMMDD-HHMMSS）",
+            "dir": "string（0.8.9 新增：备份目录）",
             "message": "string"
           },
           "errors": [
@@ -2887,7 +3433,7 @@
               "error": "备份失败原因"
             }
           ],
-          "notes": "立即备份到 <数据根>/backups（可能耗时）。"
+          "notes": "立即备份到 <数据根>/backups（可能耗时，默认超时给足）。0.8.9 起会把新建的备份名回给面板，列表可以就地插入而不用等刷新。"
         },
         {
           "id": "backup.list.get",
@@ -2925,6 +3471,7 @@
           "response": {
             "ok": "boolean",
             "message": "string",
+            "safetyBackup": "string（0.8.9 新增：恢复前自动留的那份当前状态备份名；没做成时为空串）",
             "output": "string（恢复脚本输出尾部 ≤1500 字）"
           },
           "errors": [
@@ -2941,7 +3488,80 @@
               "error": "安装包缺少 scripts/restore.ps1 / String(e.message)"
             }
           ],
-          "notes": "恢复会覆盖当前数据（危险操作，必须二次确认）。恢复后需重启 DSH 让运行时重新加载数据。"
+          "notes": "恢复会覆盖当前数据（危险操作，必须二次确认）。0.8.9 起覆盖前会自动再备份一次当前状态（safetyBackup），完成后需重启 DSH 让运行时重新加载数据。"
+        },
+        {
+          "id": "backup.inspect.post",
+          "method": "POST",
+          "path": "/api/backup/inspect",
+          "auth": "default",
+          "sse": false,
+          "evidence": "live",
+          "request": {
+            "body": {
+              "name": "string（backup-YYYYMMDD-HHMMSS.zip）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "name": "string",
+            "zipMB": "number",
+            "at": "integer（备份文件 mtime，ms epoch）",
+            "hasManifest": "boolean",
+            "backup": "object{fileCount,pluginFiles,dataFiles,dataMB,characters[]}",
+            "current": "object{characters[]}",
+            "onlyInBackup": "string[]（恢复后会出现的角色）",
+            "onlyNow": "string[]（恢复后会消失的角色）",
+            "configOverwritten": "boolean（备份里有没有 data/config.json）"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "备份名不合法"
+            },
+            {
+              "status": 404,
+              "error": "找不到这个备份"
+            },
+            {
+              "status": 500,
+              "error": "String(e.message)"
+            }
+          ],
+          "notes": "0.8.9 新增。只读差异预览：读 zip 里的 manifest.json（PowerShell 的 ZipFile，不依赖第三方库），不碰任何数据，也不写盘。手机端不要调它（备份属于桌面端）。"
+        },
+        {
+          "id": "backup.delete.post",
+          "method": "POST",
+          "path": "/api/backup/delete",
+          "auth": "default",
+          "sse": false,
+          "evidence": "source",
+          "request": {
+            "body": {
+              "name": "string（必须严格匹配 backup-YYYYMMDD-HHMMSS.zip）"
+            }
+          },
+          "response": {
+            "ok": "boolean",
+            "name": "string",
+            "removedBytes": "integer"
+          },
+          "errors": [
+            {
+              "status": 400,
+              "error": "备份名不合法"
+            },
+            {
+              "status": 404,
+              "error": "找不到这个备份"
+            },
+            {
+              "status": 500,
+              "error": "删除失败：..."
+            }
+          ],
+          "notes": "0.8.11 P1-2：只删除 <数据根>/backups 下严格命名的 zip；不会动当前数据和其它文件。"
         }
       ]
     },
@@ -3216,7 +3836,7 @@
     }
   ],
   "totals": {
-    "groups": 14,
-    "endpoints": 141
+    "groups": 15,
+    "endpoints": 165
   }
 }

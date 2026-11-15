@@ -1,4 +1,4 @@
-﻿import http from 'node:http';
+import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -12,6 +12,8 @@ import { SyncStore } from './sync.mjs';
 import { DataStore } from './data-store.mjs';
 import { BUILTIN_SCENES } from './scenes.mjs';
 import { createVmChat } from './vm-chat.mjs';
+import { createVoice } from './voice.mjs';
+import { createMobileGate } from './mobile-gate.mjs';
 
 const RUNTIME_DIR = path.dirname(fileURLToPath(import.meta.url));
 const VERSION = (() => {
@@ -182,23 +184,54 @@ const PET_DEFAULT = {
   ],
 };
 function petCharId() {
-  // 桌宠贴图固定用桌宠自己的角色，不跟随「当前活动角色」，避免动作结束回待机时串成别的角色（如 小克）
+  // F-010：桌宠必须跟随「当前角色」。以前这里固定先返回 xiaojing，导致切到小克/大肥鱼后
+  // 名字、状态都变了，形象还是小鲸。现在只按当前角色解析：
+  //   · 她自己有 assets/pet/<id> 精灵目录 → 用她自己的图；
+  //   · 没有 → 仍然返回她自己的 id，让 /pet-sprite 回退到「她自己的头像」，绝不借别人的图。
+  const base = String(ACTIVE_CHAR || 'default')
+  return base || 'default'
+}
+
+// P1-1：有些角色的桌宠素材目录是从模板（default）整份复制过来的——看起来「她有自己的图」，
+// 其实还是小鲸的形象（0.8.11 报告：名字是小克，立绘仍是小鲸）。这里按文件内容判断：
+// 和 default 里同名图一模一样 → 视为模板图，不算她自己的素材，让桌宠改回她自己的头像。
+const PET_ART_ROOT = path.join(RUNTIME_DIR, 'assets', 'pet')
+const petArtSigCache = new Map()
+function petArtSig(file) {
   try {
-    const c = (CONFIG.pet && CONFIG.pet.character) || ''
-    const dir = path.join(RUNTIME_DIR, 'assets', 'pet')
-    const ok = (id) => { try { return fs.statSync(path.join(dir, String(id))).isDirectory() } catch { return false } }
-    if (c && ok(c)) return String(c)
-    if (ok('xiaojing')) return 'xiaojing'
-    if (ACTIVE_CHAR && ok(ACTIVE_CHAR)) return ACTIVE_CHAR
-    if (ok('default')) return 'default'
-    return ACTIVE_CHAR || 'default'
-  } catch (e) { return ACTIVE_CHAR || 'default' }
+    const st = fs.statSync(file)
+    const key = file + '|' + st.size + '|' + Math.round(st.mtimeMs)
+    if (petArtSigCache.has(key)) return petArtSigCache.get(key)
+    const sig = createHash('md5').update(fs.readFileSync(file)).digest('hex')
+    petArtSigCache.set(key, sig)
+    if (petArtSigCache.size > 240) petArtSigCache.clear()
+    return sig
+  } catch (e) { return '' }
+}
+function petArtIsTemplate(file) {
+  try {
+    const abs = path.resolve(file)
+    const root = path.resolve(PET_ART_ROOT)
+    if (!abs.startsWith(root + path.sep)) return false
+    const seg = abs.slice(root.length + 1).replace(/\\/g, '/').split('/')
+    const cid = seg.length > 1 ? seg[0] : ''
+    if (!cid || cid === 'default') return false
+    const leaf = seg[seg.length - 1]
+    const ownSize = fs.statSync(abs).size
+    for (const tpl of [path.join(root, 'default', leaf), path.join(root, 'default-' + leaf)]) {
+      if (!fs.existsSync(tpl)) continue
+      try { if (fs.statSync(tpl).size !== ownSize) continue } catch (e) { continue }
+      const a = petArtSig(tpl)
+      if (a && a === petArtSig(abs)) return true
+    }
+    return false
+  } catch (e) { return false }
 }
 
 function petFramesFor(charId) {
   try {
     const dir = path.join(RUNTIME_DIR, 'assets', 'pet', String(charId || 'default'))
-    const has = (n) => fs.existsSync(path.join(dir, n))
+    const has = (n) => { const f = path.join(dir, n); return fs.existsSync(f) && !petArtIsTemplate(f) }
     const idle = []
     for (const n of ['idle.png', 'idle0.png', 'idle1.png', 'idle2.png', 'idle3.png']) if (has(n)) idle.push('/pet-sprite/' + n)
     const walk = []
@@ -276,7 +309,7 @@ function petStatusPayload() {
   const lastHer = [...messages].reverse().find((m) => m.role === 'her');
   return {
     ok: true, running: petRunning(), serverTime: Date.now(),
-    character: { id: ACTIVE_CHAR, name: meta.name || '', sprite: characterSpriteUrl(ACTIVE_CHAR), hasPoses: characterHasPoses(ACTIVE_CHAR), avatar: '/api/pet/avatar?v=' + (() => { try { return Math.floor(fs.statSync(avatarPath()).mtimeMs); } catch { return 0; } })() },
+    character: { id: ACTIVE_CHAR, name: meta.name || '', petCharId: petCharId(), sprite: characterSpriteUrl(ACTIVE_CHAR), hasPoses: characterHasPoses(ACTIVE_CHAR), avatar: '/api/pet/avatar?v=' + (() => { try { return Math.floor(fs.statSync(avatarPath()).mtimeMs); } catch { return 0; } })() },
     place: { id: cur.placeId, name: cur.name, icon: cur.icon || '' },
     state,
     transport: cur.traveling ? (cur.traveling.modeLabel || '') : (cur.intercity ? (cur.intercity.modeLabel || '') : ''),
@@ -291,8 +324,16 @@ function petStatusPayload() {
 const MODEL_DEFAULT = { name: 'deepseek-flash', reasoningEffort: 'low', temperature: 0.9, maxTokens: 900, maxSteps: 20 };
 function loadModelCfg() { return { ...MODEL_DEFAULT, ...(CONFIG.model || {}) }; }
 function saveModelCfg(m) { CONFIG.model = m; saveConfig(); return m; }
-const WATCH_DEFAULT = { enabled: false, minMinutes: 20, maxMinutes: 40, nextAt: 0 };
+const WATCH_DEFAULT = { enabled: false, voice: true, minMinutes: 20, maxMinutes: 40, quietStart: 2, quietEnd: 7, nextAt: 0, lastAt: 0 };
 function loadWatchScreen() { return { ...WATCH_DEFAULT, ...(CONFIG.watchScreen || {}) }; }
+// 「她主动看屏幕」这次为什么没做：只放内存，供设置页/自检看，不写配置
+let WATCH_DEBUG = { checkedAt: 0, why: '尚未检查' };
+function inQuietHours(hour, start, end) {
+  const s = Number(start); const e = Number(end);
+  if (!Number.isFinite(s) || !Number.isFinite(e) || s === e) return false;
+  const h = Number(hour) || 0;
+  return s < e ? (h >= s && h < e) : (h >= s || h < e);
+}
 function saveWatchScreen(patch) {
   const cur = loadWatchScreen(); const next = { ...cur, ...(patch || {}) };
   if (next.enabled && !cur.enabled) next.nextAt = Date.now() + Math.round((Number(next.minMinutes) || 20) * 60000 * (0.8 + Math.random() * 0.4));
@@ -392,8 +433,41 @@ function addMessage(role, text, image, opts) {
   if (messages.length > 800) messages = messages.slice(-600);
   writeJson(messagesPath(), messages, { entity: 'messages', entityId: ACTIVE_CHAR });
   try { SYNC.record('message.append', 'message', msg.id, msg); } catch {}
+  // 语音是附加物：异步合成，失败只挂个标记，绝不影响文字（V15）
+  if (role === 'her') { try { VOICE.attachAudio(msg, voicePatch); } catch {} }
   return msg;
 }
+
+// ── 语音（0.8.3）────────────────────────────────────────────────────
+// provider 抽象在 runtime/voice.mjs；这里只负责：配置来源、事件下发、失败不阻塞。
+// 音频是异步挂上去的，面板靠 /api/events 带回的 voiceUpdates（按 rev 增量）补到消息上。
+let VOICE_REV = 0;
+let VOICE_UPDATES = [];
+const VOICE = createVoice({
+  dataRoot: ROOT,
+  getConfig: () => CONFIG,
+  saveConfig: () => saveConfig(),
+  log: (m) => { try { console.error('[voice]', m); } catch {} },
+  activeCharacter: () => ACTIVE_CHAR,
+  persistMessage: (msg) => persistVoiceMessage(msg),
+});
+function voicePatch(patch) {
+  VOICE_REV += 1;
+  VOICE_UPDATES.push(Object.assign({ rev: VOICE_REV }, patch || {}));
+  if (VOICE_UPDATES.length > 400) VOICE_UPDATES = VOICE_UPDATES.slice(-300);
+  return VOICE_REV;
+}
+// 音频合成完回写历史：切了角色就不写（避免把 A 的音频记到 B 的消息文件里）
+function persistVoiceMessage(msg) {
+  try {
+    if (!msg || msg.role !== 'her') return;
+    if (!messages.some((m) => m && m.id === msg.id)) return;
+    writeJson(messagesPath(), messages, { entity: 'messages', entityId: ACTIVE_CHAR });
+    SYNC.record('message.voice', 'message', msg.id, { id: msg.id, audio: msg.audio, audioDuration: msg.audioDuration || null });
+  } catch {}
+}
+
+// 语音输入（ASR）/ 双向对话已在 0.8.7 撤掉：只保留「她说话」。
 
 let MEM = null;
 // 旧版本把记忆/日记放在 data/memory、data/diary（全局，不分角色）。
@@ -484,6 +558,16 @@ function restoreCharacterWorld(id, adoptLegacy) {
     w = { maps: CONFIG.maps || (CONFIG.map ? [CONFIG.map] : null), activeMapId: CONFIG.activeMapId || '', location: CONFIG.location || null };
     CONFIG.worlds[id] = w;
   }
+  // F-007：这个角色还没有自己的世界（新建 / 刚导入的角色）→ 直接给完整默认地图，
+  // 不要留着 null 让下游各处分头兜底（那样舞台会像"渲染失败"）。
+  if (!w || !Array.isArray(w.maps) || !w.maps.length) {
+    w = {
+      maps: defaultMaps(),
+      activeMapId: 'map-main',
+      location: (w && w.location) || { mapId: 'map-main', placeId: 'home', since: Date.now(), manual: false },
+    };
+    CONFIG.worlds[id] = w;
+  }
   CONFIG.maps = (w && w.maps) || null;
   CONFIG.activeMapId = (w && w.activeMapId) || '';
   CONFIG.location = (w && w.location) || null;
@@ -491,7 +575,11 @@ function restoreCharacterWorld(id, adoptLegacy) {
 function activateCharacter(id) {
   const dir = ensureDirs(id);
   const switching = !!ACTIVE_CHAR && ACTIVE_CHAR !== id;
-  if (switching) snapshotCharacterWorld();
+  if (switching) {
+    // P2-3：记住「切走之前是谁」，删掉当前角色时可以回到她，而不是一律掉到列表第一个
+    CONFIG.prevCharacter = ACTIVE_CHAR;
+    snapshotCharacterWorld();
+  }
   CONFIG.activeCharacter = id; ACTIVE_CHAR = id;
   restoreCharacterWorld(id, !switching);
   saveConfig();
@@ -611,6 +699,17 @@ function normalizeVehicles(v) {
   }
   return out;
 }
+// F-007：新角色的默认世界 = 完整 13 地点 + 官方 2D 底图（和默认角色一致）。
+// 以前只在 loadMaps() 里"兜底"，一旦有别的分支先写了空 maps，新角色就会变成只有几个地点、
+// 没有底图的空舞台。这里做成一个显式工厂，activateCharacter 时直接落到这个角色自己的 world 里。
+function defaultMaps() {
+  return [{
+    id: 'map-main', name: '小鱼镇',
+    places: DEFAULT_PLACES.map((p) => ({ ...p })),
+    widthMeters: 2000, transport: 'auto', theme: 'town', displayMode: '2d',
+    image: { url: '/official-map.jpg' },
+  }];
+}
 function loadMaps() {
   const fix = (m) => ({
     ...m, places: normalizePlaces(m.places), widthMeters: Number(m.widthMeters) || 2000,
@@ -625,7 +724,7 @@ function loadMaps() {
   });
   if (Array.isArray(CONFIG.maps) && CONFIG.maps.length) return CONFIG.maps.map(fix);
   if (CONFIG.map && Array.isArray(CONFIG.map.places) && CONFIG.map.places.length) return [fix({ id: 'map-main', name: CONFIG.map.name || '小鱼镇', places: CONFIG.map.places })];
-  return [{ id: 'map-main', name: '小鱼镇', places: DEFAULT_PLACES.map((p) => ({ ...p })), widthMeters: 2000, transport: 'auto', theme: 'town', displayMode: '2d', image: { url: '/official-map.jpg' } }];
+  return defaultMaps();
 }
 function saveMaps(maps) {
   CONFIG.maps = maps;
@@ -732,6 +831,74 @@ function characterSpriteUrl(id) {
 // 该角色是否已导入 2D 姿态素材
 function characterHasPoses(id) {
   try { return fs.existsSync(path.join(RUNTIME_DIR, 'skeleton-assets', String(safeCharId(id)), 'poses', 'poses.json')) } catch (e) { return false }
+}
+
+// 3D 舞台用的「立绘」地址（F-004）：优先她自己导入的 idle 姿态图，其次 meta.sprite 指向的整图，
+// 都没有就返回空（3D 那边再退回程序化小人）。绝不回退到别的角色的素材。
+function stageStandeeUrl(id) {
+  const cid = safeCharId(id)
+  if (!cid) return ''
+  for (const root of [path.join(RUNTIME_DIR, 'skeleton-assets'), path.join(ROOT, 'skeleton-assets')]) {
+    for (const ext of ['png', 'jpg', 'webp']) {
+      const f = path.join(root, cid, 'poses', 'idle.' + ext)
+      try {
+        if (fs.existsSync(f)) return '/skeleton-assets/' + cid + '/poses/idle.' + ext + '?v=' + Math.floor(fs.statSync(f).mtimeMs)
+      } catch {}
+    }
+  }
+  // meta.sprite 指向整张立绘（不是 /pet-sprite/ 那种桌宠帧）时也能用
+  try {
+    const meta = readJson(path.join(CHARS_ROOT, cid, 'meta.json'), {}) || {}
+    const s = meta.sprite || meta.chibi || ''
+    if (typeof s === 'string' && /^\//.test(s) && s.indexOf('/pet-sprite/') !== 0) return s
+  } catch {}
+  return ''
+}
+
+// ── 角色附属资产的清理（F-002）──────────────────────────────────────────
+// 删角色只删 data/characters/<id> 会留下姿态目录 / poses.json / 精灵图缓存，舞台与 /api/stage/poses
+// 还会看到一个已经不存在的角色。这里把这些「属于这个 id」的东西一并清掉，规则很保守：
+//   · 只在已知根目录下、只删名字正好等于这个 id（或以 sprite-<id>- / <id>- 开头）的项；
+//   · 路径先 resolve 再比较，绝不允许跑出根目录（避免误删别的角色/用户的文件）；
+//   · 插件自带素材（default / xiaojing / xiaoke）永远不删 —— 那是发行包的一部分。
+const BUILTIN_CHAR_ASSET_IDS = ['default', 'xiaojing', 'xiaoke']
+
+function removeUnderRoot(rootDir, name) {
+  try {
+    if (!rootDir) return false
+    const base = path.resolve(rootDir)
+    const target = path.resolve(base, String(name || ''))
+    if (!name || target === base || !target.startsWith(base + path.sep)) return false
+    if (!fs.existsSync(target)) return false
+    fs.rmSync(target, { recursive: true, force: true })
+    return true
+  } catch (e) { return false }
+}
+
+function cleanupCharacterAssets(rawId) {
+  const id = safeCharId(rawId)
+  const removed = []
+  if (!id || id === 'default') return removed
+  const builtin = BUILTIN_CHAR_ASSET_IDS.includes(id)
+  // 姿态目录 + poses.json：插件运行目录与数据目录两处都查（老版本写在数据目录）
+  if (removeUnderRoot(path.join(RUNTIME_DIR, 'skeleton-assets'), id)) removed.push('runtime/skeleton-assets/' + id)
+  if (removeUnderRoot(path.join(ROOT, 'skeleton-assets'), id)) removed.push('skeleton-assets/' + id)
+  if (builtin) return removed
+  // 她自己的桌宠精灵图（assets/pet/<id>/ 整个目录）
+  if (removeUnderRoot(path.join(RUNTIME_DIR, 'assets', 'pet'), id)) removed.push('assets/pet/' + id)
+  // 散图：assets/pet/<id>-*.png 与老版本的 sprite-<id>-*.png 缓存
+  const sweep = (dir, prefix) => {
+    let names = []
+    try { names = fs.readdirSync(dir) } catch (e) { return }
+    for (const n of names) {
+      if (String(n).indexOf(prefix) !== 0) continue
+      if (removeUnderRoot(dir, n)) removed.push(String(n))
+    }
+  }
+  sweep(path.join(RUNTIME_DIR, 'assets', 'pet'), id + '-')
+  sweep(ROOT, 'sprite-' + id + '-')
+  sweep(path.join(ROOT, 'models'), 'sprite-' + id + '-')
+  return removed
 }
 
 function worldCharacters() {
@@ -2246,12 +2413,30 @@ async function resourcesInfo() {
   let mem = [];
   try {
     const { execFile } = await import('node:child_process');
+    // P2-5：以前只报 WorkingSet64，VBox 的虚拟机内存大量是映射/私有提交，只看工作集
+    // 会出现「6 / 67 / 9 MB」这种明显偏小、和虚拟机实际占用不符的数字。这里同时报
+    // 私有提交（PrivateMemorySize64，更接近真实占用）和工作集，面板上标明是进程占用。
     const out = await new Promise((resolve) => {
-      execFile('powershell.exe', ['-NoProfile', '-Command', "Get-Process VBoxHeadless,emulator,qemu-system-x86_64 -ErrorAction SilentlyContinue | ForEach-Object { $_.ProcessName + ':' + [math]::Round($_.WorkingSet64/1MB) }"], { timeout: 8000, windowsHide: true }, (e, o) => resolve(String(o || '').trim()));
+      execFile('powershell.exe', ['-NoProfile', '-Command', "Get-Process VBoxHeadless,VirtualBoxVM,VBoxSVC,VBoxSDS,emulator,qemu-system-x86_64 -ErrorAction SilentlyContinue | ForEach-Object { $_.ProcessName + ':' + [math]::Round($_.WorkingSet64/1MB) + ':' + [math]::Round($_.PrivateMemorySize64/1MB) }"], { timeout: 8000, windowsHide: true }, (e, o) => resolve(String(o || '').trim()));
     });
     mem = out.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
   } catch {}
-  const data = { space, phone, mem };
+  // F-015 / P2-5：内存统一成 { name, mb, workingMb } 结构（mb = 私有提交），别让前端去猜格式
+  const memItems = mem.map((s) => {
+    const parts = s.split(':');
+    if (parts.length < 2) return null;
+    const name = parts[0].trim();
+    const ws = Math.round(Number(parts[1]));
+    const priv = parts.length > 2 ? Math.round(Number(parts[2])) : ws;
+    const mb = Number.isFinite(priv) && priv > 0 ? priv : ws;
+    if (!name || !Number.isFinite(mb) || mb < 0) return null;
+    return { name, mb, workingMb: Number.isFinite(ws) && ws > 0 ? ws : mb };
+  }).filter(Boolean);
+  const memTotalMB = memItems.reduce((a, b) => a + b.mb, 0);
+  const data = {
+    space, phone, mem, memItems, memTotalMB,
+    memNote: memItems.length ? '按虚拟机进程的私有提交内存统计（不含虚拟机内部缓存/页面文件，可能仍低于实际占用）' : '',
+  };
   resourcesCache = { at: Date.now(), data };
   return data;
 }
@@ -2264,6 +2449,14 @@ async function vmRunningNow() {
   } catch { return false; }
 }
 function kernelState() { try { return JSON.parse(fs.readFileSync(KERNEL_STATE, 'utf8')); } catch { return null; } }
+// P2-2：读 PNG 头拿宽高，用来判断「手机截图」是不是真的竖屏手机画面
+function pngSizeOf(file) {
+  try {
+    const b = fs.readFileSync(file);
+    if (b.length < 24 || b.readUInt32BE(0) !== 0x89504e47 || b.readUInt32BE(4) !== 0x0d0a1a0a) return null;
+    return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  } catch (e) { return null; }
+}
 function kernelBase() { const s = kernelState(); if (!s || !s.port) throw new Error('桌面内核没在运行'); return 'http://127.0.0.1:' + s.port + '/api/dsh'; }
 function kernelOwner() { return createHash('sha256').update('dsh-screen-beyond:' + String(ACTIVE_CHAR || 'default')).digest('hex'); }
 async function kernelCall(p, body) {
@@ -2313,6 +2506,19 @@ const UI_THEMES = [
 function uiThemeCurrent() {
   const id = String(CONFIG.uiTheme || 'warm');
   return UI_THEMES.some((x) => x.id === id) ? id : 'warm';
+}
+// 面板配色（DSH 原生面板用）：和上面旧网页的 uiTheme 是两套，互不影响
+const PANEL_THEME_MODES = ['follow', 'light', 'dark'];
+const PANEL_THEME_ACCENTS = ['blue', 'cyan', 'violet', 'rose', 'emerald', 'amber', 'coral', 'graphite'];
+const PANEL_THEME_DEFAULT = { mode: 'follow', accent: 'blue' };
+function panelThemeCurrent() {
+  const t = CONFIG.panelTheme || {};
+  const mode = String(t.mode || '');
+  const accent = String(t.accent || '');
+  return {
+    mode: PANEL_THEME_MODES.includes(mode) ? mode : PANEL_THEME_DEFAULT.mode,
+    accent: PANEL_THEME_ACCENTS.includes(accent) ? accent : PANEL_THEME_DEFAULT.accent,
+  };
 }
 const CHAT_BACKGROUNDS = [
   { id: 'sunset', name: '黄昏', file: 'chat-bg-sunset.jpg' },
@@ -2775,7 +2981,7 @@ async function runSpaceTool(args) {
   const env = loadEnv();
   const action = String(args.action || 'look');
   if (env.space === 'off') return { text: '用户关掉了虚拟屏幕权限。' };
-  try { if (!fs.existsSync(path.join(ENV_DIR, 'space_ctl.py'))) return { text: '完整版辅助脚本没配好：请把设置里的 envDir（或 DSH_COMPANION_ENV）指向包含 space_ctl.py 的目录，默认是随包 env 目录或你的 envDir。纯聊天不受影响。' }; } catch {}
+  try { if (!fs.existsSync(path.join(ENV_DIR, 'space_ctl.py'))) return { text: '完整版辅助脚本没配好：请把设置里的 envDir（或 DSH_COMPANION_ENV）指向包含 space_ctl.py 的目录，默认是随包 env 目录或你的 envDir。无虚拟机模式不受影响。' }; } catch {}
   const up = await ensureSpaceUp(env);
   if (!up.ok) return { text: up.reason };
   if (action === 'look') {
@@ -2852,7 +3058,7 @@ async function runPhoneTool(args) {
   const env = loadEnv();
   const action = String(args.action || 'look');
   if (env.phone === 'off') return { text: '用户关掉了手机权限。' };
-  try { if (!fs.existsSync(path.join(ENV_DIR, 'phone_ctl.py'))) return { text: '完整版辅助脚本没配好：请把设置的 envDir（或 DSH_COMPANION_ENV）指向包含 phone_ctl.py 的目录，默认是随包 env 目录或你的 envDir。纯聊天不受影响。' }; } catch {}
+  try { if (!fs.existsSync(path.join(ENV_DIR, 'phone_ctl.py'))) return { text: '完整版辅助脚本没配好：请把设置的 envDir（或 DSH_COMPANION_ENV）指向包含 phone_ctl.py 的目录，默认是随包 env 目录或你的 envDir。无虚拟机模式不受影响。' }; } catch {}
   const upP = await ensurePhoneUp(env);
   if (!upP.ok) return { text: upP.reason };
   if (action === 'look') {
@@ -3118,6 +3324,19 @@ async function getUpdater() {
   }
   return UPDATER;
 }
+// F-009：安装方式（git 检出 / link / npm）由 updater 那边统一判断，/api/version 也报这一份，
+// 面板不再自己按「有 package.json 就是 npm」猜。
+let INSTALL_KIND_CACHE = '';
+async function installKindInfo() {
+  if (INSTALL_KIND_CACHE) return INSTALL_KIND_CACHE;
+  try {
+    const m = await import('./updater.mjs');
+    INSTALL_KIND_CACHE = m.detectInstallKind(path.resolve(RUNTIME_DIR, '..'));
+  } catch {
+    INSTALL_KIND_CACHE = 'unknown';
+  }
+  return INSTALL_KIND_CACHE;
+}
 /** 把 /models/xxx.jpg 这种运行时地址换成磁盘绝对路径；dataUrl 原样返回（适配器支持）。 */
 function localImagePathForSend(u) {
   const s = String(u || "");
@@ -3358,11 +3577,22 @@ const server = http.createServer(async (req, res) => {
         dataRoot: ROOT,
         auth: { mode: API_TOKEN ? 'token' : 'loopback', tokenEndpoint: '/api/token', header: 'x-companion-token', cookie: 'companion_token', allowedOrigins: ['127.0.0.1', 'localhost', '::1', 'dsh-app://app'] },
         features: {
-          chat: true, stream: true, stage2d: true, stage3d: false,
+          // F-009：能力标志必须和面板实际能做的事一致（3D 舞台在原生面板里是可用的，
+          // 只是 WebGL 不可用时自动回退 2D）。关于页也读这一份，不再各处自己写。
+          chat: true, stream: true, stage2d: true, stage3d: true,
           mapView: true, mapEdit: true, settings: true, screen: true,
           pet: true, vmChat: true, memory: true, diary: true, backup: true,
           sync: true, image: true, weatherFx: true, legacyWeb: legacyWebEnabled(),
         },
+        // 版本/安装方式/旧网页码统一在这里给，面板不再自己猜
+        install: { kind: await installKindInfo(), legacyWebStatus: legacyWebEnabled() ? 200 : 410 },
+        // 手机门（桌面端）能力：手机在**配对之前**就要靠它判断「这台电脑能不能连、怎么连」
+        mobileGate: (() => {
+          try {
+            const c = CONFIG.mobileGate || {};
+            return { enabled: !!c.enabled, tls: true, pairing: 'code', port: Number(c.port) || 8920, scopes: ['chat', 'readonly'] };
+          } catch (e) { return { enabled: false, tls: true, pairing: 'code', port: 8920, scopes: ['chat', 'readonly'] }; }
+        })(),
         schema: { contract: 'docs/API-CONTRACT.md', apiIndex: 'docs/schema/api-index.json', models: 'docs/schema/models.json' },
         endpoints: { status: '/api/status', events: '/api/events', chat: '/api/chat', cancel: '/api/chat/cancel', stream: '/api/stream', stage: '/api/stage', map: '/api/map', screen: '/api/screen/info' },
       });
@@ -3382,6 +3612,76 @@ const server = http.createServer(async (req, res) => {
       const raw = await readBody(req);
       try { req._json = raw.trim() ? JSON.parse(raw) : {}; }
       catch { json(res, 400, { ok: false, error: '请求格式不正确' }); return; }
+    }
+    // ---------- 手机门（桌面端）：状态 / 开关 / 配对码 / 设备 / 撤销 / 审计 ----------
+    // 这些只在回环主服务上暴露（手机走的是另一个 HTTPS 端口上的网关）。
+    if (req.method === 'GET' && url.pathname === '/api/mobile-gate/status') {
+      const g = mobileGate();
+      if (!g) { json(res, 500, { ok: false, error: '手机门模块不可用（证书或目录初始化失败）' }); return; }
+      try {
+        g.ensureCert(false);
+        json(res, 200, g.status());
+      } catch (e) { json(res, 500, { ok: false, error: String((e && e.message) || e) }); }
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/mobile-gate/enable') {
+      const g = mobileGate();
+      if (!g) { json(res, 500, { ok: false, error: '手机门模块不可用' }); return; }
+      const b = (req._json || {});
+      const want = b.enabled === undefined ? true : !!b.enabled;
+      if (want) {
+        if (Number(b.port) >= 1024 && Number(b.port) <= 65535) g.cfg.port = Number(b.port);
+        // 明确拒绝明文：没有 TLS 就不许离开回环（MOBILE-GATE §4.3 第 4 条）
+        if (b.tls === false) { json(res, 400, { ok: false, error: '不允许明文：手机连接必须走 TLS' }); return; }
+        const r = await g.start();
+        CONFIG.mobileGate = { ...(CONFIG.mobileGate || {}), enabled: !!r.ok, port: g.cfg.port };
+        saveConfig();
+        json(res, r.ok ? 200 : 500, Object.assign({ ok: !!r.ok }, r, r.ok ? {} : { error: r.error }));
+        return;
+      }
+      await g.stop();
+      CONFIG.mobileGate = { ...(CONFIG.mobileGate || {}), enabled: false };
+      saveConfig();
+      json(res, 200, { ok: true, enabled: false });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/mobile-gate/pair-code') {
+      const g = mobileGate();
+      if (!g) { json(res, 500, { ok: false, error: '手机门模块不可用' }); return; }
+      try {
+        g.ensureCert(false);
+        json(res, 200, g.issuePairCode());
+      } catch (e) { json(res, 500, { ok: false, error: String((e && e.message) || e) }); }
+      return;
+    }
+    // 回环上也允许配对：方便本机调试 / 冒烟测试（手机走网关那个端口）
+    if (req.method === 'POST' && url.pathname === '/api/mobile-gate/pair') {
+      const g = mobileGate();
+      if (!g) { json(res, 500, { ok: false, error: '手机门模块不可用' }); return; }
+      const b = (req._json || {});
+      const r = g.pair(b.code, b.deviceName, '127.0.0.1', b.scope);
+      json(res, r.ok ? 200 : 401, r);
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/mobile-gate/devices') {
+      const g = mobileGate();
+      if (!g) { json(res, 500, { ok: false, error: '手机门模块不可用' }); return; }
+      json(res, 200, { ok: true, devices: g.devices.list() });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/mobile-gate/revoke') {
+      const g = mobileGate();
+      if (!g) { json(res, 500, { ok: false, error: '手机门模块不可用' }); return; }
+      const b = (req._json || {});
+      if (b.all === true) { json(res, 200, g.revokeAll()); return; }
+      json(res, 200, g.revoke(b.deviceId));
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/mobile-gate/audit') {
+      const g = mobileGate();
+      if (!g) { json(res, 500, { ok: false, error: '手机门模块不可用' }); return; }
+      json(res, 200, { ok: true, entries: g.audit.tail(Number(url.searchParams.get('limit') || 50)) });
+      return;
     }
     // ---------- 手机端同步地基（v1，仅协议 + 事件日志；合并尚未实现） ----------
     if (req.method === 'GET' && url.pathname === '/api/data/revisions') {
@@ -3555,6 +3855,80 @@ const server = http.createServer(async (req, res) => {
       } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
       return;
     }
+    // F-020：恢复前的「差异预览」——只读，不碰任何数据。
+    // 读备份 zip 里的 manifest.json（PowerShell 的 ZipFile，不依赖第三方库），
+    // 再和当前数据目录对比，让用户先看清"会覆盖掉什么"。
+    if (req.method === 'POST' && url.pathname === '/api/backup/inspect') {
+      const b = (req._json || {});
+      const name = String(b.name || '');
+      if (!/^backup-\d{8}-\d{6}\.zip$/.test(name)) { json(res, 400, { ok: false, error: '备份名不合法' }); return; }
+      const zipPath = path.join(ROOT, 'backups', name);
+      if (!fs.existsSync(zipPath)) { json(res, 404, { ok: false, error: '找不到这个备份' }); return; }
+      try {
+        const { execFile } = await import('node:child_process');
+        // 路径走环境变量传进 PowerShell：-Command 后面跟的位置参数不会进 $args[0]
+        const script = [
+          'Add-Type -AssemblyName System.IO.Compression.FileSystem',
+          '$zip = $env:SBC_BACKUP_ZIP',
+          'if (-not $zip -or -not (Test-Path $zip)) { Write-Output "{}"; exit 0 }',
+          '$z = [System.IO.Compression.ZipFile]::OpenRead($zip)',
+          'try {',
+          '  $e = $z.Entries | Where-Object { $_.FullName -eq "manifest.json" -or $_.FullName -like "*/manifest.json" } | Select-Object -First 1',
+          '  if (-not $e) { Write-Output "{}" } else {',
+          '    $sr = New-Object System.IO.StreamReader($e.Open())',
+          '    $txt = $sr.ReadToEnd(); $sr.Close()',
+          '    Write-Output $txt',
+          '  }',
+          '} finally { $z.Dispose() }',
+        ].join('; ');
+        const raw = await new Promise((resolve) => {
+          execFile('powershell.exe', ['-NoProfile', '-Command', script], {
+            timeout: 60000, windowsHide: true, maxBuffer: 16 * 1024 * 1024,
+            env: { ...process.env, SBC_BACKUP_ZIP: zipPath },
+          }, (e, out) => resolve(String(out || '')));
+        });
+        let manifest = null;
+        try { manifest = JSON.parse(String(raw || '').trim() || 'null'); } catch { manifest = null; }
+        const files = Array.isArray(manifest) ? manifest : [];
+        const charsInBackup = new Set();
+        let dataFiles = 0;
+        let dataBytes = 0;
+        let pluginFiles = 0;
+        for (const f of files) {
+          const p = String(f && f.path || '').replace(/\\/g, '/');
+          const size = Number(f && f.size) || 0;
+          if (p.indexOf('data/characters/') === 0) {
+            dataFiles++;
+            dataBytes += size;
+            const seg = p.split('/');
+            if (seg[2]) charsInBackup.add(seg[2]);
+          } else if (p.indexOf('data/') === 0) {
+            dataFiles++;
+            dataBytes += size;
+          } else if (p.indexOf('plugin/') === 0) {
+            pluginFiles++;
+          }
+        }
+        const curChars = listCharacters();
+        const curIds = curChars.map((c) => String(c.id));
+        const backupIds = [...charsInBackup];
+        const st = fs.statSync(zipPath);
+        json(res, 200, {
+          ok: true,
+          name,
+          zipMB: Math.round((st.size / 1048576) * 10) / 10,
+          at: st.mtimeMs,
+          hasManifest: !!manifest,
+          backup: { fileCount: files.length, pluginFiles, dataFiles, dataMB: Math.round((dataBytes / 1048576) * 10) / 10, characters: backupIds },
+          current: { characters: curIds },
+          // 差异：只在备份里有的角色→恢复后会出现；只在现在有的→恢复后会消失
+          onlyInBackup: backupIds.filter((x) => curIds.indexOf(x) === -1),
+          onlyNow: curIds.filter((x) => backupIds.indexOf(x) === -1),
+          configOverwritten: files.some((f) => String((f && f.path) || '').replace(/\\/g, '/') === 'data/config.json'),
+        });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message || e) }); }
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/api/backup/restore') {
       const b = (req._json || {});
       const name = String(b.name || '');
@@ -3563,19 +3937,42 @@ const server = http.createServer(async (req, res) => {
       if (!fs.existsSync(zipPath)) { json(res, 404, { ok: false, error: '找不到这个备份' }); return; }
       const script = path.join(pluginRootDir(), 'scripts', 'restore.ps1');
       if (!fs.existsSync(script)) { json(res, 500, { ok: false, error: '安装包缺少 scripts/restore.ps1' }); return; }
+      // F-020：覆盖式恢复前先自动留一份"当前状态"的备份，出问题还能回去
+      let safety = '';
+      try { const sb = await runBackup(); if (sb && sb.ok) safety = String(sb.name || ''); } catch {}
       try {
         const { execFile } = await import('node:child_process');
         const out = await new Promise((resolve) => {
           execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Zip', zipPath], { timeout: 300000, windowsHide: true }, (e, stdout) => resolve({ e, out: String(stdout || '') }));
         });
-        json(res, 200, { ok: !out.e, message: '恢复完成，请重启 DSH 让运行时重新加载数据', output: out.out.slice(-1500) });
+        const msg = '恢复完成，请重启 DSH 让运行时重新加载数据' + (safety ? '（恢复前已自动备份为 ' + safety + '，有问题可以再恢复回来）' : '');
+        json(res, 200, { ok: !out.e, message: msg, safetyBackup: safety, output: out.out.slice(-1500) });
       } catch (e) { json(res, 500, { ok: false, error: String(e.message) }); }
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/backup') {
       const r = await runBackup();
       if (!r.ok) { json(res, 500, { ok: false, error: r.error }); return; }
-      json(res, 200, { ok: true, message: '正在备份到 ' + path.join(ROOT, 'backups') });
+      // F-020：把新建的备份名回给面板，列表可以立刻插进去，不用等下次刷新
+      json(res, 200, { ok: true, name: r.name || '', dir: r.outRoot || '', message: '备份完成：' + (r.name || '已生成') + '（' + path.join(ROOT, 'backups') + '）' });
+      return;
+    }
+    // P1-2：备份只能建不能删 → 给面板一个受控删除入口。
+    // 只允许 backups/ 下严格匹配命名规则的 zip；先 resolve 保证不跑出目录。
+    if (req.method === 'POST' && url.pathname === '/api/backup/delete') {
+      const b = (req._json || {});
+      const name = String(b.name || '');
+      if (!/^backup-\d{8}-\d{6}\.zip$/.test(name)) { json(res, 400, { ok: false, error: '备份名不合法' }); return; }
+      const dir = path.resolve(path.join(ROOT, 'backups'));
+      const target = path.resolve(path.join(dir, name));
+      if (!target.startsWith(dir + path.sep)) { json(res, 400, { ok: false, error: '备份路径不合法' }); return; }
+      if (!fs.existsSync(target)) { json(res, 404, { ok: false, error: '找不到这个备份' }); return; }
+      try {
+        const st = fs.statSync(target);
+        fs.unlinkSync(target);
+        console.log('[companion] backup deleted: ' + name + ' (' + st.size + ' bytes)');
+        json(res, 200, { ok: true, name, removedBytes: st.size });
+      } catch (e) { json(res, 500, { ok: false, error: '删除失败：' + String((e && e.message) || e) }); }
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/resources') {
@@ -3720,9 +4117,23 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/screen/phone') {
       try {
         const out = path.join(ROOT, 'data', 'screens', 'phone.png');
+        // P2-2：以前手机没开也会去截一张，结果把虚拟机/桌面画面塞进「她的手机」卡里，
+        // 图文矛盾。现在：先确认真有 adb 设备，再验一下截出来是不是竖屏手机画面。
+        if (!(await adbDevicePresent())) {
+          res.writeHead(503, { 'content-type': 'text/plain;charset=utf-8' });
+          res.end('手机没开（Waydroid 未运行）：先点「启动手机」，或先打开「她自己的屏幕」');
+          return;
+        }
         fs.mkdirSync(path.dirname(out), { recursive: true });
         const r = await runPy('phone_ctl.py', ['shot', out], 12000);
         if (!r.ok || !fs.existsSync(out)) { res.writeHead(503, {'content-type':'text/plain;charset=utf-8'}); res.end('手机截图失败'); return; }
+        const sz = pngSizeOf(out);
+        if (!sz) { res.writeHead(503, {'content-type':'text/plain;charset=utf-8'}); res.end('手机截图不是有效 PNG'); return; }
+        if (sz.w >= sz.h) {
+          res.writeHead(503, { 'content-type': 'text/plain;charset=utf-8' });
+          res.end('截到的不是手机竖屏画面（' + sz.w + '×' + sz.h + '）——手机窗口可能没开，先「启动手机」再刷新');
+          return;
+        }
         res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
         res.end(fs.readFileSync(out));
       } catch (e) { res.writeHead(503, {'content-type':'text/plain;charset=utf-8'}); res.end('手机不可用'); }
@@ -3801,6 +4212,15 @@ const server = http.createServer(async (req, res) => {
       const mime = buf[0] === 0xFF && buf[1] === 0xD8 ? 'image/jpeg' : (buf[0] === 0x52 && buf[1] === 0x49 ? 'image/webp' : 'image/png');
       res.writeHead(200, { 'content-type': mime, 'cache-control': 'no-store' }); res.end(buf); return;
     }
+    if (req.method === 'GET' && url.pathname.startsWith('/voice/audio/')) {
+      const name = path.basename(decodeURIComponent(url.pathname.slice(13)));
+      const p = VOICE.resolveFile(name);
+      if (!p || !fs.existsSync(p)) { res.writeHead(404); res.end('not found'); return; }
+      const buf = fs.readFileSync(p);
+      res.writeHead(200, { 'content-type': VOICE.mimeFor(name), 'cache-control': 'public, max-age=604800', 'content-length': buf.length });
+      res.end(buf);
+      return;
+    }
     if (req.method === 'GET' && url.pathname.startsWith('/images/')) {
       const name = path.basename(decodeURIComponent(url.pathname.slice(8)));
       if (!name || name.includes('..')) { res.writeHead(404); res.end('not found'); return; }
@@ -3854,7 +4274,13 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/api/events') {
       const since = Number(url.searchParams.get('since') || 0);
-      json(res, 200, { messages: messages.filter((m) => Number(m.id) > since && !m.hidden), typing, lastTurnAt, usage: lastUsage, mode: effectiveMode() });
+      const voiceSince = Number(url.searchParams.get('voiceSince') || 0);
+      json(res, 200, {
+        messages: messages.filter((m) => Number(m.id) > since && !m.hidden),
+        typing, lastTurnAt, usage: lastUsage, mode: effectiveMode(),
+        voiceRev: VOICE_REV,
+        voiceUpdates: VOICE_UPDATES.filter((u) => Number(u.rev) > voiceSince),
+      });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/chat') {
@@ -3880,18 +4306,28 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-function importMemoryItems(raw) {
+// F-021：拆句规则可配置（原来写死成 。！？；;），并且把「哪些行解析不出东西」也报出来
+function importMemoryItems(raw, opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  const keepPrefix = o.keepPrefix === true;
+  const perLineOnly = o.perLineOnly === true;
+  const splitOnComma = o.splitOnComma === true;
+  const splitRe = perLineOnly
+    ? /[\n]+/
+    : (splitOnComma ? /[。！？!?；;，,]+/ : /[。！？!?；;]+/);
+  const maxLenRaw = Number(o.maxLen);
+  const maxLen = Number.isFinite(maxLenRaw) && maxLenRaw > 0 ? Math.max(8, Math.min(200, Math.round(maxLenRaw))) : 90;
   const out = [];
   const seen = new Set();
   const add = (value) => {
     let s = String(value ?? '').replace(/\r/g, '').trim();
     s = s.replace(/^[-*•·]\s*/, '').replace(/^#+\s*/, '').trim();
-    s = s.replace(/^(用户|你|我|她|助手|assistant|user|human|ai)\s*[:：]\s*/i, '').trim();
+    if (!keepPrefix) s = s.replace(/^(用户|你|我|她|助手|assistant|user|human|ai)\s*[:：]\s*/i, '').trim();
     if (s.length < 2) return;
-    for (const part of s.split(/[。！？!?；;\n]+/)) {
+    for (const part of s.split(splitRe)) {
       let t = part.trim().replace(/\s+/g, ' ');
       if (t.length < 2) continue;
-      if (t.length > 90) t = t.slice(0, 90);
+      if (t.length > maxLen) t = t.slice(0, maxLen);
       if (seen.has(t)) continue;
       seen.add(t);
       out.push({ text: t, tags: ['导入'] });
@@ -3901,28 +4337,80 @@ function importMemoryItems(raw) {
     if (typeof v === 'string') { add(v); return; }
     if (Array.isArray(v)) { for (const x of v) walk(x); return; }
     if (v && typeof v === 'object') {
+      // 单行 JSON 常见形态：{fact:"..."} / {text:"..."} / {content:"..."}
       if (typeof v.text === 'string') { add(v.text); return; }
       if (typeof v.content === 'string') { add(v.content); return; }
+      if (typeof v.fact === 'string') { add(v.fact); return; }
       for (const k of ['memories', 'facts', 'messages', 'data', 'items', 'list']) if (k in v) walk(v[k]);
     }
   };
+  // P2-2：混排文本里可能夹着单行/多行 JSON。逐行先尝试 JSON，解析成功就按结构取；
+  // 解析失败才当普通文本。整段 JSON 仍优先整体解析，保持旧行为。
+  const parseJsonLine = (line) => {
+    const t = String(line || '').trim();
+    if (!/^[\[{]/.test(t)) return false;
+    try { walk(JSON.parse(t)); return true; } catch { return false; }
+  };
   const src = raw.trim();
-  if (src.startsWith('[') || src.startsWith('{')) {
-    try { walk(JSON.parse(src)); }
-    catch { for (const line of src.split(/\r?\n/)) add(line); }
-  } else {
-    for (const line of src.split(/\r?\n/)) add(line);
+  if (!src) return out;
+  if ((src.startsWith('[') || src.startsWith('{')) && (() => { try { walk(JSON.parse(src)); return true; } catch { return false; } })()) {
+    return out.slice(0, 500);
+  }
+  for (const line of src.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    if (!parseJsonLine(line)) add(line);
   }
   return out.slice(0, 500);
 }
 
+// 导入前预览（F-021）：和真正导入用同一份解析规则，保证"预览到多少就导入多少"。
+// 同时把「解析不出任何记忆的行号」带回去（最多 20 个），失败时能直接定位。
+function importMemoryPreview(raw, opts) {
+  const text = String(raw || '');
+  const items = importMemoryItems(text, opts);
+  const lines = text.replace(/\r/g, '').split('\n');
+  const isJson = /^\s*[\[{]/.test(text);
+  const emptyLines = [];
+  if (!isJson) {
+    const limit = Math.min(lines.length, 300);
+    for (let i = 0; i < limit; i++) {
+      const l = lines[i].trim();
+      if (!l) continue;
+      if (!importMemoryItems(l, opts).length && emptyLines.length < 20) emptyLines.push(i + 1);
+    }
+  }
+  return {
+    total: items.length,
+    lineCount: lines.length,
+    nonEmptyLines: lines.filter((l) => l.trim()).length,
+    isJson,
+    emptyLines,
+    preview: items.slice(0, 5).map((x) => String(x.text || '')),
+  };
+}
+
+    // F-021：导入前预览（只读，不写任何记忆）
+    if (req.method === 'POST' && url.pathname === '/api/memory/import/preview') {
+      const b = (req._json || {});
+      const raw = String(b.text || '').slice(0, 300000);
+      if (!raw.trim()) { json(res, 400, { ok: false, error: '内容为空：先粘贴要导入的记忆文本' }); return; }
+      try { json(res, 200, Object.assign({ ok: true }, importMemoryPreview(raw, b.opts || {}))); }
+      catch (e) { json(res, 500, { ok: false, error: String(e.message || e) }); }
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/api/memory/import') {
       const b = (req._json || {});
       if (!guardRev(res, 'memory-facts', ACTIVE_CHAR, b.expectedRev)) return;
       const raw = String(b.text || '').slice(0, 300000);
       if (!raw.trim()) { json(res, 400, { ok: false, error: '导入内容为空' }); return; }
-      const items = importMemoryItems(raw);
-      if (!items.length) { json(res, 400, { ok: false, error: '没有解析出可用记忆' }); return; }
+      const items = importMemoryItems(raw, b.opts || {});
+      if (!items.length) {
+        // F-021：失败时给行号，别只说"没有解析出可用记忆"
+        const pv = importMemoryPreview(raw, b.opts || {});
+        const where = pv.emptyLines.length ? '（第 ' + pv.emptyLines.join('、') + ' 行都没解析出内容，检查一下拆句规则/是不是空行）' : '';
+        json(res, 400, { ok: false, error: '没有解析出可用记忆' + where, emptyLines: pv.emptyLines, lineCount: pv.lineCount });
+        return;
+      }
       const importance = Math.max(0, Math.min(1, Number(b.importance) >= 0 ? Number(b.importance) : 0.5));
       const pinNew = !!b.pinNew;
       const added = MEM.addFacts(items.map((it) => ({ ...it, importance })), Date.now());
@@ -3936,6 +4424,7 @@ function importMemoryItems(raw) {
       json(res, 200, {
         ok: true,
         total: items.length,
+        lineCount: raw.replace(/\r/g, '').split('\n').length,
         added: added.filter((x) => !x.merged).length,
         merged: added.filter((x) => x.merged).length,
         stats: MEM.stats(),
@@ -3959,8 +4448,17 @@ function importMemoryItems(raw) {
     if (req.method === 'POST' && url.pathname === '/api/memory/delete') {
       const b = (req._json || {});
       if (!guardRev(res, 'memory-facts', ACTIVE_CHAR, b.expectedRev)) return;
-      MEM.facts = MEM.facts.filter((x) => Number(x.id) !== Number(b.id)); MEM.save();
-      json(res, 200, { ok: true });
+      // P3-1：以前只认单个 id，传 {ids:[...]} 这种错误字段也返回 ok 但什么都不删。
+      // 现在：只接受 id（可传 id 数组，逐条删），拒绝未知字段；一条都没匹配上就报 404，不再假成功。
+      const unknown = Object.keys(b || {}).filter((k) => !['id', 'ids', 'expectedRev'].includes(k));
+      if (unknown.length) { json(res, 400, { ok: false, error: '不认识的字段：' + unknown.join(', ') + '（这条接口只支持 id / ids / expectedRev）' }); return; }
+      const wanted = (Array.isArray(b.ids) ? b.ids : [b.id]).map((x) => Number(x)).filter((n) => Number.isFinite(n));
+      if (!wanted.length) { json(res, 400, { ok: false, error: '缺少 id（要么 id，要么 ids: [...]）' }); return; }
+      const before = Array.isArray(MEM.facts) ? MEM.facts.length : 0;
+      MEM.facts = MEM.facts.filter((x) => !wanted.includes(Number(x.id))); MEM.save();
+      const removed = before - (Array.isArray(MEM.facts) ? MEM.facts.length : 0);
+      if (!removed) { json(res, 404, { ok: false, error: '没有找到这些记忆（可能已经删过了）', total: MEM.facts.length }); return; }
+      json(res, 200, { ok: true, removed, total: MEM.facts.length });
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/memory/params') {
@@ -4021,9 +4519,18 @@ function importMemoryItems(raw) {
         const targetDir = path.resolve(CHARS_ROOT, id);
         if (!targetDir.startsWith(path.resolve(CHARS_ROOT) + path.sep)) { json(res, 400, { ok: false, error: '非法的角色 id' }); return; }
         fs.rmSync(targetDir, { recursive: true, force: true });
+        // F-002：姿态目录 / poses.json / 精灵图缓存也一起清，别留 ghost
+        const removedAssets = cleanupCharacterAssets(id);
         // 只有删掉当前角色时才切换；删别的角色不能把用户正在用的角色切走
-        if (wasActive) activateCharacter(ids.includes('default') ? 'default' : ids[0]);
-        json(res, 200, { ok: true, characters: listCharacters(), active: ACTIVE_CHAR });
+        let switchedTo = ''
+        if (wasActive) {
+          // P2-3：优先回到「删除前上一次用的角色」，其次第一个可用角色
+          const prev = String(CONFIG.prevCharacter || '')
+          const prefer = (prev && prev !== id && ids.includes(prev)) ? prev : (ids.includes('default') ? 'default' : ids[0])
+          activateCharacter(prefer)
+          switchedTo = prefer
+        }
+        json(res, 200, { ok: true, characters: listCharacters(), active: ACTIVE_CHAR, switchedTo, cleaned: removedAssets });
         return;
       }
       const id = String(b.id || '');
@@ -4133,16 +4640,24 @@ function importMemoryItems(raw) {
     // ── 2D 姿态素材：查询 / 用户自助导入（顾客可以把自己做的姿态图导进来）──────────
     if (req.method === 'GET' && url.pathname === '/api/stage/poses') {
       try {
-        const root = path.join(RUNTIME_DIR, 'skeleton-assets');
-        const chars = [];
-        let ids = [];
-        try { ids = fs.readdirSync(root).filter((n) => { try { return fs.statSync(path.join(root, n)).isDirectory() } catch { return false } }) } catch {}
-        for (const id of ids) {
-          const pj = path.join(root, id, 'poses', 'poses.json');
-          if (!fs.existsSync(pj)) continue;
-          let poses = [];
-          try { poses = Object.keys((readJson(pj, {}) || {}).poses || {}) } catch {}
-          chars.push({ id, poses, current: id === ACTIVE_CHAR });
+        // F-002：只列「还活着的角色」的姿态，已删除角色留下的目录不再出现在这里
+        const liveIds = new Set(listCharacters().map((c) => String(c.id)))
+        for (const b of BUILTIN_CHAR_ASSET_IDS) liveIds.add(b)
+        const roots = [path.join(RUNTIME_DIR, 'skeleton-assets'), path.join(ROOT, 'skeleton-assets')]
+        const chars = []
+        const seen = new Set()
+        for (const root of roots) {
+          let ids = []
+          try { ids = fs.readdirSync(root).filter((n) => { try { return fs.statSync(path.join(root, n)).isDirectory() } catch { return false } }) } catch { ids = [] }
+          for (const id of ids) {
+            if (seen.has(id) || !liveIds.has(id)) continue
+            const pj = path.join(root, id, 'poses', 'poses.json');
+            if (!fs.existsSync(pj)) continue;
+            let poses = [];
+            try { poses = Object.keys((readJson(pj, {}) || {}).poses || {}) } catch {}
+            seen.add(id)
+            chars.push({ id, poses, current: id === ACTIVE_CHAR });
+          }
         }
         json(res, 200, { ok: true, current: ACTIVE_CHAR, characters: chars });
       } catch (e) { json(res, 500, { ok: false, error: String(e.message || e) }); }
@@ -4196,7 +4711,7 @@ function importMemoryItems(raw) {
       const leaf = String(seg[2] || '').replace(/[^a-z0-9_.-]/gi, '');
       const petRoot = path.join(RUNTIME_DIR, 'assets', 'pet');
       const found = [path.join(petRoot, cid, leaf), path.join(petRoot, cid + '-' + leaf)].find((f) => fs.existsSync(f));
-      if (!found) { res.writeHead(404); res.end('not found'); return; }
+      if (!found || petArtIsTemplate(found)) { res.writeHead(404); res.end('not found'); return; }
       res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
       res.end(fs.readFileSync(found));
       return;
@@ -4213,7 +4728,14 @@ function importMemoryItems(raw) {
       const candidates = ownExists
         ? [path.join(ownDir, name + '.png'), path.join(petDir, charId + '-' + name + '.png')]
         : [path.join(petDir, 'default', name + '.png'), path.join(petDir, 'default-' + name + '.png')];
-      let p = candidates.find((f) => fs.existsSync(f));
+      let p = candidates.find((f) => fs.existsSync(f) && !petArtIsTemplate(f));
+      // F-010：主形象（idle）缺失时才用她自己的头像兜底。
+      // 表情图（pat/rub/look）缺失必须 404 —— 否则桌宠会把方形头像当成表情显示，
+      // 用户看到的就是「点一下头突然变成一张大头贴」。缺表情时客户端会退回 idle 帧。
+      if (!p && name === 'idle') {
+        try { if (fs.existsSync(avatarPath())) p = avatarPath() } catch {}
+      }
+      // F-010：这个角色没有自己的桌宠图 → 用她自己的头像，绝不借用别的角色（小鲸）的图。
       if (!p) { res.writeHead(404); res.end('not found'); return; }
       res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
       res.end(fs.readFileSync(p));
@@ -4233,6 +4755,69 @@ function petAssetStamp(charId) {
     return stamp || 0;
   } catch (e) { return 0; }
 }
+// P1-6：桌宠每次素材版本变化都会在数据根目录留一批 sprite-<角色>-<stamp>-*.png。
+// 这里提供统计 + 安全清理：只处理数据根目录、只认已知角色前缀；当前 stamp 和最近 10 分钟的文件保留。
+function petSpriteCacheFiles() {
+  // pet.ps1 的 DataDir 是 <root>/data；老版本也可能把散图放在 <root>，两处都扫。
+  const dirs = [path.join(ROOT, 'data'), ROOT];
+  const files = [];
+  for (const dir of dirs) {
+    let names = [];
+    try { names = fs.readdirSync(dir) } catch { continue }
+    for (const name of names) {
+      if (!/^sprite-.+\.png$/i.test(name)) continue;
+      const p = path.join(dir, name);
+      try {
+        const st = fs.statSync(p);
+        if (st.isFile()) files.push({ name, path: p, size: st.size, at: st.mtimeMs, dir });
+      } catch {}
+    }
+  }
+  return files;
+}
+function petSpriteCacheStats() {
+  const files = petSpriteCacheFiles();
+  const ids = [...new Set([...listCharacters().map((c) => String(c.id)), ...BUILTIN_CHAR_ASSET_IDS])];
+  const current = {};
+  for (const id of ids) current[id] = String(petAssetStamp(id));
+  let removable = 0;
+  let removableBytes = 0;
+  for (const f of files) {
+    const owner = ids.slice().sort((a, b) => b.length - a.length).find((id) => f.name.startsWith('sprite-' + id + '-'));
+    if (!owner) continue;
+    const rest = f.name.slice(('sprite-' + owner + '-').length);
+    const m = rest.match(/^(\d+)-[a-z0-9_.-]+\.png$/i);
+    if (!m) continue;
+    const fresh = Date.now() - f.at < 10 * 60 * 1000;
+    if (String(m[1]) !== current[owner] && !fresh) { removable += 1; removableBytes += f.size; }
+  }
+  return {
+    count: files.length,
+    bytes: files.reduce((n, f) => n + f.size, 0),
+    removable,
+    removableBytes,
+    current,
+  };
+}
+function cleanPetSpriteCache() {
+  const files = petSpriteCacheFiles();
+  const ids = [...new Set([...listCharacters().map((c) => String(c.id)), ...BUILTIN_CHAR_ASSET_IDS])].sort((a, b) => b.length - a.length);
+  const current = {};
+  for (const id of ids) current[id] = String(petAssetStamp(id));
+  let removed = 0;
+  let removedBytes = 0;
+  for (const f of files) {
+    const owner = ids.find((id) => f.name.startsWith('sprite-' + id + '-'));
+    if (!owner) continue;
+    const rest = f.name.slice(('sprite-' + owner + '-').length);
+    const m = rest.match(/^(\d+)-[a-z0-9_.-]+\.png$/i);
+    if (!m) continue;
+    const fresh = Date.now() - f.at < 10 * 60 * 1000;
+    if (String(m[1]) === current[owner] || fresh) continue;
+    try { fs.unlinkSync(f.path); removed += 1; removedBytes += f.size; } catch {}
+  }
+  return { removed, removedBytes, stats: petSpriteCacheStats() };
+}
     if (req.method === 'GET' && url.pathname === '/api/pet/manifest') {
       json(res, 200, { ok: true, pet: loadPetCfg(), status: petStatusPayload(), spriteStamp: petAssetStamp(ACTIVE_CHAR) });
       return;
@@ -4241,6 +4826,16 @@ function petAssetStamp(charId) {
       // 余额刷新放后台：DeepSeek 余额接口偶尔慢，不能拖住桌宠 700ms/次的切人检测
       try { if (!REAL_BALANCE.at || Date.now() - Number(REAL_BALANCE.at) > 60000) refreshRealBalance().catch(() => {}); } catch {}
       json(res, 200, petStatusPayload());
+      return;
+    }
+    // P1-6：桌宠立绘缓存统计 / 清理旧版本（当前版本和最近 10 分钟文件不动）
+    if (req.method === 'GET' && url.pathname === '/api/pet/cache') {
+      json(res, 200, { ok: true, dir: ROOT, ...petSpriteCacheStats() });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/pet/cache/clean') {
+      try { json(res, 200, { ok: true, ...cleanPetSpriteCache() }); }
+      catch (e) { json(res, 500, { ok: false, error: String((e && e.message) || e) }); }
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/pet/avatar') {
@@ -4385,6 +4980,67 @@ function petAssetStamp(charId) {
       json(res, 200, { ok: true, current: uiThemeCurrent(), themes: UI_THEMES });
       return;
     }
+    // 面板配色：配色模式（follow/light/dark）+ 强调色，两者可分开提交
+    if (req.method === 'GET' && url.pathname === '/api/panel-theme') {
+      json(res, 200, { ok: true, current: panelThemeCurrent(), modes: PANEL_THEME_MODES, accents: PANEL_THEME_ACCENTS });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/panel-theme') {
+      const b = (req._json || {});
+      const next = panelThemeCurrent();
+      if (b.mode !== undefined) {
+        const mode = String(b.mode);
+        if (!PANEL_THEME_MODES.includes(mode)) { json(res, 400, { ok: false, error: '没有这个配色模式' }); return; }
+        next.mode = mode;
+      }
+      if (b.accent !== undefined) {
+        const accent = String(b.accent);
+        if (!PANEL_THEME_ACCENTS.includes(accent)) { json(res, 400, { ok: false, error: '没有这个强调色' }); return; }
+        next.accent = accent;
+      }
+      CONFIG.panelTheme = next; saveConfig();
+      json(res, 200, { ok: true, current: next });
+      return;
+    }
+    // ---------- 语音（0.8.3）：一个能用的声音 + 留给用户的口子 ----------
+    if (req.method === 'GET' && url.pathname === '/api/voice/settings') {
+      const cfg = VOICE.settingsFor(ACTIVE_CHAR);
+      json(res, 200, {
+        ok: true,
+        settings: cfg,
+        providers: VOICE.providers(),
+        defaults: VOICE.defaults,
+        cache: VOICE.cacheStats(),
+        character: ACTIVE_CHAR,
+        hasKey: !!cfg.apiKeyRef,
+      });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/voice/settings') {
+      const b = (req._json || {});
+      const cfg = b.characterId ? VOICE.saveCharOverride(String(b.characterId), b) : VOICE.saveGlobalSettings(b);
+      json(res, 200, { ok: true, settings: cfg });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/voice/tts') {
+      const b = (req._json || {});
+      const text = String(b.text || '').slice(0, 4000);
+      if (!text.trim()) { json(res, 400, { ok: false, error: '没有要念的文字' }); return; }
+      const r = await VOICE.synth(text, { characterId: ACTIVE_CHAR });
+      json(res, 200, r.ok ? r : { ok: false, error: r.error });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/voice/preview') {
+      const b = (req._json || {});
+      const text = String(b.text || '').trim() || ('你好，我是' + (loadMeta().name || '她') + '。这句是用来试听语音的。');
+      const r = await VOICE.synth(text, { characterId: ACTIVE_CHAR });
+      json(res, 200, r.ok ? r : { ok: false, error: r.error });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/voice/cleanup') {
+      json(res, 200, { ok: true, cache: VOICE.cacheStats() });
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/api/chat-bg') {
       json(res, 200, { ok: true, current: chatBgCurrent(), options: chatBgOptions() });
       return;
@@ -4459,7 +5115,16 @@ function petAssetStamp(charId) {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/diary') {
-      if (url.searchParams.get('date')) { json(res, 200, { date: url.searchParams.get('date'), text: MEM.readDiary(url.searchParams.get('date')) }); return; }
+      const date = String(url.searchParams.get('date') || '');
+      if (date) {
+        // F-022：日期只接受 YYYY-MM-DD（readDiary 会拼路径，不能不校验就往下传）
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { json(res, 400, { ok: false, error: '日期要写成 YYYY-MM-DD' }); return; }
+        const text = MEM.readDiary(date);
+        let exists = false;
+        try { exists = !!text || MEM.hasDiary(date) } catch { exists = !!text }
+        json(res, 200, { ok: true, date, text, exists });
+        return;
+      }
       json(res, 200, { dates: MEM.listDiaries() }); return;
     }
     if (req.method === 'POST' && url.pathname === '/api/diary/generate') {
@@ -4919,13 +5584,25 @@ function petAssetStamp(charId) {
       req.on('close', () => { streamClients.delete(res); });
       return;
     }
-    if (req.method === 'GET' && url.pathname === '/api/watch-screen') { json(res, 200, { ok: true, watch: loadWatchScreen() }); return; }
+    if (req.method === 'GET' && url.pathname === '/api/watch-screen') {
+      const w = loadWatchScreen();
+      json(res, 200, {
+        ok: true, watch: w,
+        voiceEnabled: !!(CONFIG.voice && CONFIG.voice.enabled),
+        autoVoiceActive: !!(w.enabled && w.voice && CONFIG.voice && CONFIG.voice.enabled),
+        debug: WATCH_DEBUG,
+      });
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/api/watch-screen') {
       const b = (req._json || {});
       const patch = {};
       if (typeof b.enabled === 'boolean') patch.enabled = b.enabled;
+      if (typeof b.voice === 'boolean') patch.voice = b.voice;
       if (Number.isFinite(Number(b.minMinutes))) patch.minMinutes = Math.min(120, Math.max(5, Math.round(Number(b.minMinutes))));
       if (Number.isFinite(Number(b.maxMinutes))) patch.maxMinutes = Math.min(240, Math.max(10, Math.round(Number(b.maxMinutes))));
+      if (Number.isFinite(Number(b.quietStart))) patch.quietStart = Math.min(23, Math.max(0, Math.round(Number(b.quietStart))));
+      if (Number.isFinite(Number(b.quietEnd))) patch.quietEnd = Math.min(23, Math.max(0, Math.round(Number(b.quietEnd))));
       if (patch.minMinutes !== undefined && patch.maxMinutes !== undefined && patch.maxMinutes < patch.minMinutes) patch.maxMinutes = patch.minMinutes;
       json(res, 200, { ok: true, watch: saveWatchScreen(patch) });
       return;
@@ -4963,7 +5640,9 @@ function stagePayload() {
   try { const m = walletMoney(); const t = tokenStats(); wallet = { balance: m.wallet.balance, spendable: m.spendable, tokenMode: m.tokenMode, remainingTokens: m.remainingTokens, moneyType: m.moneyType, realRmb: m.realRmb, realBalanceKnown: m.realBalanceKnown, dailyUsed: t.dailyUsed, usedTokens: t.usedTokens, tokenBudget: t.tokenBudget }; } catch {}
   return {
     ok: true, apiVersion: 1, serverTime: Date.now(),
-    character: { id: ACTIVE_CHAR, name: meta.name || '', avatar: fs.existsSync(avatarPath()) ? '/avatar.png' : '/default-avatar.png', sprite: meta.sprite || '/pet-sprite/idle.png', chibi: meta.chibi || null, model: meta.model || { type: 'none', url: '', scale: 1 }, age: Number(meta.age) || null, license: meta.license === true },
+    // F-004：3D 舞台以前只会拿 meta.sprite，拿不到就画一个无脸小人。这里额外给一个
+    // 「她自己能认出来的立绘」地址，3D 舞台优先用它做 billboard。
+    character: { id: ACTIVE_CHAR, name: meta.name || '', avatar: fs.existsSync(avatarPath()) ? '/avatar.png' : '/default-avatar.png', sprite: meta.sprite || '/pet-sprite/idle.png', standee: stageStandeeUrl(ACTIVE_CHAR), hasPoses: characterHasPoses(ACTIVE_CHAR), chibi: meta.chibi || null, model: meta.model || { type: 'none', url: '', scale: 1 }, age: Number(meta.age) || null, license: meta.license === true },
     map: { id: map.id, name: map.name, theme: map.theme || 'town', widthMeters: Number(map.widthMeters) || 2000, places: map.places.map((p) => ({ id: p.id, name: p.name, icon: p.icon, image: p.image || null, x: p.x, y: p.y, desc: p.desc || '', feel: p.feel || '' })), model: map.model || null, image: map.image || null, displayMode: map.displayMode || '2d', roads: map.roads || null, vehicles: map.vehicles || null, has2d: map.has2d !== false && !!(map.image && map.image.url), has3d: map.has3d === true || !!(map.model && map.model.url) },
     location: { state, placeId: cur.placeId, placeName: cur.name, icon: cur.icon, since: cur.since || Date.now(), minutes: cur.minutes || 0, traveling: cur.traveling || null, intercity: cur.intercity || null, avatar: cur.avatar || '' },
     weather: { kind: weather.kind, label: w.label, icon: w.icon, temp: weather.temp, city: weather.city, source: weather.source, fx: loadWeatherFx() },
@@ -4971,6 +5650,31 @@ function stagePayload() {
     settings: { weatherMode: CONFIG.weatherMode === 'real' ? 'real' : 'manual', smartRoutine: loadRoutine().smart === true, smartLife: loadLife().smartLife === true, locationFree: loadLife().locationFree !== false },
     animationHint: state === 'stationary' ? (cur.placeId === 'home' && (new Date().getHours() >= 23 || new Date().getHours() < 7) ? 'sleeping' : 'idle') : (cur.traveling ? 'walking' : 'riding'),
   };
+}
+
+// ---------- 手机门（桌面端）：局域网 + TLS + 配对 + 设备凭证 ----------
+// 懒创建：只有第一次用到（面板读状态/开启）时才初始化，避免默认关闭时也去生成证书。
+let MOBILE_GATE = null;
+function mobileGate() {
+  if (MOBILE_GATE) return MOBILE_GATE;
+  try {
+    MOBILE_GATE = createMobileGate({
+      root: ROOT,
+      config: CONFIG.mobileGate || {},
+      // 网关注解到主服务：LISTEN_PORT 在 listen 回调里才有值，兜底用首选端口
+      loopbackPort: LISTEN_PORT || PREFERRED_PORT,
+      apiToken: API_TOKEN,
+      version: VERSION,
+      log: (s) => { try { console.log(String(s)) } catch {} },
+      onConfigChange: () => { CONFIG.mobileGate = { ...(CONFIG.mobileGate || {}), ...MOBILE_GATE.cfg }; saveConfig(); },
+    });
+    // 证书指纹/端口这些元信息随配置存一份，面板重开也能立刻显示
+    CONFIG.mobileGate = { ...(CONFIG.mobileGate || {}), port: MOBILE_GATE.cfg.port, bindHost: MOBILE_GATE.cfg.bindHost };
+  } catch (e) {
+    console.warn('[companion] 手机门初始化失败：' + String((e && e.message) || e));
+    MOBILE_GATE = null;
+  }
+  return MOBILE_GATE;
 }
 
 // ---------- startup ----------
@@ -4985,6 +5689,13 @@ function tryListen(port, attempt = 0) {
     console.log('[companion] http://127.0.0.1:' + port + '/  root=' + ROOT);
     writePortFile(port);
     try { if (loadPetCfg().enabled) setTimeout(() => { startPet().catch(() => {}); }, 800); } catch {}
+    // 上次开着手机门就恢复监听（默认关；失败只记日志，不影响主服务）
+    try {
+      if (CONFIG.mobileGate && CONFIG.mobileGate.enabled) {
+        const g = mobileGate();
+        if (g) g.start().then((r) => { if (!r.ok) console.warn('[companion] 手机门恢复失败：' + r.error) }).catch(() => {});
+      }
+    } catch {}
   });
 }
 
@@ -5160,21 +5871,37 @@ function boot() {
   tryListen(PREFERRED_PORT);
 }
 async function watchScreenTick() {
+  const setWhy = (why) => { WATCH_DEBUG = { checkedAt: Date.now(), why }; };
   try {
     const w = loadWatchScreen();
-    if (!w.enabled || typing || busy) return;
+    if (!w.enabled) { setWhy('未开启（配置里 enabled=false）'); return; }
+    if (typing || busy) { setWhy('她正在回话/思考，先不打断'); return; }
+    // 子开关（V22）：主动「看屏幕并说一句」要求总语音是开的
+    const voiceOn = !!(CONFIG.voice && CONFIG.voice.enabled);
+    if (w.voice && !voiceOn) { setWhy('总语音关着，主动语音不生效（只看不说）'); return; }
+    // 你正在录音 → 她绝对不开口（0.8.7 起录音功能已移除，这里保留 5 分钟活跃判定）
+    // 你刚说过话 → 让给你
+    const lastUser = [...messages].reverse().find((m) => m && m.role === 'user' && !m.hidden);
+    if (lastUser && Date.now() - Number(lastUser.at || 0) < 5 * 60 * 1000) { setWhy('你刚说过话（5 分钟内），让给你'); return; }
+    // 安静时段
+    const hour = new Date().getHours();
+    if (inQuietHours(hour, w.quietStart, w.quietEnd)) { setWhy('安静时段 ' + w.quietStart + '–' + w.quietEnd + ' 点（当前 ' + hour + ' 点）'); return; }
     const env = loadEnv();
-    if (env.pc === 'off') return;
-    try { if (!kernelState()) return; } catch { return; }
-    if (!w.nextAt) { saveWatchScreen({ nextAt: Date.now() + Math.round((Number(w.minMinutes) || 20) * 60000) }); return; }
-    if (Date.now() < Number(w.nextAt)) return;
-    saveWatchScreen({ nextAt: Date.now() + Math.round((Number(w.minMinutes) || 20) * 60000 * (0.8 + Math.random() * 0.4)) });
+    if (env.pc === 'off') { setWhy('「你的电脑」权限是关闭的'); return; }
+    try { if (!kernelState()) { setWhy('桌面通道没连上'); return; } } catch { setWhy('桌面通道检测失败'); return; }
+    if (!w.nextAt) { saveWatchScreen({ nextAt: Date.now() + Math.round((Number(w.minMinutes) || 20) * 60000) }); setWhy('刚开启，已排下一次'); return; }
+    if (Date.now() < Number(w.nextAt)) { setWhy('还没到点（下次 ' + new Date(Number(w.nextAt)).toLocaleTimeString('zh-CN') + '）'); return; }
+    saveWatchScreen({ nextAt: Date.now() + Math.round((Number(w.minMinutes) || 20) * 60000 * (0.8 + Math.random() * 0.4)), lastAt: Date.now() });
+    setWhy('触发：正在看你的屏幕');
     let selfName = '你自己';
     try { selfName = loadMeta().name || selfName; } catch {}
     const prompt = `（她有点好奇你在做什么，趁你不注意悄悄瞥了一眼你的屏幕。用 pc 工具看看，只简单说你看到了什么，不要直接替他回答问题、不要下结论、不要操作；然后停下来观察他后面有没有接话。如果没什么特别的就别说话。屏幕上可能出现${selfName}自己——桌宠、聊天头像、舞台上的小人、地图上的角色，都是你在屏幕上的样子，不要把自己当成别人。不要提“截图”“桌宠按钮”或这条提示。）`;
     addMessage('user', prompt, null, { hidden: true });
     await generateReply(prompt);
-  } catch {}
+    setWhy('已说完（' + new Date().toLocaleTimeString('zh-CN') + '）');
+  } catch (e) {
+    setWhy('出错：' + String((e && e.message) || e).slice(0, 80));
+  }
 }
 setInterval(watchScreenTick, 60 * 1000).unref?.();
 

@@ -46,9 +46,17 @@ function SettingsView(props) {
   // 首次点开才挂载；之后切走保持挂载，避免丢掉未保存的编辑
   const [opened, setOpened] = React.useState(() => ({ role: true }))
   const current = STG_TABS.some((t) => t.key === tab) ? tab : 'role'
+  const scrollRef = React.useRef(null)
   const openTab = React.useCallback((key) => {
     setTab(key)
     setOpened((prev) => (prev[key] ? prev : Object.assign({}, prev, { [key]: true })))
+    // F-012：切子页回到顶部，不要停在上一页的滚动位置（否则开头直接被顶部条压住）
+    try {
+      const el = scrollRef.current
+      if (el) {
+        if (el.scrollTo) { el.scrollTo({ top: 0, behavior: 'auto' }) } else { el.scrollTop = 0 }
+      }
+    } catch (e) {}
   }, [setTab])
 
   return h('div', {
@@ -78,7 +86,8 @@ function SettingsView(props) {
     // 内容区（滚动 + padding 统一在这里）
     h('div', {
       className: 'sbc-scroll',
-      style: { flex: 1, minHeight: 0, minWidth: 0, overflow: 'auto', padding: '12px 14px 20px' },
+      ref: scrollRef,
+      style: { flex: 1, minHeight: 0, minWidth: 0, overflow: 'auto', padding: '12px 14px 20px', scrollPaddingTop: 44, scrollBehavior: 'auto' },
     },
       STG_TABS.map((t) => {
         if (!opened[t.key] && t.key !== current) return null

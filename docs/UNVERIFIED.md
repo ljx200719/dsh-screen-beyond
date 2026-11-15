@@ -215,7 +215,7 @@
 
 - **自动冒烟**：`npm run smoke:server` 45/45、`npm run smoke:client` 39/39（含「屏幕内嵌 noVNC」「不请求旧 HTML 页面」等断言）、lint 0 error。
 - **真实数据写操作**：设置 11 组、记忆导入/删除、地图保存/409/回读/还原、真实聊天收发与停止、角色切换、备份创建与恢复、桌宠启停、屏幕停/启动/修复 —— 73/73（全部带还原）。
-- **真实 DSH 面板**：六标签渲染、聊天+分屏舞台、2D/3D 舞台（含点地点移动）、地图、设置（含记忆管理）、屏幕（**内嵌 noVNC**）、关于；截图在 `C:\Users\Lenovo\AppData\Local\dsh-desktop\screenshots\2026-11-14/15\`。
+- **真实 DSH 面板**：六标签渲染、聊天+分屏舞台、2D/3D 舞台（含点地点移动）、地图、设置（含记忆管理）、屏幕（**内嵌 noVNC**）、关于；截图在 `%USERPROFILE%\AppData\Local\dsh-desktop\screenshots\2026-11-14/15\`。
 - **旧记忆迁移**：真实恢复 10 条记忆 + 1 篇旧日记；`decay()` 幂等修复后不再「自己消失」；置顶/取消置顶真实数据 0→1→0。
 - **token 模式（2026-11-15）**：第二个临时实例（8911 端口、独立数据目录）实测 10/10——无 token 一律 401（GET/POST/SSE）、`/api/token` 免鉴权引导、带 `x-companion-token` 或 cookie 全部 200、SSE `/api/stream` 带 token 建立成功。
 - **手机起停（2026-11-15）**：`POST /api/phone/start` → 18 秒内 adb 出现 `emulator-5554`（Android 16 / sdk_gphone64_x86_64）；`POST /api/phone/stop` → 模拟器进程 0、adb 设备列表为空。

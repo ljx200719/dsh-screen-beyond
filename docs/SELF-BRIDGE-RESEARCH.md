@@ -50,7 +50,7 @@ F:\onebot\QQ-portable            QQ 9.9.37 便携副本（从 C 盘官方安装�
 
 证据：
 - `docs/self-bridge/` 下是注入脚本与桥代码（可复现）；
-- 截图：`C:\Users\Lenovo\AppData\Local\dsh-desktop\screenshots\2026-11-15\capture_330676_20261115_035147_414309.png`（aedo 端看到收发）；
+- 截图：`%USERPROFILE%\AppData\Local\dsh-desktop\screenshots\2026-11-15\capture_330676_20261115_035147_414309.png`（aedo 端看到收发）；
 - 日志：`F:\onebot\next\bridge.log`。
 
 ## 5. 限制（为什么还不算产品）

@@ -52,6 +52,204 @@ function settingsVmCheckSummary(r) {
   return bits.join('；')
 }
 
+// ── 手机连接（桌面端）：局域网 + TLS + 配对 + 设备权限 ──────────────────
+// 术语先说清（0.8.10 起全项目统一）：
+//   · 「她的手机」= 她用的 Android 模拟器（Waydroid / DSH_Phone），在「屏幕」页；
+//   · 「手机连接 / 手机端」= 你自己手上的手机连到这台电脑，这里管的是这个。
+function MobileGateCard() {
+  const gate = useApi('/api/mobile-gate/status', { refreshMs: 8000 })
+  const [busy, setBusy] = React.useState('')
+  const [pair, setPair] = React.useState(null) // {code, expiresAt}
+  const [nowTick, setNowTick] = React.useState(Date.now())
+  React.useEffect(() => {
+    if (!pair) return undefined
+    const t = setInterval(() => setNowTick(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [pair])
+
+  const st = gate.data || {}
+  const enabled = !!st.enabled
+  const devices = Array.isArray(st.devices) ? st.devices : []
+  const activeDevices = devices.filter((d) => !d.revokedAt)
+  const addresses = Array.isArray(st.addresses) ? st.addresses : []
+
+  const setEnabled = async (on) => {
+    setBusy('toggle')
+    try {
+      const r = await Api.post('/api/mobile-gate/enable', { enabled: !!on })
+      if (!r.ok || (r.data && r.data.ok === false)) {
+        toast('操作失败：' + (r.error || (r.data && r.data.error) || '未知错误'), 'error')
+        return
+      }
+      toast(on ? '手机连接已开启（HTTPS）' : '手机连接已关闭，外部已断开')
+      if (!on) setPair(null)
+      gate.reload()
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const issueCode = async () => {
+    setBusy('code')
+    try {
+      const r = await Api.post('/api/mobile-gate/pair-code', {})
+      if (!r.ok || (r.data && r.data.ok === false)) { toast('生成配对码失败：' + (r.error || (r.data && r.data.error) || ''), 'error'); return }
+      setPair({ code: String((r.data && r.data.code) || ''), expiresAt: Number((r.data && r.data.expiresAt) || 0) })
+      setNowTick(Date.now())
+      gate.reload()
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const revoke = async (d) => {
+    const ok = await confirmDialog('撤销「' + (d.name || '这台手机') + '」？', {
+      title: '撤销手机',
+      detail: '撤销后这台手机的令牌立刻失效，要重新配对才能再连。不影响你电脑上的聊天。',
+      danger: true,
+      okText: '撤销',
+    })
+    if (!ok) return
+    setBusy('revoke')
+    try {
+      const r = await Api.post('/api/mobile-gate/revoke', { deviceId: d.id })
+      if (!r.ok) { toast('撤销失败：' + (r.error || ''), 'error'); return }
+      toast('已撤销，这台手机需要重新配对')
+      gate.reload()
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const copyText = async (text, label) => {
+    try { await navigator.clipboard.writeText(String(text)); toast(label + '已复制') } catch (e) { toast(String(text)) }
+  }
+
+  const leftSec = pair && pair.expiresAt ? Math.max(0, Math.round((pair.expiresAt - nowTick) / 1000)) : 0
+
+  return h(Card, {
+    title: '手机连接（把手机接过来）',
+    sub: '局域网 + HTTPS + 一次性配对码；默认关闭',
+    tag: enabled ? ('已开启 · ' + activeDevices.length + ' 台设备') : '未开启',
+    actions: h(Row, { gap: 6 },
+      h(Btn, { size: 'sm', kind: 'ghost', disabled: !!busy || gate.loading, onClick: gate.reload }, '刷新'),
+      h(Btn, {
+        size: 'sm',
+        kind: enabled ? 'danger' : 'primary',
+        disabled: !!busy || !!gate.error,
+        title: enabled ? '关闭后立即断开所有外部连接（已配对设备的令牌保留，下次开启还能用）' : '开启后会在局域网端口上起一个 HTTPS 网关（手机必须配对才能用）',
+        onClick: () => { void setEnabled(!enabled) },
+      }, busy === 'toggle' ? '处理中…' : (enabled ? '关闭手机连接' : '开启手机连接')),
+    ),
+  },
+    h('div', {
+      style: {
+        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+        border: '1px solid ' + T.warn, borderRadius: 10, padding: '7px 10px', background: 'rgba(245,158,11,.10)',
+      },
+    },
+      h('span', { style: { fontSize: 12.5, fontWeight: 700, color: T.text } }, '🧪 手机端 · 正在研究'),
+      h('span', { style: { fontSize: 11.5, color: T.text2 } }, '内部测试版：只有「网页版聊天 + 看状态」可用，功能会变；不要当成品，也先别拿去当唯一入口。'),
+    ),
+    h(Note, {}, '⚠ 名字别混：「她的手机」是她用的安卓模拟器（在「屏幕」页）；**这里的「手机」是你自己手上的手机**，连的是这台电脑。'),
+    gate.error ? h(ErrorBox, { title: '读不到手机连接状态', error: gate.error, onRetry: gate.reload }) : null,
+    !gate.data && !gate.error ? h(Loading, { text: '正在读手机连接状态…' }) : null,
+
+    gate.data ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+      h(Row, { gap: 8, wrap: true },
+        h(Dot, { on: enabled, tone: enabled ? T.ok : T.idle }),
+        h('span', { style: { fontSize: 13, fontWeight: 600, color: T.text } }, enabled ? '正在监听（只在局域网内）' : '没有监听，手机连不上这台电脑'),
+        h('span', { style: { flex: 1 } }),
+        h(KV, { k: '端口', v: String(st.port || '—') }),
+        h(KV, { k: '加密', v: st.tls ? 'HTTPS（自签）' : '—' }),
+      ),
+
+      enabled
+        ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+            h('div', { style: { fontSize: 12, color: T.text2 } }, '手机浏览器直接打开这个地址就能用（不用装 App；页面上会标着「正在研究」）：'),
+            addresses.length
+              ? addresses.map((a) => h(Row, { key: a.ip, gap: 6, wrap: true },
+                  h('code', { style: { fontSize: 11.5, color: T.text, background: T.bg2, border: '1px solid ' + T.border, borderRadius: 6, padding: '2px 6px' } }, a.url),
+                  h('span', { style: { fontSize: 10.5, color: a.kind === 'vpn' ? T.ok : T.text3 } }, a.note || (a.iface + ' · ' + a.ip)),
+                  h(Btn, { size: 'sm', kind: 'ghost', onClick: () => { void copyText(a.url, '地址') } }, '复制'),
+                ))
+              : h(Note, {}, '没检测到局域网网卡（只有回环）——先用 Wi-Fi 连上网络，或改端口/网卡后重开。'),
+            addresses.some((a) => a.kind === 'vpn')
+              ? null
+              : h(Note, {}, '想出门也能连：电脑和手机都装同一个 Tailscale（或 ZeroTier）账号，装好后回来点「刷新」，这里会多出一条「虚拟局域网（不在同一个 Wi-Fi 也能连）」的地址，手机用那个地址打开即可。不要做路由器端口转发。'),
+            h(Row, { gap: 6, wrap: true },
+              h('span', { style: { fontSize: 11.5, color: T.text3 } }, '证书指纹（手机首次连接会对一次）：'),
+              h('code', { style: { fontSize: 10.5, color: T.text2, fontFamily: T.mono, overflowWrap: 'anywhere' } }, String(st.fingerprint || '—')),
+              h(Btn, { size: 'sm', kind: 'ghost', onClick: () => { void copyText(st.fingerprint || '', '指纹') } }, '复制'),
+            ),
+          )
+        : h(Note, {}, '开启后会在这里显示：局域网地址、证书指纹、配对码。手机不在同一 Wi-Fi 时连不上（除非走虚拟局域网，见下）。'),
+
+      enabled
+        ? h('div', {
+            style: {
+              border: '1px solid ' + T.border, borderRadius: T.radius, background: T.bg2,
+              padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6,
+            },
+          },
+            h(Row, { gap: 8, wrap: true },
+              h('span', { style: { fontSize: 12.5, fontWeight: 600, color: T.text } }, '配对码'),
+              h(Btn, { size: 'sm', kind: 'primary', disabled: !!busy, onClick: () => { void issueCode() } }, busy === 'code' ? '生成中…' : (pair ? '换一个' : '生成配对码')),
+              h('span', { style: { flex: 1 } }),
+              pair && leftSec > 0 ? h(Badge, { tone: 'warn' }, '剩 ' + leftSec + ' 秒') : null,
+              pair && leftSec <= 0 ? h(Badge, { tone: 'danger' }, '已过期') : null,
+            ),
+            pair
+              ? h(Row, { gap: 8, wrap: true },
+                  h('code', {
+                    style: { fontSize: 24, letterSpacing: 6, fontWeight: 700, color: T.text, fontFamily: T.mono },
+                  }, leftSec > 0 ? pair.code : '—— —— ——'),
+                  h(Btn, { size: 'sm', kind: 'ghost', onClick: () => { void copyText(pair.code, '配对码') } }, '复制'),
+                )
+              : h(Note, {}, '点「生成配对码」，手机上输入这 6 位数字就能配对；一次性、5 分钟内有效。'),
+            h(Note, {}, '配对成功后：手机拿到一枚独立令牌（面板里可单独撤销），只能聊天 + 看状态，不能改设置、不能开虚拟机、不能备份。'),
+          )
+        : null,
+
+      devices.length
+        ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 0, minWidth: 0 } },
+            h('div', { style: { fontSize: 12, color: T.text2, marginBottom: 2 } }, '已配对设备（' + activeDevices.length + ' 台有效 / ' + devices.length + ' 条记录）'),
+            devices.map((d) => h(Row, {
+              key: String(d.id),
+              gap: 8,
+              wrap: true,
+              style: { padding: '5px 0', borderTop: '1px solid ' + T.border, minWidth: 0 },
+            },
+              h(Dot, { on: !d.revokedAt, tone: d.revokedAt ? T.idle : T.ok }),
+              h('span', { style: { fontSize: 12, color: T.text, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 } }, String(d.name || '手机')),
+              h(Badge, { tone: d.scope === 'readonly' ? undefined : 'ok' }, d.scope === 'readonly' ? '只读' : '可聊天'),
+              h('span', { style: { flex: 1 } }),
+              h('span', { style: { fontSize: 10.5, color: T.text3, whiteSpace: 'nowrap' } },
+                d.revokedAt ? ('已撤销 ' + fmtDateTime(d.revokedAt)) : (d.lastSeenAt ? ('最后活跃 ' + fmtDateTime(d.lastSeenAt)) : '还没连过')),
+              d.revokedAt ? null : h(Btn, { size: 'sm', kind: 'ghost', disabled: !!busy, onClick: () => { void revoke(d) } }, '撤销'),
+            )),
+          )
+        : h(Note, {}, '还没有手机配对过。'),
+
+      h(Row, { gap: 6, wrap: true },
+        h(Btn, {
+          size: 'sm', kind: 'ghost',
+          onClick: () => { void (async () => {
+            const r = await Api.get('/api/mobile-gate/audit?limit=20')
+            if (!r.ok || !r.data) { toast('读不到审计日志：' + (r.error || ''), 'error'); return }
+            const lines = (r.data.entries || []).map((e) => String(e.at || '').slice(11, 19) + ' ' + String(e.type || '') + (e.path ? ' ' + String(e.path) : '') + (e.name ? ' ' + String(e.name) : '') + (e.reason ? ' ' + String(e.reason) : ''))
+            await alertDialog(lines.length ? lines.join('\n') : '还没有审计记录', { title: '手机连接 · 最近 20 条审计' })
+          })() },
+        }, '看审计日志'),
+        h(Note, {}, '审计只记「谁在什么时候做了什么」，不记令牌明文。'),
+      ),
+    ) : null,
+
+    h(Note, {}, '· 安全边界：主服务仍然只听 127.0.0.1；手机走的是另一个 HTTPS 端口，关掉开关就立刻断开。**不要把这个端口做路由器端口转发**。'),
+    h(Note, {}, '· 手机能做什么写在配对结果里（聊天 / 历史 / 状态 / 图片）。设置、环境、虚拟机、备份、她的屏幕这些永远只在电脑面板里。'),
+  )
+}
+
 function SettingsVmTab() {
   const status = useStatus()
   const st = (status && status.data) || {}
@@ -250,7 +448,7 @@ function SettingsVmTab() {
       ),
     ),
 
-    modeChat ? h(Note, { style: { color: T.warn } }, '⚠️ 当前是纯聊天模式，虚拟机聊天不会生效；要使用请让运行时切到完整版。') : null,
+    modeChat ? h(Note, { style: { color: T.warn } }, '⚠️ 当前是无虚拟机模式，虚拟机聊天不会生效；要使用请让运行时切到完整版。') : null,
 
     // 状态
     h(Card, {
@@ -378,6 +576,9 @@ function SettingsVmTab() {
 
     // 直连（OneBot 11）：设置 + 测试连接/发测试消息按钮
     typeof DirectChatCard === 'function' ? h(DirectChatCard, {}) : null,
+
+    // 手机连接（手机端适配的桌面侧）：局域网 + TLS + 配对 + 设备权限
+    typeof MobileGateCard === 'function' ? h(MobileGateCard, {}) : null,
 
     // 说明
     h(Card, { title: '说明' },

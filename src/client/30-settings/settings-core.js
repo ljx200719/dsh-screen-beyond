@@ -100,7 +100,7 @@ const STG_ROLE_MODEL_TYPES = [
   { value: 'none', label: '没有（用头像）' },
   { value: 'sprite', label: '2D 精灵图' },
   { value: 'live2d', label: 'Live2D' },
-  { value: '3d', label: '3D 模型（本版不渲染）' },
+  { value: '3d', label: '3D 模型（GLB / glTF，3D 舞台用）' },
 ]
 const STG_ROLE_TRAIT_MAX = 24
 
@@ -114,6 +114,43 @@ function stgCoreTraitsSeed(src) {
     if (Object.keys(out).length >= STG_ROLE_TRAIT_MAX) break
   }
   return out
+}
+
+// 头像缩成小方块塞进角色卡（F-016）：128px JPEG，base64 后约 7~15KB，不会把卡撑成几 MB
+function stgCoreAvatarToSmallDataUrl(src, size) {
+  return new Promise((resolve) => {
+    const fail = () => { resolve('') }
+    try {
+      if (!src) { fail(); return }
+      const img = new Image()
+      img.onload = () => {
+        try {
+          const n = Math.max(32, Math.min(256, Number(size) || 128))
+          const sw = img.naturalWidth || img.width || n
+          const sh = img.naturalHeight || img.height || n
+          const side = Math.min(sw, sh)
+          const c = document.createElement('canvas')
+          c.width = n
+          c.height = n
+          const g = c.getContext('2d')
+          if (!g) return fail()
+          g.drawImage(img, (sw - side) / 2, (sh - side) / 2, side, side, 0, 0, n, n)
+          resolve(c.toDataURL('image/jpeg', 0.86))
+        } catch (e) { fail() }
+      }
+      img.onerror = fail
+      img.src = src
+    } catch (e) { fail() }
+  })
+}
+
+// 角色卡里的头像字段：只认 data:image/*;base64（不接受远程 URL / 本地路径，免得导入别人的卡时去联网）
+function stgCoreCardAvatar(v) {
+  const s = String(v || '').trim()
+  if (!s) return ''
+  if (!/^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/i.test(s)) return ''
+  if (s.length > 2.2 * 1024 * 1024) return ''
+  return s
 }
 
 // /api/persona → 角色卡草稿（meta 的字段平铺，body 一起）
@@ -180,6 +217,39 @@ function SettingsRoleTab() {
   }, [persona, chars])
 
   const patch = f.patch
+
+  // F-012：滚动后顶栏收成「只有保存按钮」的一条，滚回顶部再展开；
+  // 用哨兵 + IntersectionObserver 判断，不监听 scroll（不跟滚动条抢帧）。
+  const roleBarSentinelRef = React.useRef(null)
+  const [compactBar, setCompactBar] = React.useState(false)
+  React.useEffect(() => {
+    const el = roleBarSentinelRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') return undefined
+    let io = null
+    try {
+      io = new IntersectionObserver((ents) => {
+        const e = ents && ents[0]
+        if (e) setCompactBar(!e.isIntersecting)
+      }, { threshold: 0, rootMargin: '-4px 0px 0px 0px' })
+      io.observe(el)
+    } catch (err) {}
+    return () => { try { if (io) io.disconnect() } catch (e) {} }
+  }, [])
+  // 回到这张卡的开头：往上找最近的可滚动祖先
+  const scrollRoleTop = () => {
+    try {
+      let n = roleBarSentinelRef.current
+      while (n && n !== document.body) {
+        const st = window.getComputedStyle(n)
+        if (st && (st.overflowY === 'auto' || st.overflowY === 'scroll') && n.scrollHeight > n.clientHeight) {
+          n.scrollTo ? n.scrollTo({ top: 0, behavior: 'smooth' }) : (n.scrollTop = 0)
+          return
+        }
+        n = n.parentElement
+      }
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch (e) {}
+  }
 
   // 角色列表：切换 / 新建 / 删除（切换会换人设、记忆、聊天记录）
   const switchChar = async (id) => {
@@ -282,7 +352,7 @@ function SettingsRoleTab() {
   const resetDraft = () => { f.reset(); toast('已撤销未保存的修改') }
 
   // 导出 / 导入角色卡（纯本地 JSON，不请求任何网页）
-  const exportRole = () => {
+  const exportRole = async () => {
     if (!draft) return
     const payload = {
       meta: {
@@ -294,6 +364,23 @@ function SettingsRoleTab() {
       },
       body: draft.body || '',
     }
+    // 头像是可选字段（F-016）：只有用户自己传过的头像才问，默认带头像（同尺寸 128px 小图）
+    const curAvatar = (persona.data && persona.data.meta && persona.data.meta.avatar) || ''
+    const hasCustomAvatar = !!curAvatar && curAvatar.indexOf('/default-avatar.png') === -1
+    let withAvatar = false
+    if (hasCustomAvatar) {
+      withAvatar = await confirmDialog('把头像也放进角色卡？', {
+        title: '导出角色卡',
+        detail: '会附一张 128px 的小头像（约十几 KB，base64 内嵌在 JSON 里）。不带的话导入方只能看到默认图标。',
+        okText: '带头像导出',
+        cancelText: '不带',
+      })
+      if (withAvatar) {
+        const small = await stgCoreAvatarToSmallDataUrl(curAvatar, 128)
+        if (small) payload.avatar = small
+        else toast('头像读取失败，这张卡不带头像', 'error')
+      }
+    }
     try {
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
       const a = document.createElement('a')
@@ -302,7 +389,7 @@ function SettingsRoleTab() {
       document.body.appendChild(a)
       a.click()
       setTimeout(() => { try { URL.revokeObjectURL(a.href); a.remove() } catch (e) {} }, 1500)
-      toast('角色卡已导出')
+      toast(payload.avatar ? '角色卡已导出（含头像）' : '角色卡已导出')
     } catch (e) {
       toast('导出失败：' + ((e && e.message) || '浏览器不允许下载'), 'error')
     }
@@ -315,9 +402,12 @@ function SettingsRoleTab() {
     try { j = JSON.parse(await file.text()) } catch (err) { toast('导入失败：不是有效的 JSON 角色卡', 'error'); return }
     if (!j || typeof j !== 'object' || (!j.meta && typeof j.body !== 'string')) { toast('导入失败：角色卡格式不对', 'error'); return }
     const src = j.meta && typeof j.meta === 'object' ? j.meta : {}
+    // 头像兼容两种写法：顶层 avatar（本版导出格式）/ meta.avatar（手工做的卡）
+    const cardAvatar = stgCoreCardAvatar(j.avatar) || stgCoreCardAvatar(src.avatar)
     const ok = await confirmDialog('用这张角色卡覆盖当前角色？', {
       title: '导入角色卡',
-      detail: '会覆盖：名字、称呼、关系、年龄、说话示例、性格开关、模型设置、人设正文。头像不动。',
+      detail: '会覆盖：名字、称呼、关系、年龄、说话示例、性格开关、模型设置、人设正文。'
+        + (cardAvatar ? '头像也会一起换成卡里带的这张。' : '这张卡没带头像，导入后可以手动上传。'),
       danger: true,
       okText: '覆盖当前角色',
     })
@@ -341,11 +431,19 @@ function SettingsRoleTab() {
     const payload = {}
     if (stgCoreHas(meta)) payload.meta = meta
     if (typeof j.body === 'string') payload.body = j.body.slice(0, 20000)
-    if (!stgCoreHas(payload)) { toast('角色卡里没有可导入的字段', 'error'); return }
-    const r = await Api.post('/api/persona', payload)
-    if (!r.ok) { toast('导入失败：' + (r.error || '未知错误'), 'error'); return }
-    toast('角色卡已导入')
-    persona.reload()
+    if (!stgCoreHas(payload) && !cardAvatar) { toast('角色卡里没有可导入的字段', 'error'); return }
+    if (stgCoreHas(payload)) {
+      const r = await Api.post('/api/persona', payload)
+      if (!r.ok) { toast('导入失败：' + (r.error || '未知错误'), 'error'); return }
+    }
+    // 头像单独走 /api/avatar（meta 里不收 avatar，会被服务端剥掉）
+    if (cardAvatar) {
+      const rv = await Api.upload('/api/avatar', { dataUrl: cardAvatar })
+      if (!rv.ok) toast('人设已导入，但头像没换成功：' + (rv.error || '未知错误'), 'error')
+    }
+    toast(cardAvatar ? '角色卡已导入（含头像）' : '角色卡已导入 · 这张卡没带头像，可在上面「头像」里传一张')
+    // F-006：导入改的是「当前角色」，所以列表 chip、当前角色名、页头都要一起刷新（原来只刷了 persona）
+    reloadAll()
   }
 
   // ── 效果预览 ──
@@ -385,15 +483,33 @@ function SettingsRoleTab() {
     stgCoreErrBox(readError, persona.reload),
 
     // 顶部操作条：保存 / 撤销 / 刷新 / 导入导出
-    h(Row, { gap: 8, wrap: true, style: { position: 'sticky', top: 0, zIndex: 3, padding: '6px 0', background: T.bg, borderBottom: '1px solid ' + T.border } },
-      h('span', { style: { fontSize: 12.5, color: T.text2 } }, '角色卡'),
-      h('span', { style: { fontSize: 11, color: T.text3 } }, readOnly ? '读取中…' : '改完点保存；只提交改动过的字段'),
+    // F-012：滚动时收成一条窄的保存条（只留按钮），滚回顶部再展开；背景用玻璃 + 下阴影，
+    // 不再用整块不透明底色把下面的卡片标题/说明「吃掉」。
+    h('div', { ref: roleBarSentinelRef, style: { height: 1, marginTop: -1, marginBottom: -1 } }),
+    h(Row, {
+      gap: 8,
+      wrap: true,
+      style: {
+        position: 'sticky',
+        top: 0,
+        zIndex: 5,
+        padding: compactBar ? '4px 0' : '6px 0',
+        marginTop: 0,
+        background: paintGlass(T.bg1, 0.92),
+        borderBottom: '1px solid ' + T.border,
+        boxShadow: compactBar ? '0 6px 14px -10px rgba(0,0,0,.55)' : 'none',
+        transition: 'padding .14s ease, box-shadow .14s ease',
+      },
+    },
+      compactBar ? null : h('span', { style: { fontSize: 12.5, color: T.text2 } }, '角色卡'),
+      compactBar ? null : h('span', { style: { fontSize: 11, color: T.text3 } }, readOnly ? '读取中…' : '改完点保存；只提交改动过的字段'),
       h('span', { style: { flex: 1 } }),
-      h(Btn, { size: 'sm', kind: 'ghost', disabled: !!readError || !draft, onClick: resetDraft }, '撤销修改'),
-      h(Btn, { size: 'sm', kind: 'ghost', disabled: !!readError, onClick: reloadAll }, '重新读取'),
-      h(Btn, { size: 'sm', kind: 'ghost', disabled: !draft, onClick: exportRole }, '导出角色卡'),
-      h(Btn, { size: 'sm', kind: 'ghost', disabled: !draft, onClick: () => { if (importFile.current) importFile.current.click() } }, '导入角色卡'),
+      compactBar ? null : h(Btn, { size: 'sm', kind: 'ghost', disabled: !!readError || !draft, onClick: resetDraft }, '撤销修改'),
+      compactBar ? null : h(Btn, { size: 'sm', kind: 'ghost', disabled: !!readError, onClick: reloadAll }, '重新读取'),
+      compactBar ? null : h(Btn, { size: 'sm', kind: 'ghost', disabled: !draft, onClick: exportRole }, '导出角色卡'),
+      compactBar ? null : h(Btn, { size: 'sm', kind: 'ghost', disabled: !draft, onClick: () => { if (importFile.current) importFile.current.click() } }, '导入角色卡'),
       stgCoreSaveBtn({ disabled: readOnly || busy || !!readError, busy: busy, onClick: saveRole }),
+      compactBar ? h(Btn, { size: 'sm', kind: 'ghost', title: '回到这张卡的开头', onClick: scrollRoleTop }, '↑ 顶部') : null,
     ),
     h('input', {
       ref: importFile, type: 'file', accept: '.json,application/json', style: { display: 'none' },
@@ -414,6 +530,8 @@ function SettingsRoleTab() {
     ),
 
     // 基本信息 + 头像
+    h(Card, { title: '面板配色', sub: '亮/暗和主色都能调；改完立即生效，不用重启', tag: '影响整个面板' }, h(ThemeCard, {})),
+    h(Card, { title: '语音', sub: '她说话：一个能用的声音 + 留给你自己的接口', tag: '0.8.7' }, h(VoiceCard, {})),
     h(Card, { title: '外观美化', sub: '可选：给舞台/地图空白处加背景美化，关闭就是现在的简洁样式', tag: '可开关' }, h(PaintCard, {})),
     h(Card, { title: '基本信息', sub: '角色身份与基本设定' },
       readOnly ? (readError ? null : h(Loading, { text: '读取角色卡…' })) : h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 10 } },
@@ -434,8 +552,8 @@ function SettingsRoleTab() {
         h(Field, { label: '年龄', hint: '选填；0 或不填都算没填（会影响出行/夜间出门等判断）' }, h(NumInput, { value: draft.age, min: 0, max: 200, step: 1, onChange: (v) => patch({ age: v }), suffix: '岁' })),
         h(Field, { label: '有驾照' }, h(Toggle, { checked: !!draft.license, onChange: (v) => patch({ license: v }), label: draft.license ? '有（可以开车）' : '没有' })),
         h(Field, { label: '出行偏好' }, h(Select, { value: draft.travelPref, onChange: (v) => patch({ travelPref: v }), options: STG_ROLE_TRAVEL_PREFS })),
-        h(Field, { label: '模型类型', hint: '舞台用她的形象；本版只有 2D 舞台' }, h(Select, { value: draft.modelType, onChange: (v) => patch({ modelType: v }), options: STG_ROLE_MODEL_TYPES })),
-        h(Field, { label: '模型地址', hint: '可留空' }, h(TextInput, { value: draft.modelUrl, onChange: (v) => patch({ modelUrl: v }), placeholder: '模型文件 URL（可留空）', mono: true })),
+        h(Field, { label: '模型类型', hint: '舞台 3D 分支用她的形象；没有模型就退回立绘/程序化小人' }, h(Select, { value: draft.modelType, onChange: (v) => patch({ modelType: v }), options: STG_ROLE_MODEL_TYPES })),
+        h(Field, { label: '模型地址', hint: '填 /models/xxx.glb（插件自带：/models/xiaojing-3d.glb）；留空则不用模型' }, h(TextInput, { value: draft.modelUrl, onChange: (v) => patch({ modelUrl: v }), placeholder: '/models/xxx.glb', mono: true })),
         h(Field, { label: '模型缩放' }, h(NumInput, { value: draft.modelScale, min: 0.1, max: 3, step: 0.1, onChange: (v) => patch({ modelScale: v }) })),
         h(Field, { label: '2D 表现', hint: '地图和 2D 舞台上的她用什么画' }, h(SkeletonSwitch, {})),
         h(Field, { label: '地图动作速度', hint: '她在图上走动/动画的快慢' }, h(MapSpeedChips, {})),
@@ -810,6 +928,232 @@ function SkeletonSwitch() {
 }
 
 // (anchor fallback)
+
+// 语音：总开关 + provider（sapi/http）+ 试听。不做训练/克隆（V-D14），音色由用户自己接。
+function VoiceCard() {
+  const voice = useVoiceSettings()
+  const s = voice.settings || SBC_VOICE_DEFAULTS
+  const [busy, setBusy] = React.useState('')
+  const [msg, setMsg] = React.useState('')
+  const [audioUrl, setAudioUrl] = React.useState('')
+  const [autoSpeak, setAutoSpeak] = useLocal('companionVoiceAutoplay', true)
+  // 语音输入（0.8.8）：借 DSH 自带的 SenseVoice，本插件不带模型
+  const [speechNote, setSpeechNote] = React.useState('')
+  const [speechErr, setSpeechErr] = React.useState('')
+  const [speechBusy, setSpeechBusy] = React.useState(false)
+  const prepareSpeech = async () => {
+    setSpeechBusy(true)
+    setSpeechErr('')
+    setSpeechNote('正在检查识别器…')
+    const r = await sbcSpeechEnsureReady((m) => setSpeechNote(m))
+    setSpeechBusy(false)
+    if (!r.ok) { setSpeechErr(r.error); setSpeechNote(''); return }
+    setSpeechNote('识别器已就绪：' + r.providerId)
+  }
+  const [draft, setDraft] = React.useState({ voice: '', endpoint: '', apiKeyRef: '', appId: '', cluster: 'volcano_tts', resourceId: 'seed-tts-2.0', model: 'tts-1' })
+  React.useEffect(() => {
+    setDraft({
+      voice: s.voice || '',
+      endpoint: s.endpoint || '',
+      apiKeyRef: s.apiKeyRef || '',
+      appId: s.appId || '',
+      cluster: s.cluster || 'volcano_tts',
+      resourceId: s.resourceId || 'seed-tts-2.0',
+      model: s.model || 'tts-1',
+    })
+  }, [s.voice, s.endpoint, s.apiKeyRef, s.appId, s.cluster, s.resourceId, s.model])
+  const draftKey = ['voice', 'endpoint', 'apiKeyRef', 'appId', 'cluster', 'resourceId', 'model']
+  const dirty = draftKey.some((k) => String(draft[k] || '') !== String(s[k] || (k === 'cluster' ? 'volcano_tts' : k === 'resourceId' ? 'seed-tts-2.0' : k === 'model' ? 'tts-1' : '')))
+  const save = async (patch) => {
+    setBusy('save')
+    setMsg('')
+    const r = await saveVoiceSettings(patch)
+    setBusy('')
+    if (!r.ok) setMsg(r.error || '保存失败')
+  }
+  const preview = async () => {
+    if (busy) return
+    setBusy('preview')
+    setMsg('')
+    const r = await Api.post('/api/voice/preview', {})
+    setBusy('')
+    const d = (r && r.data) || {}
+    if (!r || !r.ok || d.ok !== true) { setMsg(d.error || (r && r.error) || '试听失败'); return }
+    const url = await Api.fileUrl(d.audio, { bust: Date.now() })
+    setAudioUrl(url)
+    setMsg(d.fallbackFrom
+      ? ('当前通道 ' + d.fallbackFrom + ' 不可用，已自动改用 Windows 内置语音试听。建议点下面「改用 Windows 内置语音」。')
+      : (d.cached ? '已生成（命中缓存）' : ('已生成' + (d.duration ? '：' + Math.round(d.duration) + ' 秒' : ''))))
+    try { await new Audio(url).play() } catch (e) { setMsg((d.cached ? '已生成（命中缓存）' : '已生成') + '，但浏览器没让自动播，点「再播一次」') }
+  }
+  const replay = async () => {
+    if (!audioUrl) return
+    try { await new Audio(audioUrl).play() } catch (e) { setMsg('浏览器没让播，先点一下页面再试') }
+  }
+  const isVolc = s.provider === 'volc'
+  const isOpenAI = s.provider === 'openai'
+  const isHttp = s.provider === 'http'
+  const isSapi = s.provider === 'sapi'
+  const voiceHint = isVolc ? '火山 voice_type，例 zh_female_shuangkuaisisi_moon_bigtts'
+    : isOpenAI ? '例 alloy / echo / nova（看服务商）'
+      : isHttp ? '服务商要求的音色名'
+        : '留空 = 系统默认中文音色'
+  const providerOptions = (voice.providers && voice.providers.length ? voice.providers : [{ id: 'sapi', name: 'Windows 内置语音（离线、免 Key）' }])
+    .map((p) => ({ value: p.id, label: p.name }))
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
+    h(Field, { label: '她说话', hint: '打开后她的每条回复会带一条语音' },
+      h(Toggle, { checked: !!s.enabled, onChange: (v) => save({ enabled: v }), label: s.enabled ? '已开启' : '已关闭' })),
+    h(Field, { label: '说完自动读出来', hint: '新消息一到就自动播；历史消息仍然只在你点播放时读（关掉=全部手点）' },
+      h(Toggle, { checked: !!autoSpeak, onChange: setAutoSpeak, label: autoSpeak ? '自动读' : '只在我点时读' })),
+    h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 10 } },
+      h(Field, { label: '声音来源' }, h(Select, { value: s.provider, options: providerOptions, onChange: (v) => save({ provider: v }) })),
+      h(Field, { label: '音色', hint: voiceHint },
+        h(TextInput, { value: draft.voice, placeholder: isVolc ? 'zh_female_shuangkuaisisi_moon_bigtts' : (isOpenAI ? 'alloy' : '留空即可'), mono: isVolc || isOpenAI, onChange: (v) => setDraft((d) => Object.assign({}, d, { voice: v })) })),
+      h(Field, { label: '语速', hint: '0.5 ~ 2.0' },
+        h(NumInput, { value: s.speed, min: 0.5, max: 2, step: 0.1, onChange: (v) => save({ speed: v }) })),
+      h(Field, { label: '单条最长', hint: '超过就截断，不整段念出来' },
+        h(NumInput, { value: s.maxChars, min: 20, max: 2000, step: 10, onChange: (v) => save({ maxChars: v }), suffix: '字' })),
+    ),
+    isVolc
+      ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, padding: '9px 11px', borderRadius: 10, border: '1px dashed ' + T.border } },
+          h(Field, { label: 'App ID', hint: '新版控制台「服务管理」标题旁的 APP ID；旧版控制台的 App ID 也填这' },
+            h(TextInput, { value: draft.appId, placeholder: '1234567890', mono: true, onChange: (v) => setDraft((d) => Object.assign({}, d, { appId: v })) })),
+          h(Field, { label: 'Key 引用', hint: '新版控制台「API Key」生成的 Key；只存引用：env:VOLC_TTS_TOKEN 或 file:密钥文件路径' },
+            h(TextInput, { value: draft.apiKeyRef, placeholder: 'env:VOLC_TTS_TOKEN', mono: true, onChange: (v) => setDraft((d) => Object.assign({}, d, { apiKeyRef: v })) })),
+          h(Field, { label: '资源 ID', hint: '语音合成2.0 用 seed-tts-2.0；留空则走旧版 v1（需要 App ID + Access Token + cluster）' },
+            h(TextInput, { value: draft.resourceId, placeholder: 'seed-tts-2.0', mono: true, onChange: (v) => setDraft((d) => Object.assign({}, d, { resourceId: v })) })),
+          h(Note, {}, '音色要注意版本：2.0 的音色以 _uranus_bigtts 结尾（如 zh_female_gaolengyujie_uranus_bigtts），1.0 的是 _moon_bigtts——资源 ID 和音色版本不匹配会报「resource ID is mismatched with speaker related resource」。'),
+        )
+      : null,
+    (isOpenAI || isHttp)
+      ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, padding: '9px 11px', borderRadius: 10, border: '1px dashed ' + T.border } },
+          h(Field, {
+            label: isOpenAI ? '服务地址（base URL）' : 'TTS 服务地址',
+            hint: isOpenAI ? '例如 https://api.openai.com/v1（自动拼 /audio/speech）' : '约定：POST {text,voice,speed,pitch,format}，直接回音频二进制（mp3/wav/ogg）',
+          },
+            h(TextInput, {
+              value: draft.endpoint,
+              placeholder: isOpenAI ? 'https://api.openai.com/v1' : 'http://127.0.0.1:9880/tts',
+              mono: true,
+              onChange: (v) => setDraft((d) => Object.assign({}, d, { endpoint: v })),
+            })),
+          isOpenAI
+            ? h(Field, { label: '模型', hint: 'tts-1 / gpt-4o-mini-tts / 服务商自定' },
+                h(TextInput, { value: draft.model, placeholder: 'tts-1', mono: true, onChange: (v) => setDraft((d) => Object.assign({}, d, { model: v })) }))
+            : null,
+          h(Field, { label: '密钥引用', hint: '只存引用：env:变量名 或 file:密钥文件路径；明文别填这里' },
+            h(TextInput, { value: draft.apiKeyRef, placeholder: 'env:TTS_KEY', mono: true, onChange: (v) => setDraft((d) => Object.assign({}, d, { apiKeyRef: v })) })),
+          h(Note, {}, isOpenAI
+            ? 'OpenAI 兼容的 /audio/speech：OpenAI、SiliconFlow 等都能接。注意：火山方舟（Ark）目前没有这个路由，Ark 的 Key 用不了。'
+            : '这个口子是留给你的：GPT-SoVITS 的 api_v2、CosyVoice 自建服务都能接，插件不认具体模型，只转发文本。'),
+        )
+      : null,
+    h(Row, { gap: 8, wrap: true },
+      dirty ? h(Btn, { size: 'sm', kind: 'primary', disabled: !!busy, onClick: () => save(draft) }, '保存音色设置') : null,
+      h(Btn, { size: 'sm', disabled: !!busy, onClick: () => { void preview() } }, busy === 'preview' ? '合成中…' : '试听'),
+      audioUrl ? h(Btn, { size: 'sm', kind: 'ghost', onClick: () => { void replay() } }, '再播一次') : null,
+      !isSapi
+        ? h(Btn, {
+            size: 'sm', kind: 'ghost', disabled: !!busy,
+            title: '不用等云端通道修好，先用 Windows 内置语音',
+            onClick: () => { save({ provider: 'sapi' }).catch(() => {}) },
+          }, '改用 Windows 内置语音')
+        : null,
+      voice.cache ? h('span', { style: { fontSize: 11, color: T.text3 } }, '缓存 ' + (voice.cache.count || 0) + ' 条 · ' + fmtBytes(voice.cache.total || 0)) : null,
+      msg ? h('span', { style: { fontSize: 11, color: T.text2 } }, msg) : null,
+    ),
+    isVolc
+      ? h(Note, {}, '⚠ 火山通道如果资源 ID / 音色不匹配，会报 45000030；试听或回复失败时插件会自动回退 Windows 内置语音，也可以直接点「改用 Windows 内置语音」先恢复。')
+      : null,
+    h(Note, {}, '第一版只有一个能用的声音：Windows 自带的离线语音（不用 Key、不联网）。想要更好的音色，把「声音来源」换成你自己的 TTS 服务；训练 / 克隆这类事插件不做，留给你在外面自己搞。'),
+    h(Note, {}, '「她主动看屏幕并说一句」的子开关在：设置 → 生活 → 环境权限 →「她自己看你的屏幕」（默认关，需要「你的电脑」权限）。'),
+    // 语音输入：用 DSH 自带的 SenseVoice（0.8.8 接回来的），插件不打包模型
+    h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6, padding: '9px 11px', borderRadius: 10, border: '1px dashed ' + T.border } },
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+        h('span', { style: { fontSize: 12.5, color: T.text, fontWeight: 600 } }, '语音输入（你说话）'),
+        h('span', { style: { fontSize: 11, color: T.text3 } }, '用 DSH 自带的 SenseVoice，聊天输入区的 🎤 点一下就能用'),
+      ),
+      h(Row, { gap: 8, wrap: true },
+        h(Btn, { size: 'sm', disabled: speechBusy, onClick: () => { void prepareSpeech() } }, speechBusy ? '准备中…' : '检查 / 准备识别模型'),
+        speechNote ? h('span', { style: { fontSize: 11, color: T.text2 } }, speechNote) : null,
+        speechErr ? h('span', { style: { fontSize: 11, color: T.danger } }, speechErr) : null,
+      ),
+      h(Note, {}, '模型由 DSH 管（首次约 228MB，会自动走 hf-mirror 镜像），本插件不打包也不存第二份。'),
+      h(Note, {}, 'DSH 大版本升级后如果这里报「没启用或版本不匹配」，说明 profile 里 pin 的语音插件版本落后了，让我同步一次版本即可。'),
+    ),
+  )
+}
+
+// 面板配色：配色模式 + 强调色（存运行时 CONFIG.panelTheme；改完派发 sbc-panel-theme-changed 立即生效）
+function ThemeCard() {
+  const theme = usePanelTheme()
+  const detected = useScheme()
+  const effective = sbcEffectiveScheme(theme, detected)
+  const [busy, setBusy] = React.useState(false)
+  const [msg, setMsg] = React.useState('')
+  const save = async (patch) => {
+    // F-011：切模式不能把强调色丢掉 —— 每次都把 mode + accent 成对提交，成功后直接用服务端回读值
+    const next = Object.assign({ mode: theme.mode, accent: theme.accent }, patch || {})
+    setBusy(true)
+    setMsg('')
+    const r = await Api.post('/api/panel-theme', { mode: next.mode, accent: next.accent })
+    setBusy(false)
+    if (r.ok) {
+      const cur = r.data && r.data.current
+      if (cur && (cur.mode !== theme.mode || cur.accent !== theme.accent)) {
+        try { sbcThemeSet(cur) } catch (e) {}
+      }
+      try { window.dispatchEvent(new Event('sbc-panel-theme-changed')) } catch (e) {}
+    } else setMsg(r.error || '保存失败')
+  }
+  const modeChips = SBC_THEME_MODES.map((m) => h(Chip, {
+    key: m.key,
+    active: theme.mode === m.key,
+    title: m.hint,
+    onClick: busy ? undefined : () => save({ mode: m.key }),
+  }, m.label))
+  const swatches = SBC_ACCENTS.map((a) => h('button', {
+    key: a.id,
+    type: 'button',
+    title: a.name,
+    disabled: busy || undefined,
+    onClick: () => save({ accent: a.id }),
+    style: {
+      width: 26, height: 26, borderRadius: 999, padding: 0,
+      cursor: busy ? 'default' : 'pointer',
+      background: a.color, border: 'none',
+      boxShadow: theme.accent === a.id
+        ? '0 0 0 2px ' + T.bg1 + ', 0 0 0 4px ' + a.color
+        : 'inset 0 0 0 1px rgba(127,127,127,.35)',
+      opacity: busy ? 0.6 : 1,
+    },
+  }))
+  const accentName = (SBC_ACCENTS.filter((a) => a.id === theme.accent)[0] || SBC_ACCENTS[0]).name
+  const modeName = (SBC_THEME_MODES.filter((m) => m.key === theme.mode)[0] || SBC_THEME_MODES[0]).label
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
+    h(Field, { label: '配色模式', hint: '「跟随 DSH」= DSH 切亮/暗面板跟着变；固定浅色/深色只影响这个面板' },
+      h(Row, { gap: 6 }, modeChips)),
+    h(Field, { label: '强调色', hint: '按钮、选中态、开关、她的气泡这些「主色」位置' },
+      h(Row, { gap: 8 }, swatches,
+        h('span', { style: { fontSize: 11.5, color: T.text3, marginLeft: 2 } }, accentName))),
+    // 预览：直接看当前配色的文字/主按钮对比够不够
+    h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 12, border: '1px solid ' + T.border, background: T.bg2 } },
+      h('span', { style: { fontSize: 12.5, color: T.text, fontWeight: 600 } }, '预览：她就在这里'),
+      h('span', { style: { fontSize: 11.5, color: T.text2 } }, '次要文字'),
+      h('span', { style: { fontSize: 11, color: T.text3 } }, '提示文字'),
+      h('span', { style: { marginLeft: 'auto' } }),
+      h('span', { style: { fontSize: 12, lineHeight: '18px', padding: '3px 11px', borderRadius: 8, background: T.brand, color: T.accentInk } }, '主按钮'),
+      h('span', { style: { fontSize: 11.5, lineHeight: '18px', padding: '3px 11px', borderRadius: 999, background: 'rgba(127,127,127,.10)', color: T.text2, border: '1px solid ' + T.border } }, '标签'),
+    ),
+    h(Row, { gap: 8, wrap: true },
+      h(Btn, { size: 'sm', kind: 'ghost', disabled: busy, onClick: () => save({ mode: 'follow', accent: 'blue' }) }, '恢复默认'),
+      h('span', { style: { fontSize: 11, color: T.text3 } },
+        '当前：' + modeName + ' · ' + (effective === 'light' ? '浅色外观' : '深色外观')),
+      msg ? h('span', { style: { fontSize: 11, color: T.danger } }, msg) : null,
+    ),
+    h(Note, {}, '「外观美化」的玻璃底和星空会跟着这里变：浅色外观下是白玻璃 + 浅底，不会再出现「深底深字」看不见。'),
+  )
+}
 
 // 外观美化：开关 + 自定义背景图（存运行时 CONFIG.paint；改完派发 sbc-paint-changed）
 function PaintCard() {

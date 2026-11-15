@@ -105,13 +105,17 @@ function readPkgVersion(root) {
 }
 
 /**
- * installKind：
- *   · pluginRoot 在某个 node_modules 里、且本身是符号链接/junction → 'link'
+ * installKind（F-009：要如实反映"本地检出 / link / npm"，不能一律写 npm）：
+ *   · pluginRoot 下有 .git → 'git'（本地 git 检出 = 开发版，版本号可能比 npm 上的新）
+ *   · 在 node_modules 里、且本身是符号链接/junction → 'link'
  *   · 否则有 package.json → 'npm'
  *   · 否则 → 'unknown'
  */
-function detectInstallKind(root) {
+export function detectInstallKind(root) {
   const abs = path.resolve(String(root || '.'));
+  try {
+    if (fs.existsSync(path.join(abs, '.git'))) return 'git';
+  } catch {}
   let link = false;
   try {
     link = fs.lstatSync(abs).isSymbolicLink();

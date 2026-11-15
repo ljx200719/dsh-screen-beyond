@@ -18,6 +18,9 @@ const TABS = [
   { key: 'about', label: '关于' },
 ]
 
+// DSH 客户端 ctx（0.8.8）：插件的 client 半只有 apply(ctx) 拿得到，语音输入要借它调 DSH 的 speech Remote
+let SBC_CLIENT_CTX = null
+
 const T = {
   radius: 10,
   radiusLg: 14,
@@ -34,11 +37,12 @@ const T = {
   text3: 'var(--dsw-alias-label-tertiary, #6f849b)',
   // ⚠️ 强调色不能用 --dsw-alias-brand-primary：当前 DSH 版本把它别名成 label-primary
   //（深色主题接近纯白），拿它当填充色会出现「白底白字」（用户气泡、主按钮都不可见，实测踩过）。
-  // 所以填充/描边强调色统一用固定的品牌蓝，保证亮/暗主题都读得清。
-  accent: '#3b82f6',
-  accentInk: '#ffffff',
-  accentSoft: 'rgba(59,130,246,.18)',
-  brand: '#3b82f6',
+  // 现在强调色由「设置 → 面板配色」控制，落在面板根节点的 --sbc-accent* 上（见 00-core/theme.js），
+  // 所以这里是变量而不是具体颜色：换配色时组件不用重渲染。
+  accent: 'var(--sbc-accent, #3b82f6)',
+  accentInk: 'var(--sbc-accent-ink, #ffffff)',
+  accentSoft: 'rgba(var(--sbc-accent-rgb, 59,130,246), .18)',
+  brand: 'var(--sbc-accent, #3b82f6)',
   danger: 'var(--dsw-alias-state-error-primary, #ef5350)',
   warn: 'var(--dsw-alias-state-warn-primary, #f59e0b)',
   ok: 'var(--dsw-alias-state-success-primary, #22c55e)',

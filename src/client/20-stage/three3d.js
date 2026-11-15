@@ -35,6 +35,17 @@ function sbc3dVendorBase() {
   return String(b).replace(/\/+$/, '')
 }
 
+// 3D 资源（GLB / glTF / 贴图）地址：面板页面的 origin 是 dsh-app://app，
+// 相对路径 /models/x.glb 会被拿成 dsh-app://app/models/x.glb → 404。
+// 0.8.11 报告里的「角色模型加载失败，已用兜底形象」就是这个原因，
+// 所以所有要交给 GLTFLoader 的 url 都必须先换成运行时绝对地址。
+function sbc3dResolveUrl(u) {
+  const s = String(u || '')
+  if (!s) return s
+  if (/^(https?:|blob:|data:)/i.test(s)) return s
+  return sbc3dVendorBase() + (s.charAt(0) === '/' ? s : '/' + s)
+}
+
 function sbc3dVendorUrl(rel) {
   return sbc3dVendorBase() + '/vendor/' + String(rel || '').replace(/^\/+/, '')
 }
@@ -263,6 +274,8 @@ function sbc3dCreateWorld(host, opts, THREE) {
     dist: 100,
     zoomTouched: false,
     maxDist: 320,
+    islandFit: 0,
+    fitIsland: 0,
     envRadius: 0,
     charRadius: 0,
     fitApplied: 0,
@@ -279,7 +292,8 @@ function sbc3dCreateWorld(host, opts, THREE) {
   const scene = new THREE.Scene()
   scene.fog = new THREE.Fog(0x1a2c3a, 140, 320)
   scene.background = new THREE.Color(0x0d1a24)
-  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 500)
+  // far 先给足：天空穹顶半径 1400，far 太小会把穹顶裁掉（后面 applyIslandFit 还会再校准）
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 3200)
   camera.position.set(0, 90, 100)
 
   const hemi = new THREE.HemisphereLight(0xdceeff, 0x2a3a2a, 1.0)
@@ -349,6 +363,68 @@ function sbc3dCreateWorld(host, opts, THREE) {
   basePlane.position.y = -0.55
   basePlane.receiveShadow = true
   scene.add(basePlane)
+
+  // ── 天空穹顶 + 远海（F-003）────────────────────────────────────────
+  // 以前只有一块 190x130 的底座 + 近黑的 scene.background：俯视/转到背面时画面顶部是纯黑，
+  // 水面到头就是一条硬边。这里补两件事：
+  //   1) 一个包住场景的大球（背面渲染 + 顶点色做垂直渐变），任何角度都只有天空，没有纯黑空域；
+  //   2) 一块铺到地平线的海面，远端交给雾 → 海和天在雾色上接起来，看不到水面断边。
+  const SKY_RADIUS = 1400
+  const SKY_TOP_DEFAULT = 0x0d1a24
+  const skyDome = (() => {
+    const geo = new THREE.SphereGeometry(SKY_RADIUS, 28, 18)
+    const pos = geo.attributes.position
+    const colors = new Float32Array(pos.count * 3)
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    const m = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })
+    const mesh = new THREE.Mesh(geo, m)
+    mesh.renderOrder = -10
+    mesh.frustumCulled = false
+    scene.add(mesh)
+    return mesh
+  })()
+  const seaMat = new THREE.MeshStandardMaterial({ color: 0x123a4f, roughness: 0.42, metalness: 0.18 })
+  const seaPlane = new THREE.Mesh(new THREE.PlaneGeometry(2600, 2600), seaMat)
+  seaPlane.rotation.x = -Math.PI / 2
+  seaPlane.position.y = -0.9
+  seaPlane.receiveShadow = false
+  seaPlane.frustumCulled = false
+  scene.add(seaPlane)
+
+  // 天空颜色只在昼夜/天气真的变了才重算顶点色（applyDaylight 每轮轮询都会被调到）
+  let skyKey = ''
+  function updateSky(topHex, horizonHex) {
+    const key = String(topHex) + '|' + String(horizonHex)
+    if (key === skyKey) return
+    skyKey = key
+    try {
+      const top = new THREE.Color(topHex)
+      const hor = new THREE.Color(horizonHex)
+      const geo = skyDome.geometry
+      const pos = geo.attributes.position
+      const col = geo.attributes.color
+      const c = new THREE.Color()
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i) / SKY_RADIUS // -1（底下）~ 1（天顶）
+        const t = Math.min(1, Math.max(0, (y + 0.12) / 1.12))
+        c.copy(hor).lerp(top, Math.pow(t, 0.62))
+        col.setXYZ(i, c.r, c.g, c.b)
+      }
+      col.needsUpdate = true
+    } catch (e) {}
+  }
+  // 地平线色 = 天空色往冷白提一点：雾用这个颜色，海面远端就会"化"进天空
+  function horizonOf(skyHex) {
+    try { return new THREE.Color(skyHex).lerp(new THREE.Color(0x9dc0d6), 0.34) } catch (e) { return new THREE.Color(0x9dc0d6) }
+  }
+
+  // 岛（世界）的包围盒半径：默认取景、雾距离、相机活动范围都按它算
+  function islandRadius() {
+    const w = Number(state.worldW) || 0
+    const h = Number(state.worldH) || 0
+    if (!(w > 0.001) || !(h > 0.001)) return 0
+    return Math.hypot(w, h) / 2
+  }
 
   const townGroup = new THREE.Group()
   scene.add(townGroup)
@@ -950,7 +1026,7 @@ function sbc3dCreateWorld(host, opts, THREE) {
     }
     sbc3dLoadGltfLoader().then((GLTFLoader) => {
       if (token !== state.envToken) return
-      return new GLTFLoader().loadAsync(String(model.url)).then((gltf) => {
+      return new GLTFLoader().loadAsync(sbc3dResolveUrl(String(model.url))).then((gltf) => {
         if (token !== state.envToken) { disposeObject(gltf.scene); return }
         const obj = gltf.scene
         obj.scale.setScalar(Number(model.scale) || 1)
@@ -982,6 +1058,31 @@ function sbc3dCreateWorld(host, opts, THREE) {
   }
 
   // ── 相机/阴影自适应（用户导入大模型时把可视范围放大）──
+  //   F-003：没有导入模型时不再固定 dist=100 / fog 140~320，改成按岛（世界包围盒）取景，
+  //   这样默认视角下岛是"装满画面"的，雾也刚好把远海接进天空。
+  function applyIslandFit() {
+    const ir = islandRadius()
+    if (!(ir > 0.001)) return false
+    const fit = fitDistanceForIsland()
+    if (!(fit > 0)) return false
+    state.maxDist = Math.max(320, Math.min(4000, Math.max(fit * 1.9, ir * 2.2)))
+    if (!state.zoomTouched) state.dist = clampDist(fit)
+    // far 必须盖住整个天空穹顶（否则穹顶被裁掉，画面又变回纯色背景）
+    camera.far = Math.max(SKY_RADIUS * 2.2, state.dist * 2.6 + SKY_RADIUS)
+    camera.updateProjectionMatrix()
+    scene.fog.near = Math.max(ir * 1.15, state.dist * 0.9)
+    scene.fog.far = Math.max(ir * 2.8, state.dist * 2.6)
+    // 远海平面要铺出雾的边界，否则还能看到水面尽头
+    try {
+      const need = Math.max(1200, scene.fog.far * 6)
+      if (seaPlane && seaPlane.geometry && seaPlane.geometry.parameters && seaPlane.geometry.parameters.width < need) {
+        seaPlane.geometry.dispose()
+        seaPlane.geometry = new THREE.PlaneGeometry(need, need)
+      }
+    } catch (e) {}
+    return true
+  }
+
   function updateSceneFit() {
     const r = Math.max(state.envRadius, state.charRadius)
     if (!(r > 0.001)) {
@@ -989,7 +1090,7 @@ function sbc3dCreateWorld(host, opts, THREE) {
         state.fitApplied = 0
         state.maxDist = 320
         if (!state.zoomTouched) state.dist = 100
-        camera.far = 500
+        camera.far = Math.max(3200, SKY_RADIUS * 2.2)
         camera.updateProjectionMatrix()
         const sr0 = 90
         dir.shadow.camera.left = -sr0
@@ -999,12 +1100,11 @@ function sbc3dCreateWorld(host, opts, THREE) {
         dir.shadow.camera.far = 220
         dir.shadow.camera.updateProjectionMatrix()
         dir.position.set(40, 70, 25)
-        scene.fog.near = 140
-        scene.fog.far = 320
       }
+      applyIslandFit()
       return
     }
-    if (Math.abs(r - state.fitApplied) < 0.01) return
+    if (Math.abs(r - state.fitApplied) < 0.01) { applyIslandFit(); return }
     state.fitApplied = r
     state.maxDist = Math.max(320, Math.min(3000, r * 2.2))
     if (!state.zoomTouched) state.dist = Math.min(state.maxDist, Math.max(100, r * 1.6))
@@ -1020,6 +1120,7 @@ function sbc3dCreateWorld(host, opts, THREE) {
     dir.position.set(sr * 0.44, sr * 0.78, sr * 0.28)
     scene.fog.near = Math.max(140, r * 1.4)
     scene.fog.far = Math.max(320, r * 3.2)
+    applyIslandFit()
   }
 
   // ── 载具：默认低模汽车/自行车；map.vehicles 配了 GLB 就换成用户的模型 ──
@@ -1087,7 +1188,7 @@ function sbc3dCreateWorld(host, opts, THREE) {
       if (c && c.url) {
         sbc3dLoadGltfLoader().then((GLTFLoader) => {
           if (token !== state.vehiclesToken) return
-          return new GLTFLoader().loadAsync(String(c.url)).then((gltf) => {
+          return new GLTFLoader().loadAsync(sbc3dResolveUrl(String(c.url))).then((gltf) => {
             if (token !== state.vehiclesToken) { disposeObject(gltf.scene); return }
             const obj = gltf.scene
             obj.scale.setScalar(Number(c.scale) || 1)
@@ -1166,11 +1267,17 @@ function sbc3dCreateWorld(host, opts, THREE) {
     tail.position.set(0, 0.95, -1.0)
     tail.rotation.x = 1.0
     g.add(tail)
+    g.scale.setScalar(1.25)
+    // F-004：名牌放到「头顶再往上」，原来是固定 y=4.6，正好压在头上
+    let topY = 3.6
+    try {
+      const bb = new THREE.Box3().setFromObject(g)
+      topY = Math.max(3.2, (bb.max.y || 4.5) / 1.25)
+    } catch (e) {}
     const tag = labelSprite((character && character.name) || '她', '')
     tag.scale.set(5.5, 2.75, 1)
-    tag.position.set(0, 4.6, 0)
+    tag.position.set(0, topY + 1.9, 0)
     g.add(tag)
-    g.scale.setScalar(1.25)
     return g
   }
 
@@ -1179,7 +1286,7 @@ function sbc3dCreateWorld(host, opts, THREE) {
     const key = [
       model.type, model.url || '', model.scale || 1, model.rotationY || 0,
       (character && character.id) || '', JSON.stringify((character && character.chibi) || {}),
-      (character && character.name) || '',
+      (character && character.name) || '', (character && character.standee) || '',
     ].join('|')
     if (key === state.charKey) return
     state.charKey = key
@@ -1213,7 +1320,7 @@ function sbc3dCreateWorld(host, opts, THREE) {
       fallbackBody.add(head)
       charGroup.add(fallbackBody)
     }
-    const addSprite = (url, height) => {
+    const addSprite = (url, height, onFail) => {
       const t = new THREE.TextureLoader()
       Api.imgUrl(String(url)).then((src) => {
         if (!src || token !== state.charToken) return
@@ -1228,15 +1335,20 @@ function sbc3dCreateWorld(host, opts, THREE) {
             sp.position.y = height * 0.55
             charGroup.add(sp)
             spritePlane = sp
-          } catch (e) { makeFallback() }
-        }, undefined, () => { if (token === state.charToken && !spritePlane) makeFallback() })
-      }).catch(() => { if (token === state.charToken && !spritePlane) makeFallback() })
+            // 立绘也要有名字，而且不能压着图：放在图顶上方
+            const tag = labelSprite((character && character.name) || '她', '')
+            tag.scale.set(5.5, 2.75, 1)
+            tag.position.set(0, height * 0.55 + height * 0.5 + 1.4, 0)
+            charGroup.add(tag)
+          } catch (e) { if (onFail) onFail(); else makeFallback() }
+        }, undefined, () => { if (token === state.charToken && !spritePlane) { if (onFail) onFail(); else makeFallback() } })
+      }).catch(() => { if (token === state.charToken && !spritePlane) { if (onFail) onFail(); else makeFallback() } })
     }
 
     if (type === '3d' && model.url) {
       sbc3dLoadGltfLoader().then((GLTFLoader) => {
         if (token !== state.charToken) return
-        return new GLTFLoader().loadAsync(String(model.url)).then((gltf) => {
+        return new GLTFLoader().loadAsync(sbc3dResolveUrl(String(model.url))).then((gltf) => {
           if (token !== state.charToken) { disposeObject(gltf.scene); return }
           gltf.scene.traverse((node) => { if (node.isMesh) node.castShadow = true })
           charModel = gltf.scene
@@ -1266,13 +1378,23 @@ function sbc3dCreateWorld(host, opts, THREE) {
       addSprite(model.url, 9 * scale)
       return
     }
-    // 无 3D 模型：用原 3D 舞台的程序化小鲸（比头像白板好看）；造不出来时用胶囊兜底
-    try {
-      charGroup.add(buildChibi(character))
-      updateSceneFit()
-    } catch (e) {
-      makeFallback()
+    const buildChibiSafe = () => {
+      try {
+        charGroup.add(buildChibi(character))
+        updateSceneFit()
+      } catch (e) {
+        makeFallback()
+      }
     }
+    // F-004：优先用她自己的立绘（导入过 idle 姿态图 / 整张立绘）做 billboard，
+    // 这样 3D 舞台里的她和聊天页里是同一个形象，不再是一个没脸的蓝球。
+    const standee = String((character && character.standee) || '')
+    if (standee) {
+      addSprite(standee, 8 * scale, buildChibiSafe)
+      return
+    }
+    // 没有立绘：用原 3D 舞台的程序化小鲸（比头像白板好看）；造不出来时用胶囊兜底
+    buildChibiSafe()
   }
 
   function playCharClip(name, manual) {
@@ -1363,7 +1485,14 @@ function sbc3dCreateWorld(host, opts, THREE) {
       } catch (e) { sky = todSkies[phase] }
     }
     scene.background = new THREE.Color(sky)
-    if (scene.fog) scene.fog.color.set(sky)
+    // F-003：雾色用地平线色而不是天顶色 —— 远海在雾里化开，海天之间不会出现一条硬边
+    const horizon = horizonOf(sky)
+    if (scene.fog) scene.fog.color.copy(horizon)
+    updateSky(sky, horizon.getHex())
+    try {
+      // 海面比天空暗一点、带一点蓝，和"深水 + 天光"的观感一致
+      seaMat.color.copy(horizon).multiplyScalar(0.42)
+    } catch (e) {}
     const dayFactor = phase === 'day' ? 1 : phase === 'dawn' || phase === 'dusk' ? 0.7 : 0.35
     hemi.intensity = phase === 'day' ? 1.0 : phase === 'night' ? 0.35 : 0.68
     ambient.intensity = phase === 'day' ? 0.65 : phase === 'night' ? 0.22 : 0.45
@@ -1459,6 +1588,10 @@ function sbc3dCreateWorld(host, opts, THREE) {
     if (worldKey !== state.worldKey) {
       state.worldKey = worldKey
       rebuildBase(normMap, !!envModel, aspect)
+      // 世界尺寸变了：按新的岛重新取景（F-003）
+      state.islandFit = 0
+      applyIslandFit()
+      if (!state.camReady) resetCameraToChar()
     }
     // 这些函数内部都有 key 去重：数据没变就是空操作；地点/道路被编辑过就会重建
     if (state.official) buildOfficialTerrain(normMap)
@@ -1484,6 +1617,61 @@ function sbc3dCreateWorld(host, opts, THREE) {
     if (!state.camReady) resetCameraToChar()
   }
 
+  // ── 地点名牌的屏幕空间布局（F-004 / F-008）──────────────────────────
+  //   3D 名牌是 Sprite，压在一起就糊成一团，转到边缘还会被裁一半。这里每 ~140ms 投影一次：
+  //   近的优先占位 → 重叠的后面的让位隐藏；有一半出画面也先让位（宁可少一个，不留半截字）。
+  const labelLayoutPos = new THREE.Vector3()
+  const labelLayoutNdc = new THREE.Vector3()
+  let labelLayoutAt = 0
+  function updateLabelLayout() {
+    if (!markerById.size) return
+    const now = Date.now()
+    if (now - labelLayoutAt < 140) return
+    labelLayoutAt = now
+    let w = 0
+    let h = 0
+    try {
+      w = Math.round(host.clientWidth || 0)
+      h = Math.round(host.clientHeight || 0)
+    } catch (e) {}
+    if (!(w > 1 && h > 1)) return
+    const tanHalf = Math.tan(((Number(camera.fov) || 45) * Math.PI / 180) / 2)
+    const items = []
+    for (const sp of markerById.values()) {
+      let dist = 0
+      try {
+        sp.getWorldPosition(labelLayoutPos)
+        dist = camera.position.distanceTo(labelLayoutPos)
+        labelLayoutNdc.copy(labelLayoutPos).project(camera)
+      } catch (e) { continue }
+      const behind = labelLayoutNdc.z > 1 || labelLayoutNdc.z < -1
+      const sx = (labelLayoutNdc.x * 0.5 + 0.5) * w
+      const sy = (-labelLayoutNdc.y * 0.5 + 0.5) * h
+      // Sprite 的世界尺寸 → 像素：h_px = 世界高 / (2*tan(fov/2)*dist) * 视口高
+      const pxPerUnit = h / (2 * tanHalf * Math.max(1, dist))
+      const hw = Math.max(14, (sp.scale.x * pxPerUnit) / 2)
+      const hh = Math.max(7, (sp.scale.y * pxPerUnit) / 2)
+      items.push({ sp, sx, sy, behind, dist, hw, hh })
+    }
+    items.sort((a, b) => a.dist - b.dist)
+    const placed = []
+    for (const it of items) {
+      let show = !it.behind && it.sx > -it.hw && it.sx < w + it.hw && it.sy > -it.hh && it.sy < h + it.hh
+      if (show) {
+        const r = { x1: it.sx - it.hw, y1: it.sy - it.hh, x2: it.sx + it.hw, y2: it.sy + it.hh }
+        // 贴边裁一半：不画（否则就是"边缘标签被裁切"）
+        if (r.x1 < 2 || r.x2 > w - 2 || r.y1 < 2 || r.y2 > h - 2) show = false
+        if (show) {
+          for (const q of placed) {
+            if (r.x1 < q.x2 && r.x2 > q.x1 && r.y1 < q.y2 && r.y2 > q.y1) { show = false; break }
+          }
+        }
+        if (show) placed.push(r)
+      }
+      it.sp.visible = show
+    }
+  }
+
   // ── 相机：跟随 + 拖动旋转 + 滚轮/双指缩放 ──
   const camTarget = new THREE.Vector3()
   const camPosTmp = new THREE.Vector3()
@@ -1492,6 +1680,71 @@ function sbc3dCreateWorld(host, opts, THREE) {
 
   function clampDist(d) {
     return Math.min(state.maxDist, Math.max(30, d))
+  }
+
+  // 按「岛（或导入模型）的包围盒」算一个刚好装下的距离：二分，保证四个角都进画面还留边（F-003）
+  function fitDistanceForIsland() {
+    const r = islandRadius()
+    if (!(r > 0.001)) return 0
+    const halfW = (Number(state.worldW) || 0) / 2
+    const halfH = (Number(state.worldH) || 0) / 2
+    const corners = [
+      new THREE.Vector3(-halfW, 0, -halfH), new THREE.Vector3(halfW, 0, -halfH),
+      new THREE.Vector3(-halfW, 0, halfH), new THREE.Vector3(halfW, 0, halfH),
+      new THREE.Vector3(0, 12, 0), // 把岛上的建筑高度也算进去一点
+    ]
+    const target = new THREE.Vector3(0, 0, 0)
+    const eye = new THREE.Vector3()
+    const fwd = new THREE.Vector3()
+    const rightV = new THREE.Vector3()
+    const upV = new THREE.Vector3()
+    const worldUp = new THREE.Vector3(0, 1, 0)
+    const tv = Math.tan(((Number(camera.fov) || 45) * Math.PI / 180) / 2)
+    const th = tv * Math.max(0.4, Number(camera.aspect) || 1)
+    const margin = 0.82
+    const fits = (d) => {
+      const cp = Math.cos(state.pitch)
+      eye.set(
+        target.x + Math.sin(state.yaw) * cp * d,
+        target.y + 6 + Math.sin(state.pitch) * d,
+        target.z + Math.cos(state.yaw) * cp * d
+      )
+      fwd.copy(target).sub(eye).normalize()
+      rightV.crossVectors(fwd, worldUp)
+      if (rightV.lengthSq() < 1e-8) rightV.set(1, 0, 0)
+      rightV.normalize()
+      upV.crossVectors(rightV, fwd).normalize()
+      for (const c of corners) {
+        const vx = c.x - eye.x
+        const vy = c.y - eye.y
+        const vz = c.z - eye.z
+        const z = vx * fwd.x + vy * fwd.y + vz * fwd.z
+        if (z <= 1) return false
+        const sx = (vx * rightV.x + vy * rightV.y + vz * rightV.z) / z
+        const sy = (vx * upV.x + vy * upV.y + vz * upV.z) / z
+        if (Math.abs(sx) > th * margin) return false
+        if (Math.abs(sy) > tv * margin) return false
+      }
+      return true
+    }
+    let lo = 30
+    let hi = 4000
+    if (!fits(hi)) return Math.max(120, r * 2.4)
+    for (let i = 0; i < 20; i++) {
+      const mid = (lo + hi) / 2
+      if (fits(mid)) hi = mid
+      else lo = mid
+    }
+    return Math.max(40, hi)
+  }
+
+  // 相机注视点限制在岛内：她走到边上时不要出现"半屏都是空海"
+  function clampCamTarget(v) {
+    const halfW = (Number(state.worldW) || 0) / 2
+    const halfH = (Number(state.worldH) || 0) / 2
+    if (halfW > 0.001) v.x = Math.max(-halfW * 0.8, Math.min(halfW * 0.8, v.x))
+    if (halfH > 0.001) v.z = Math.max(-halfH * 0.8, Math.min(halfH * 0.8, v.z))
+    return v
   }
 
   function cameraPositionFor(target, out) {
@@ -1507,8 +1760,17 @@ function sbc3dCreateWorld(host, opts, THREE) {
     const p = characterWorldPos(charPosTmp)
     p.x += 1.6
     p.z += 2.6
+    clampCamTarget(p)
     camTarget.copy(p)
     charGroup.position.copy(p)
+    // F-003：默认取景按岛的包围盒算距离，别再用固定的 100（岛偏小、四周留白过多）
+    const fit = fitDistanceForIsland()
+    if (fit > 0) {
+      state.fitIsland = fit
+      // 先放开 maxDist，再夹 dist —— 否则 maxDist 还停在 320 时会被夹回去，镜头贴着岛
+      state.maxDist = Math.max(state.maxDist, fit * 1.8)
+      if (!state.zoomTouched) state.dist = clampDist(fit)
+    }
     cameraPositionFor(camTarget, camera.position)
     camera.lookAt(camTarget.x, camTarget.y + 5, camTarget.z)
     state.camReady = true
@@ -1735,6 +1997,8 @@ function sbc3dCreateWorld(host, opts, THREE) {
       camera.aspect = w / h
       camera.updateProjectionMatrix()
     } catch (e) {}
+    // 宽高比变了要重新取景，否则"岛装不下/留白过多"会跟窗口尺寸有关（F-003）
+    try { if (!state.zoomTouched) applyIslandFit() } catch (e) {}
   }
   resize()
   try {
@@ -1770,10 +2034,12 @@ function sbc3dCreateWorld(host, opts, THREE) {
       p.x += 1.6
       p.z += 2.6
       focusTmp.copy(p)
+      clampCamTarget(focusTmp)
       camTarget.lerp(focusTmp, 0.08)
       cameraPositionFor(camTarget, camPosTmp)
       camera.position.lerp(camPosTmp, 0.1)
       camera.lookAt(camTarget.x, camTarget.y + 5, camTarget.z)
+      updateLabelLayout()
 
       const charTarget = characterWorldPos(charPosTmp)
       charTarget.x += 1.6
@@ -2008,8 +2274,10 @@ function ThreeStage(props) {
       ? h('div', {
           style: {
             position: 'absolute', right: 8, bottom: 8, pointerEvents: 'none',
+            // F-003：窄容器里换行，不要右侧被裁
+            maxWidth: 'calc(100% - 16px)', textAlign: 'right',
             fontSize: 10, color: 'rgba(215,222,232,.55)', textShadow: '0 1px 3px rgba(0,0,0,.8)',
-            whiteSpace: 'nowrap',
+            whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.45,
           },
         }, '拖动旋转 · 滚轮缩放 · 点地点让她去')
       : null,

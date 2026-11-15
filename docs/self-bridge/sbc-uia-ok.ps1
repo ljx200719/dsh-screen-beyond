@@ -1,4 +1,4 @@
-param([int]$Seconds = 180)
+﻿param([int]$Seconds = 180)
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 $auto = [System.Windows.Automation.AutomationElement]

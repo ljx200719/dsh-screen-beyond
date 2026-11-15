@@ -321,5 +321,5 @@ const Api = (() => {
     }
   }
 
-  return { request, get, post, upload: post, imgUrl, readFileAsDataUrl, openExternal, stream }
+  return { request, get, post, upload: post, imgUrl, fileUrl: imgUrl, readFileAsDataUrl, openExternal, stream }
 })()

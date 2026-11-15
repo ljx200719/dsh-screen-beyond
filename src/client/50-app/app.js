@@ -104,7 +104,11 @@ function AboutView() {
         h(KV, { k: '消息条数', v: st.count === undefined ? '—' : String(st.count) }),
         h(KV, { k: '模型', v: st.model || '—' }),
         h(KV, { k: 'API 版本', v: info && info.apiVersion !== undefined ? String(info.apiVersion) : (infoErr || '读取中…') }),
+        h(KV, { k: '安装方式', v: (info && info.install) ? sbcInstallKindLabel(info.install.kind) : '读取中…' }),
+        // F-009：能力只看 /api/version 的 features，别在文案里另外写一份
+        h(KV, { k: '3D 舞台（features.stage3d）', v: info && info.features ? (info.features.stage3d ? '能力已开启' : '运行时报告未开启') : '读取中…' }),
         h(KV, { k: '3D 舞台引擎', v: threeState }),
+        h(KV, { k: '旧网页入口', v: info && info.install ? ('HTTP ' + String(info.install.legacyWebStatus) + (info.install.legacyWebStatus === 410 ? '（默认关闭）' : '（调试开关已开）')) : '读取中…' }),
       ),
     ),
     // 插件更新（检查/一键更新）
@@ -116,9 +120,9 @@ function AboutView() {
         h(Btn, { kind: 'ghost', size: 'sm', onClick: loadInfo }, '重新读取'),
       ),
     ),
-    h(Card, { title: '旧网页（仅开发调试）', sub: 'S06：不再提供给用户' },
-      h(Note, {}, '运行时默认不再对外提供 /、/map、/settings、/stage、/model、/screen 这些网页入口；'),
-      h(Note, {}, '需要对照调试时，用环境变量 DSH_COMPANION_LEGACY_WEB=1 启动运行时才会继续提供。'),
+    h(Card, { title: '旧网页（仅开发调试）', sub: '任务 S06 已完成 · 默认 HTTP 410，不再提供给用户' },
+      h(Note, {}, '运行时默认不再对外提供 /、/map、/settings、/stage、/model、/screen 这些网页入口，请求会返回 HTTP 410（Gone）。'),
+      h(Note, {}, '需要对照调试时，用环境变量 DSH_COMPANION_LEGACY_WEB=1 启动运行时才会继续提供（此时返回 200）。'),
     ),
     h(Card, { title: '面板快捷键', sub: '' },
       h(Note, {}, 'Alt+S：用系统浏览器打开她的屏幕（noVNC）。'),
@@ -150,6 +154,9 @@ class SbcViewBoundary extends React.Component {
 function AppShell() {
   ensureUiStyle()
   const beauty = usePaintConfig()
+  // 配色：--sbc-* 变量挂在根节点上，换配色不用重渲染组件（详见 00-core/theme.js）
+  const panelTheme = usePanelTheme()
+  const scheme = useScheme()
   const base = useRuntimeBase()
   const status = useStatus()
   const st = status.data || {}
@@ -345,6 +352,7 @@ function AppShell() {
 
   return h('div', {
     style: {
+      ...sbcThemeVars(panelTheme, scheme),
       display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0,
       boxSizing: 'border-box', color: T.text, fontFamily: T.font,
       fontSize: 13, lineHeight: 1.6,
@@ -425,6 +433,8 @@ function CompanionLauncher() {
 
 function apply(ctx) {
   ensureUiStyle()
+  // 语音输入要用 DSH 自己的 speech Remote（0.8.8），组件里拿不到 ctx，这里存一份
+  SBC_CLIENT_CTX = ctx
   const slots = ctx.get('slots')
   if (slots === undefined) return
   try {

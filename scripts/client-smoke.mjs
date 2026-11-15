@@ -125,7 +125,7 @@ const fakeLocalStorage = {
 const NOW = Date.now();
 const state = { messages: [
   { id: 1, role: 'user', text: '在吗', at: NOW - 60000 },
-  { id: 2, role: 'her', text: '在的呀', at: NOW - 30000 },
+  { id: 2, role: 'her', text: '在的呀', at: NOW - 30000, audio: '/voice/audio/' + 'a'.repeat(40) + '.wav', audioDuration: 2.4, audioProvider: 'sapi' },
   { id: 3, role: 'her', text: '', image: '/images/demo.png', at: NOW - 20000 },
   { id: 4, role: 'system', text: '她走到你身边了', at: NOW - 10000 },
 ] };
@@ -152,6 +152,7 @@ const FI = {
   '/api/status': status,
   '/api/events': { messages: state.messages, typing: false, lastTurnAt: 0, usage: null, mode: 'full' },
   '/api/economy': { wallet: { balance: 328, spendable: 328, tokenMode: false }, realBalance: { ok: true, total: 10, todayRmb: 0.5 } },
+  '/api/voice/settings': { ok: true, settings: { enabled: true, provider: 'sapi', voice: '', speed: 1, maxChars: 300, endpoint: '', apiKeyRef: '' }, providers: [{ id: 'sapi', name: 'Windows 内置语音（离线、免 Key）' }, { id: 'http', name: '自建 / 云端 TTS 服务' }], cache: { count: 1, total: 204800 }, hasKey: false },
   '/api/stage': {
     ok: true, apiVersion: 1, serverTime: NOW,
     character: { id: 'xiaojing', name: '小鲸', avatar: '/default-avatar.png', sprite: '', chibi: null, model: { type: 'none', url: '', scale: 1 }, age: 20, license: false },
@@ -204,6 +205,16 @@ const FI = {
   '/api/world/characters': { characters: [], activeMapId: 'map-main' },
   '/api/travel/options': { ok: true, from: { id: 'map-main', name: '小鱼镇' }, wallet: { spendable: 328 }, options: [] },
   '/api/location': { ok: true, location: place },
+  '/api/mobile-gate/status': {
+    ok: true, enabled: true, port: 8920, tls: true, pairing: 'code', scopes: ['chat', 'readonly'],
+    fingerprint: 'AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89',
+    certSubject: 'CN=demo', certNotAfter: 'Jan 1 00:00:00 2030 GMT',
+    addresses: [{ iface: 'Wi-Fi', ip: '192.168.1.10', url: 'https://192.168.1.10:8920' }],
+    allow: ['GET /api/status', 'POST /api/chat'],
+    devices: [{ id: 'dev-1', name: '我的手机', scope: 'chat', createdAt: NOW, lastSeenAt: NOW, revokedAt: 0, lastIp: '192.168.1.22' }],
+    activeDevices: 1, requests: 3, denied: 1, lastError: '', version: '0.8.10',
+  },
+  '/api/mobile-gate/devices': { ok: true, devices: [{ id: 'dev-1', name: '我的手机', scope: 'chat', createdAt: NOW, lastSeenAt: NOW, revokedAt: 0 }] },
   '/api/chat': { ok: true },
   '/api/chat/cancel': { ok: true, typing: false },
   '/api/dsh-not-used': {},
@@ -459,6 +470,9 @@ async function run() {
 
     // 聊天：历史消息 + 发送
     check('聊天渲染历史消息', text.indexOf('在的呀') >= 0 && text.indexOf('在吗') >= 0, '');
+    // 语音：带 audio 的消息有播放按钮；输入区有总开关（0.8.3）
+    check('语音消息渲染播放按钮', text.indexOf('播放语音') >= 0, '');
+    check('聊天输入区有语音总开关', text.indexOf('语音开') >= 0 || text.indexOf('语音关') >= 0, '');
     const controls = [];
     collectControls(tree, controls);
     const box = controls.find((c) => c.tag === 'textarea');
@@ -526,6 +540,18 @@ async function run() {
     tree = step.tree;
     const setText = allText(tree);
     check('设置渲染核心分类', ['角色', '生活', '模型', '数据'].every((k) => setText.indexOf(k) >= 0), '');
+
+    // 设置 → VM：手机连接卡片（0.8.10）
+    // 子标签按钮的 label 是「💻 VM」这种（带图标），用后缀匹配
+    step = await pressButton(AppShell, {}, tree, (b) => /VM$/.test(String(b.label || '')));
+    check('切到设置 → VM 子标签', step.ok, '');
+    tree = step.tree;
+    const vmText = allText(tree);
+    check('VM 页有「手机连接」卡片（0.8.10）', vmText.indexOf('手机连接') >= 0, '');
+    check('手机连接卡片写明默认关闭 / HTTPS / 配对码', vmText.indexOf('默认关闭') >= 0 && vmText.indexOf('HTTPS') >= 0 && vmText.indexOf('配对码') >= 0, '');
+    check('手机连接卡片用术语区分「她的手机」与「手机端」', vmText.indexOf('「她的手机」') >= 0 && vmText.indexOf('安卓模拟器') >= 0, '');
+    check('手机连接卡片显示局域网地址与证书指纹', vmText.indexOf('192.168.1.10:8920') >= 0 && vmText.indexOf('AB:CD:EF:01') >= 0, '');
+    check('手机连接卡片列出已配对设备并可撤销', vmText.indexOf('我的手机') >= 0 && vmText.indexOf('撤销') >= 0, '');
 
     // 屏幕标签
     step = await pressButton(AppShell, {}, tree, (b) => b.label === '屏幕');

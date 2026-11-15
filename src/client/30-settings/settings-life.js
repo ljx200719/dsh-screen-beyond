@@ -68,7 +68,12 @@ function SettingsLifeNowCard() {
             ),
           )
         }))
-      : (api.error ? null : h(Empty, { icon: '🌙' }, '她现在没在任何地点（生活模拟可能没启动 / 当前模式是纯聊天）')),
+      : (api.error
+          ? null
+          : (api.loading || !api.data
+              // 首帧只给骨架：不要先渲染一个「她现在没在任何地点」的假空状态再跳成真实内容（F-014）
+              ? h(SkeletonRows, { rows: 2, avatar: true, label: '正在读她现在在做什么…' })
+              : h(Empty, { icon: '🌙' }, '她现在没在任何地点（生活模拟可能没启动 / 当前为无虚拟机模式）'))),
     h(Note, {}, '这是她的生活模拟状态：行为、地点、精力、心情都由运行时自己推进；「让她动一动」= 立刻重算一次。'),
   )
 }
@@ -826,6 +831,45 @@ function SettingsEnvTab() {
             h(Btn, { size: 'sm', kind: watchCfg.enabled ? 'ghost' : 'primary', disabled: watchBusy, onClick: () => { toggleWatch().catch(() => {}) } }, watchBusy ? '保存中…' : (watchCfg.enabled ? '关闭' : '开启')),
           ),
           h(Note, {}, '看到值得说的才自然提一句，没事就不打扰；不需要虚拟机/模拟器。'),
+          // 语音说出这一句（0.8.6）：打开后她会把看到的说出来，而不是只发文字
+          h(Field, { label: '语音说出来', hint: '打开后主动看屏幕的那句话也会读出来；需要「语音」总开关是开的' },
+            h(Toggle, {
+              checked: watchCfg.voice !== false,
+              onChange: async (v) => {
+                setWatchBusy(true)
+                try {
+                  const r = await Api.post('/api/watch-screen', { voice: v })
+                  if (!r.ok) toast('保存失败：' + (r.error || '未知错误'), 'error')
+                  else { toast(v ? '她会把那句话读出来' : '只看不发语音'); watch.reload() }
+                } finally { setWatchBusy(false) }
+              },
+              label: watchCfg.voice !== false ? '会读出来' : '只看不说',
+            })),
+          watch.data && watch.data.voiceEnabled === false && watchCfg.voice !== false
+            ? h(Note, {}, '提醒：现在「语音」总开关是关的，所以即使这里开了她也不会出声。')
+            : null,
+          // 间隔 / 安静时段
+          h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 8 } },
+            h(Field, { label: '最短间隔' }, h(NumInput, {
+              value: watchCfg.minMinutes || 20, min: 5, max: 120, step: 5, suffix: '分',
+              onChange: async (v) => { const r = await Api.post('/api/watch-screen', { minMinutes: v }); if (r.ok) watch.reload() },
+            })),
+            h(Field, { label: '最长间隔' }, h(NumInput, {
+              value: watchCfg.maxMinutes || 40, min: 10, max: 240, step: 5, suffix: '分',
+              onChange: async (v) => { const r = await Api.post('/api/watch-screen', { maxMinutes: v }); if (r.ok) watch.reload() },
+            })),
+            h(Field, { label: '安静时段开始' }, h(NumInput, {
+              value: watchCfg.quietStart === undefined ? 2 : watchCfg.quietStart, min: 0, max: 23, step: 1, suffix: '点',
+              onChange: async (v) => { const r = await Api.post('/api/watch-screen', { quietStart: v }); if (r.ok) watch.reload() },
+            })),
+            h(Field, { label: '安静时段结束' }, h(NumInput, {
+              value: watchCfg.quietEnd === undefined ? 7 : watchCfg.quietEnd, min: 0, max: 23, step: 1, suffix: '点',
+              onChange: async (v) => { const r = await Api.post('/api/watch-screen', { quietEnd: v }); if (r.ok) watch.reload() },
+            })),
+          ),
+          watch.data && watch.data.debug
+            ? h(Note, {}, '当前状态：' + String(watch.data.debug.why || '—'))
+            : null,
         ) : (watch.error ? null : h(Loading, { text: '读取看屏幕设置…' })),
       ),
       h(Card, { title: '环境占用', sub: '屏幕/手机是否在跑' },
@@ -834,7 +878,9 @@ function SettingsEnvTab() {
           ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
               h(Row, { gap: 6 }, h(Dot, { on: !!resources.space }), h('span', { style: { fontSize: 12.5, color: T.text } }, '她的屏幕：' + (resources.space ? '运行中' : '已关闭'))),
               h(Row, { gap: 6 }, h(Dot, { on: !!resources.phone }), h('span', { style: { fontSize: 12.5, color: T.text } }, '她的手机：' + (resources.phone ? '运行中' : '已关闭'))),
-              (resources.mem || []).length ? h(Note, {}, '当前占用：' + (resources.mem || []).join(' · ')) : null,
+              (resources.memItems || resources.mem || []).length
+        ? h(Note, {}, '当前占用：' + screenMemSummary(resources))
+        : null,
               h(Note, {}, '启动 / 关闭屏幕和手机在「屏幕」标签里；屏幕虚拟机约占 2~6GB 内存，不用时建议关掉。'),
             )
           : (env.error ? null : h(Loading, { text: '读取资源状态…' })),
