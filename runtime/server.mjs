@@ -181,6 +181,20 @@ const PET_DEFAULT = {
     { id: 'look', label: '', action: 'look', title: '看看我的屏幕', icon: 'eye-line' },
   ],
 };
+function petCharId() {
+  // 桌宠贴图固定用桌宠自己的角色，不跟随「当前活动角色」，避免动作结束回待机时串成别的角色（如 小克）
+  try {
+    const c = (CONFIG.pet && CONFIG.pet.character) || ''
+    const dir = path.join(RUNTIME_DIR, 'assets', 'pet')
+    const ok = (id) => { try { return fs.statSync(path.join(dir, String(id))).isDirectory() } catch { return false } }
+    if (c && ok(c)) return String(c)
+    if (ok('xiaojing')) return 'xiaojing'
+    if (ACTIVE_CHAR && ok(ACTIVE_CHAR)) return ACTIVE_CHAR
+    if (ok('default')) return 'default'
+    return ACTIVE_CHAR || 'default'
+  } catch (e) { return ACTIVE_CHAR || 'default' }
+}
+
 function petFramesFor(charId) {
   try {
     const dir = path.join(RUNTIME_DIR, 'assets', 'pet', String(charId || 'default'))
@@ -190,7 +204,7 @@ function petFramesFor(charId) {
     const walk = []
     for (let i = 0; i < 6; i++) if (has('walk' + i + '.png')) walk.push('/pet-sprite/walk' + i + '.png')
     const actions = {}
-    const actionMap = { wave: ['wave'], stretch: ['stretch'], sleepy: ['sleepy'], happy: ['happy'], look: ['lookL', 'lookR'], pat: ['pat'], rub: ['rub'] }
+    const actionMap = { wave: ['wave'], stretch: ['stretch'], sleepy: ['sleepy'], happy: ['happy'], look: ['lookL', 'lookR'], pat: ['happy'], rub: ['sleepy'] }
     for (const key of Object.keys(actionMap)) {
       const list = actionMap[key].filter((n) => has(n + '.png')).map((n) => '/pet-sprite/' + n + '.png')
       if (list.length) actions[key] = list
@@ -208,7 +222,7 @@ function loadPetCfg() {
   m.buttons = Array.isArray(f && f.buttons) ? f.buttons : (Array.isArray(c.buttons) ? c.buttons : PET_DEFAULT.buttons);
   m.expressions = (f && f.expressions) || c.expressions || PET_DEFAULT.expressions;
   // 动画帧：用户自定义优先，否则按角色实际资源自动生成（没有就退回单图）
-  if (!m.frames) m.frames = petFramesFor(ACTIVE_CHAR);
+  if (!m.frames) m.frames = petFramesFor(petCharId());
   if (!m.actions && m.frames && m.frames.actions) m.actions = m.frames.actions;
   // 迁移旧版默认按钮（👀）到新的线框眼睛
   if (!(f && Array.isArray(f.buttons)) && Array.isArray(m.buttons) && m.buttons.some((b) => b && ((b.id === 'look' && b.label === '👀') || (b.id === 'chat' && b.label === '💬')))) {
@@ -4095,22 +4109,22 @@ function importMemoryItems(raw) {
       const name = String(url.pathname.split('/').pop() || '').replace(/\.png$/i, '').replace(/[^a-z0-9_-]/gi, '');
       // 旧资源只按 xiaojing/xiaoke 命名；其它角色退回 default-<表情>.png，再退回任意角色的同表情图，避免新角色没有桌宠图
       const petDir = path.join(RUNTIME_DIR, 'assets', 'pet');
-      const charId = String(ACTIVE_CHAR || 'default').replace(/[^a-z0-9_-]/gi, '') || 'default';
-      // 新结构：assets/pet/<角色>/<表情>.png，default/ 兜底；旧结构（<角色>-<表情>.png）继续兼容
-      const candidates = [
-        path.join(petDir, charId, name + '.png'),
-        path.join(petDir, 'default', name + '.png'),
-        path.join(petDir, charId + '-' + name + '.png'),
-        path.join(petDir, 'default-' + name + '.png'),
-      ];
+      const charId = String(petCharId() || 'default').replace(/[^a-z0-9_-]/gi, '') || 'default';
+      const ownDir = path.join(petDir, charId);
+      const ownExists = (() => { try { return fs.statSync(ownDir).isDirectory() } catch { return false } })();
+      // 本角色目录存在时：只在本目录找（不做 default / 其它角色兜底），找不到就 404，
+      // 桌宠会保持上一帧，而不是动作结束回待机时闪成别的角色（如 小克）。
+      const candidates = ownExists
+        ? [path.join(ownDir, name + '.png'), path.join(petDir, charId + '-' + name + '.png')]
+        : [path.join(petDir, 'default', name + '.png'), path.join(petDir, 'default-' + name + '.png')];
       let p = candidates.find((f) => fs.existsSync(f));
-      if (!p) { try { const first = fs.readdirSync(petDir).filter((f) => f.endsWith('-' + name + '.png')).sort()[0]; if (first) p = path.join(petDir, first); } catch {} }
       if (!p) { res.writeHead(404); res.end('not found'); return; }
       res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
       res.end(fs.readFileSync(p));
       return;
     }
 function petAssetStamp(charId) {
+  charId = charId || petCharId();
   try {
     let stamp = 0;
     for (const dir of [path.join(RUNTIME_DIR, 'assets', 'pet', String(charId || 'default')), path.join(RUNTIME_DIR, 'assets', 'pet', 'default')]) {

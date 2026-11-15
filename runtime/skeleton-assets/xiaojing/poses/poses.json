@@ -1,0 +1,86 @@
+{
+ "canvas": [
+  1200,
+  1800
+ ],
+ "baseY": 1700,
+ "poses": {
+  "idle": {
+   "file": "poses/idle.png",
+   "size": [
+    750,
+    1500
+   ],
+   "offset": [
+    225,
+    200
+   ]
+  },
+  "walkA": {
+   "file": "poses/walkA.png",
+   "size": [
+    878,
+    1504
+   ],
+   "offset": [
+    161,
+    196
+   ]
+  },
+  "walkB": {
+   "file": "poses/walkB.png",
+   "size": [
+    845,
+    1539
+   ],
+   "offset": [
+    178,
+    161
+   ]
+  },
+  "wave": {
+   "file": "poses/wave.png",
+   "size": [
+    829,
+    1495
+   ],
+   "offset": [
+    186,
+    205
+   ]
+  },
+  "stretch": {
+   "file": "poses/stretch.png",
+   "size": [
+    878,
+    1485
+   ],
+   "offset": [
+    161,
+    215
+   ]
+  },
+  "sleepy": {
+   "file": "poses/sleepy.png",
+   "size": [
+    796,
+    1490
+   ],
+   "offset": [
+    202,
+    210
+   ]
+  },
+  "happy": {
+   "file": "poses/happy.png",
+   "size": [
+    849,
+    1505
+   ],
+   "offset": [
+    176,
+    195
+   ]
+  }
+ }
+}
