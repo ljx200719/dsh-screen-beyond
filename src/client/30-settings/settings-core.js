@@ -437,6 +437,8 @@ function SettingsRoleTab() {
         h(Field, { label: '模型地址', hint: '可留空' }, h(TextInput, { value: draft.modelUrl, onChange: (v) => patch({ modelUrl: v }), placeholder: '模型文件 URL（可留空）', mono: true })),
         h(Field, { label: '模型缩放' }, h(NumInput, { value: draft.modelScale, min: 0.1, max: 3, step: 0.1, onChange: (v) => patch({ modelScale: v }) })),
         h(Field, { label: '2D 表现', hint: '地图和 2D 舞台上的她用什么画' }, h(SkeletonSwitch, {})),
+        h(Field, { label: '地图动作速度', hint: '她在图上走动/动画的快慢' }, h(MapSpeedChips, {})),
+        h(Field, { label: '导入 2D 姿态素材', hint: '把你自己的角色姿态图导进来（同一尺寸、透明背景）' }, h(PoseImporter, {})),
       ),
     ),
 
@@ -725,6 +727,74 @@ function SettingsBalanceAlertCard() {
       h(Field, { label: '冷却', hint: '避免刷屏' }, h(NumInput, { value: d.cooldownMin, min: 1, max: 10080, step: 30, onChange: (v) => f.patch({ cooldownMin: v }), suffix: '分钟' })),
     ) : (api.error ? null : h(Loading, { text: '读取提醒设置…' })),
     lastAt ? h(Note, {}, '上次提醒：' + fmtDateTime(lastAt)) : null,
+  )
+}
+
+// 地图动作速度：慢 / 标准 / 快（localStorage，地图上的走路动画与位移跟着变）
+function MapSpeedChips() {
+  const [v, setV] = React.useState(typeof mapSpeed === 'function' ? mapSpeed() : 1)
+  const opts = [{ v: 0.6, label: '慢' }, { v: 1, label: '标准' }, { v: 1.6, label: '快' }]
+  return h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+    opts.map((o) => h(Chip, {
+      key: 'spd-' + o.v,
+      active: Math.abs(v - o.v) < 0.01,
+      onClick: () => {
+        setV(o.v)
+        if (typeof setMapSpeed === 'function') setMapSpeed(o.v)
+      },
+    }, o.label)),
+  )
+}
+
+// 导入 2D 姿态素材：顾客自己的角色图，命名 idle/walkA/walkB/wave/stretch/sleepy/happy，
+// 同一尺寸 + 透明背景；调 /api/stage/import-poses 存进当前角色的 skeleton-assets。
+function PoseImporter() {
+  const [busy, setBusy] = React.useState(false)
+  const [msg, setMsg] = React.useState('')
+  const inputRef = React.useRef(null)
+  const onFiles = async (ev) => {
+    const list = Array.from(ev.target.files || [])
+    ev.target.value = ''
+    if (!list.length) return
+    setBusy(true)
+    setMsg('读取图片…')
+    try {
+      const files = await Promise.all(list.map((f) => new Promise((resolve, reject) => {
+        const r = new FileReader()
+        r.onload = () => {
+          const img = new Image()
+          img.onload = () => resolve({ name: f.name, dataUrl: String(r.result), w: img.naturalWidth, h: img.naturalHeight })
+          img.onerror = () => reject(new Error(f.name + ' 不是有效图片'))
+          img.src = String(r.result)
+        }
+        r.onerror = () => reject(new Error('读取 ' + f.name + ' 失败'))
+        r.readAsDataURL(f)
+      })))
+      setMsg('上传中…')
+      const resp = await Api.post('/api/stage/import-poses', { files })
+      const data = (resp && (resp.data || resp.json)) || {}
+      if (resp && resp.ok && data.ok) {
+        setMsg('已导入：' + (data.saved || []).join('、') + '（刷新面板后地图上生效）')
+        toast('姿态素材已导入', 'ok')
+      } else {
+        setMsg((data && data.error) || (resp && resp.error) || '导入失败')
+      }
+    } catch (e) {
+      setMsg(String((e && e.message) || e))
+    }
+    setBusy(false)
+  }
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 5 } },
+    h(Row, { gap: 6 },
+      h(Btn, { size: 'sm', disabled: busy, onClick: () => { if (inputRef.current) inputRef.current.click() } }, busy ? '导入中…' : '选择图片导入'),
+      h('input', {
+        ref: inputRef, type: 'file', multiple: true,
+        accept: 'image/png,image/jpeg,image/webp',
+        style: { display: 'none' }, onChange: onFiles,
+      }),
+    ),
+    h(Note, {}, '文件名用 idle / walkA / walkB / wave / stretch / sleepy / happy（png/jpg/webp），必须全部同一尺寸、透明背景；只导 idle 就只会有待机。导入后刷新面板生效。'),
+    msg ? h('div', { style: { fontSize: 11, color: T.text2, lineHeight: 1.6 } }, msg) : null,
   )
 }
 

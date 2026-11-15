@@ -12,6 +12,19 @@
 // 「2D 表现」开关：localStorage sbc-2d-skeleton = '0' 关闭，回退到立绘。
 
 const SKELETON_SWITCH_KEY = 'sbc-2d-skeleton'
+const MAP_SPEED_KEY = 'sbc-map-speed'
+// 地图上她动的速度：0.6 慢 / 1 标准 / 1.6 快（影响走路动画帧率和地图位移过渡）
+function mapSpeed() {
+  try {
+    const v = Number(localStorage.getItem(MAP_SPEED_KEY))
+    return Number.isFinite(v) && v >= 0.3 && v <= 2.5 ? v : 1
+  } catch (e) { return 1 }
+}
+function setMapSpeed(v) {
+  const n = Math.min(2.5, Math.max(0.3, Number(v) || 1))
+  try { localStorage.setItem(MAP_SPEED_KEY, String(n)) } catch (e) {}
+  try { if (typeof window !== 'undefined') window.dispatchEvent(new Event('sbc-map-speed-changed')) } catch (e) {}
+}
 const SKELETON_POSES = ['idle', 'walkA', 'walkB', 'wave', 'stretch', 'sleepy', 'happy']
 
 let skeletonBaseCache = ''
@@ -64,10 +77,11 @@ function skeletonRig(charId) {
     .catch(() => null)
   return skeletonRigCache[key]
 }
-function skeletonPoseUrl(charId, name) {
-  const key = String(charId || '') + '/' + name
+function skeletonPoseUrl(charId, file) {
+  const rel = String(file || '')
+  const key = String(charId || '') + '/' + rel
   if (!skeletonPoseCache[key]) {
-    skeletonPoseCache[key] = Api.imgUrl('/skeleton-assets/' + encodeURIComponent(String(charId)) + '/poses/' + name + '.png')
+    skeletonPoseCache[key] = Api.imgUrl('/skeleton-assets/' + encodeURIComponent(String(charId)) + '/' + rel)
       .catch(() => '')
   }
   return skeletonPoseCache[key]
@@ -101,7 +115,10 @@ function PoseAvatar(props) {
     let alive = true
     const out = {}
     const names = Object.keys(rig.poses || {}).filter((n) => SKELETON_POSES.indexOf(n) >= 0)
-    Promise.all(names.map((n) => skeletonPoseUrl(charId, n).then((u) => { if (u) out[n] = u }).catch(() => {})))
+    Promise.all(names.map((n) => {
+      const f = (rig.poses[n] && rig.poses[n].file) || ('poses/' + n + '.png')
+      return skeletonPoseUrl(charId, f).then((u) => { if (u) out[n] = u }).catch(() => {})
+    }))
       .then(() => { if (alive) setUrls(Object.assign({}, out)) })
     return () => { alive = false }
   }, [charId, rig])
@@ -139,7 +156,7 @@ function PoseAvatar(props) {
         el.style.transformOrigin = '50% 92%'
         const moving = a.movingUntil && Date.now() < a.movingUntil
         if (moving && urls['walkA'] && urls['walkB']) {
-          a.phase += dt
+          a.phase += dt * mapSpeed()
           const pose = Math.floor(a.phase * 6) % 2 === 0 ? 'walkA' : 'walkB'
           if (el.dataset.pose !== pose) {
             el.dataset.pose = pose
@@ -177,7 +194,48 @@ function PoseAvatar(props) {
           ref: imgRef, src: idleUrl, alt: p.name || '', draggable: false,
           style: { width: '100%', height: '100%', display: 'block', objectFit: 'contain', willChange: 'transform' },
         })
-      : h(Avatar, { path: p.path, name: p.name, size: p.fallbackSize || 30 }),
+      : h(PoseFallback, { path: p.path, name: p.name, size: p.fallbackSize || 30, moving: p.moving }),
+  )
+}
+
+// 没有姿态素材的角色（例如刚导入、只有一张头像）：用单图做呼吸/走动微动，避免完全静止
+function PoseFallback(props) {
+  const p = props || {}
+  const ref = React.useRef(null)
+  const anim = React.useRef({ t: Math.random() * 6, movingUntil: 0 })
+  React.useEffect(() => {
+    const a = anim.current
+    if (typeof p.moving === 'boolean') a.movingUntil = p.moving ? Date.now() + 600000 : 0
+  }, [p.moving])
+  React.useEffect(() => {
+    const rafFn = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : null
+    if (!rafFn) return
+    const cancelFn = typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : function () {}
+    let raf = 0, last = 0
+    const frame = (now) => {
+      if (!last) last = now
+      const dt = Math.min(0.08, (now - last) / 1000)
+      last = now
+      const a = anim.current
+      const el = ref.current
+      if (el) {
+        if (a.movingUntil && Date.now() < a.movingUntil) {
+          a.t += dt * 7.6 * mapSpeed()
+          const b = Math.sin(a.t * Math.PI * 2)
+          el.style.transform = 'translateY(' + (-1.6 * Math.abs(b)).toFixed(2) + 'px) rotate(' + (1.2 * b).toFixed(2) + 'deg)'
+        } else {
+          a.t += dt
+          const b = Math.sin(a.t * 1.6)
+          el.style.transform = 'translateY(' + (-0.4 * b).toFixed(2) + 'px) scaleY(' + (1 + 0.004 * b).toFixed(4) + ')'
+        }
+      }
+      raf = rafFn(frame)
+    }
+    raf = rafFn(frame)
+    return () => cancelFn(raf)
+  }, [p.moving])
+  return h('span', { ref: ref, style: { display: 'inline-block', transformOrigin: '50% 92%', willChange: 'transform' } },
+    h(Avatar, { path: p.path, name: p.name, size: p.size || 30 }),
   )
 }
 

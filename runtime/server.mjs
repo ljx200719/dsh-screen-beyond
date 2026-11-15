@@ -4105,6 +4105,65 @@ function importMemoryItems(raw) {
       json(res, 200, r);
       return;
     }
+    // ── 2D 姿态素材：查询 / 用户自助导入（顾客可以把自己做的姿态图导进来）──────────
+    if (req.method === 'GET' && url.pathname === '/api/stage/poses') {
+      try {
+        const root = path.join(RUNTIME_DIR, 'skeleton-assets');
+        const chars = [];
+        let ids = [];
+        try { ids = fs.readdirSync(root).filter((n) => { try { return fs.statSync(path.join(root, n)).isDirectory() } catch { return false } }) } catch {}
+        for (const id of ids) {
+          const pj = path.join(root, id, 'poses', 'poses.json');
+          if (!fs.existsSync(pj)) continue;
+          let poses = [];
+          try { poses = Object.keys((readJson(pj, {}) || {}).poses || {}) } catch {}
+          chars.push({ id, poses, current: id === ACTIVE_CHAR });
+        }
+        json(res, 200, { ok: true, current: ACTIVE_CHAR, characters: chars });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message || e) }); }
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/stage/import-poses') {
+      try {
+        const b = req._json || {};
+        const KNOWN = ['idle', 'walkA', 'walkB', 'wave', 'stretch', 'sleepy', 'happy'];
+        const charId = safeCharId(b.charId || ACTIVE_CHAR || '');
+        if (!charId) { json(res, 400, { ok: false, error: '角色 id 不合法' }); return; }
+        const files = Array.isArray(b.files) ? b.files : [];
+        if (!files.length) { json(res, 400, { ok: false, error: '没有收到图片' }); return; }
+        const dir = path.join(RUNTIME_DIR, 'skeleton-assets', charId, 'poses');
+        fs.mkdirSync(dir, { recursive: true });
+        const MIME_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+        let cw = 0, ch = 0;
+        const saved = [];
+        const poseMeta = {};
+        const stamp = Date.now();
+        for (const f of files) {
+          const name = String(f.name || '').replace(/\.(png|jpe?g|webp)$/i, '');
+          if (KNOWN.indexOf(name) < 0) continue;
+          const m = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(String(f.dataUrl || ''));
+          if (!m) { json(res, 400, { ok: false, error: '「' + name + '」不是合法的图片 dataURL' }); return; }
+          const ext = MIME_EXT[m[1].toLowerCase()];
+          if (!ext) { json(res, 400, { ok: false, error: '只支持 png / jpg / webp' }); return; }
+          const buf = Buffer.from(m[2], 'base64');
+          if (buf.length > 8 * 1024 * 1024) { json(res, 400, { ok: false, error: '「' + name + '」超过 8MB' }); return; }
+          const w = Math.round(Number(f.w) || 0), h = Math.round(Number(f.h) || 0);
+          if (!(w > 0 && h > 0)) { json(res, 400, { ok: false, error: '「' + name + '」缺少宽高信息（请用面板的导入按钮，别手写接口）' }); return; }
+          if (!cw) { cw = w; ch = h } else if (w !== cw || h !== ch) { json(res, 400, { ok: false, error: '所有姿态图必须是同一尺寸（当前 ' + cw + 'x' + ch + '，「' + name + '」是 ' + w + 'x' + h + '）' }); return; }
+          const fn = name + '.' + ext;
+          fs.writeFileSync(path.join(dir, fn), buf);
+          saved.push(name);
+          poseMeta[name] = { file: 'poses/' + fn + '?v=' + stamp, size: [w, h], offset: [0, 0] };
+        }
+        if (!saved.length) { json(res, 400, { ok: false, error: '文件名要叫 idle / walkA / walkB / wave / stretch / sleepy / happy（png/jpg/webp）' }); return; }
+        const old = readJson(path.join(dir, 'poses.json'), {}) || {};
+        const merged = Object.assign({}, (old && old.poses) || {}, poseMeta);
+        const pj = { canvas: [cw, ch], baseY: Math.round(ch * 0.944), poses: merged };
+        fs.writeFileSync(path.join(dir, 'poses.json'), JSON.stringify(pj, null, 1));
+        json(res, 200, { ok: true, charId, saved, poses: Object.keys(merged) });
+      } catch (e) { json(res, 500, { ok: false, error: String(e.message || e) }); }
+      return;
+    }
     if (req.method === 'GET' && url.pathname.startsWith('/pet-sprite/')) {
       const name = String(url.pathname.split('/').pop() || '').replace(/\.png$/i, '').replace(/[^a-z0-9_-]/gi, '');
       // 旧资源只按 xiaojing/xiaoke 命名；其它角色退回 default-<表情>.png，再退回任意角色的同表情图，避免新角色没有桌宠图

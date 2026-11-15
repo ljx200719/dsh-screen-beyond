@@ -188,7 +188,7 @@ function MapCanvas(props) {
         zIndex: 5,
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
         pointerEvents: 'none',
-        transition: 'left 1s linear, top 1s linear',
+        transition: 'left ' + (1 / Math.max(0.3, (typeof mapSpeed === 'function' ? mapSpeed() : 1))).toFixed(2) + 's linear, top ' + (1 / Math.max(0.3, (typeof mapSpeed === 'function' ? mapSpeed() : 1))).toFixed(2) + 's linear',
       },
     },
       h('div', {

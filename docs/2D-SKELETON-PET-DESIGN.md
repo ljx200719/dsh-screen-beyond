@@ -179,3 +179,26 @@ root(位置/朝向)
 - **地图走路与寻路**：现有 walkable 区域是点集，骨骼角色需要「路径跟随 + 步频同步」，P1 实现。
 - 所有改动前先备份（已备份）；回退只需恢复 backup 或 git 回滚。
 
+
+
+## 素材导入接口（顾客自定义角色）
+
+### 面板入口
+设置 → 角色 → 「2D 表现」下面：
+- **地图动作速度**：慢 / 标准 / 快（`localStorage: sbc-map-speed`，影响走路动画帧率与地图位移过渡）。
+- **导入 2D 姿态素材**：选多张图直接导入，导入到**当前角色**；刷新面板后生效。
+
+### REST
+- `GET /api/stage/poses` → `{ ok, current, characters:[{ id, poses, current }] }`
+- `POST /api/stage/import-poses`
+  body：`{ charId?: string, files: [{ name, dataUrl, w, h }] }`
+  - `name` 必须是 `idle` / `walkA` / `walkB` / `wave` / `stretch` / `sleepy` / `happy` 之一（可带扩展名）
+  - 所有图片必须**同一尺寸**、透明背景；格式 png/jpg/webp，单张 ≤ 8MB
+  - 写入 `runtime/skeleton-assets/<charId>/poses/<name>.<ext>`，并生成 `poses.json`（带 `?v=时间戳` 防缓存）
+  - 返回 `{ ok, charId, saved:[...], poses:[...] }`
+
+### 素材要求（自己画/自己生成时）
+- 全部同一画布尺寸，角色**脚底对齐**在同一水平线、水平居中；
+- 透明背景（别带地面阴影），发丝边缘不要白边；
+- 最少给 `idle`；想要走路动就再给 `walkA` / `walkB`。
+- 没有姿态素材的角色，地图上会用单图做呼吸/走动微动（`PoseFallback`），不会完全静止。
