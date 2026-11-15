@@ -191,6 +191,22 @@ function MapCanvas(props) {
         transition: 'left 1s linear, top 1s linear',
       },
     },
+      h('div', {
+        // 脚下投影：给透明底的小人一个「落地」的底，看着不悬空
+        style: {
+          position: 'absolute',
+          bottom: c.isActive ? 15 : 13,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: c.isActive ? 58 : 42,
+          height: c.isActive ? 15 : 11,
+          borderRadius: '50%',
+          background: 'radial-gradient(ellipse at center, rgba(0,0,0,.42), rgba(0,0,0,0) 72%)',
+          filter: 'blur(.4px)',
+          pointerEvents: 'none',
+          zIndex: 0,
+        },
+      }),
       h(SkeletonAvatar, {
         path: c.avatar, name: c.name, x: c.x, y: c.y,
         moving: c.state ? c.state !== 'stationary' : undefined,
@@ -212,7 +228,12 @@ function MapCanvas(props) {
     ref: fit.ref,
     style: {
       position: 'relative', flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden',
-      background: T.bg2, borderRadius: 12, border: '1px solid ' + T.border,
+      // 编辑模式铺一层网格底板（透明底/没底图时不再显得悬空）
+      background: editMode
+        ? ('linear-gradient(rgba(127,127,127,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(127,127,127,.12) 1px, transparent 1px), ' + T.bg2)
+        : T.bg2,
+      backgroundSize: editMode ? '28px 28px, 28px 28px, auto' : undefined,
+      borderRadius: 12, border: '1px solid ' + (editMode ? T.brand : T.border),
     },
   },
     h('div', { style: viewStyle },

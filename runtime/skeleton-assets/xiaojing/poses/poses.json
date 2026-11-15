@@ -8,11 +8,11 @@
   "idle": {
    "file": "poses/idle.png",
    "size": [
-    375,
+    374,
     750
    ],
    "offset": [
-    112,
+    113,
     100
    ]
   },
